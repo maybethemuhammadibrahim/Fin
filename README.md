@@ -27,6 +27,8 @@ Accounting software cannot catch this, because accounting software has never rea
 
 The load-bearing principle: **the LLM only reads documents and turns prose into structured data.** It never does arithmetic, never decides whether something is an anomaly, and never produces a number the user sees. All money math is deterministic Python. That is what makes the results defensible.
 
+And the model doing that reading is **ours** — an open-source model we tune and host on free Colab/Kaggle GPU. No frontier model API is called anywhere in this project (ADR-011).
+
 ---
 
 ## Quickstart
@@ -34,7 +36,8 @@ The load-bearing principle: **the LLM only reads documents and turns prose into 
 ### 1. Prerequisites
 
 - **Python 3.11 or 3.12.** Some dependencies (`pymupdf`, `psycopg2-binary`) may not have wheels for the newest releases yet; Streamlit Community Cloud runs 3.11–3.12, so match it.
-- A free account at each of: [Supabase](https://supabase.com), [Google AI Studio](https://aistudio.google.com/apikey), [Groq](https://console.groq.com/keys), [HuggingFace](https://huggingface.co/settings/tokens), [Streamlit Community Cloud](https://share.streamlit.io). About 20 minutes total. See [Getting the keys](#getting-the-keys).
+- A free account at each of: [Supabase](https://supabase.com), [Google Colab](https://colab.research.google.com), [Kaggle](https://www.kaggle.com), [HuggingFace](https://huggingface.co/settings/tokens), [Streamlit Community Cloud](https://share.streamlit.io). About 20 minutes total. See [Getting the keys](#getting-the-keys).
+- **From Phase 5 onward, a running Colab or Kaggle notebook serving the model.** There is no vendor API behind this app — see [Where the intelligence runs](#where-the-intelligence-runs).
 
 ### 2. Install
 
@@ -52,9 +55,10 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-```
+```pip install -r requirements.txt
 
-Open `.env` and fill it in. **The only thing you strictly need to start is the API key for your chosen `LLM_PROVIDER`** — everything else has a working default or is needed in a later phase.
+
+Open `.env` and fill it in. **The only things you strictly need to start are the tunnel URL for your chosen `LLM_PROVIDER` and `LLM_API_KEY`** — everything else has a working default or is needed in a later phase. Until Phase 5 stands the notebook up, nothing calls the endpoint, so placeholder values are fine for now.
 
 Leave `DATABASE_URL` blank (or as the unedited placeholder) and FinSight falls back to `sqlite:///data/finsight.db`, which is enough for offline work.
 
@@ -74,23 +78,25 @@ All of these live in `.env` locally and in **Streamlit Secrets** when deployed. 
 
 | Variable | Required | Default | What it's for |
 |---|---|---|---|
-| `LLM_PROVIDER` | ✅ | `gemini` | `gemini` \| `groq` \| `openrouter` \| `finetuned_tunnel`. The one variable that swaps models (ADR-002). |
-| `LLM_MODEL` | — | per provider | Model name. Defaults sensibly for whichever provider is active. |
-| `GEMINI_API_KEY` | ✅ if provider is `gemini` | — | [Google AI Studio](https://aistudio.google.com/apikey). The primary baseline. |
-| `GROQ_API_KEY` | ✅ if provider is `groq` | — | [Groq](https://console.groq.com/keys). The backup — configure it too, so a dead key on demo day is a one-line fix. |
-| `OPENROUTER_API_KEY` | ✅ if provider is `openrouter` | — | [OpenRouter](https://openrouter.ai/keys). |
-| `FINETUNED_TUNNEL_URL` | ✅ if provider is `finetuned_tunnel` | — | Filled in Phase 10, when Colab serves our own model over a tunnel. |
+| `LLM_PROVIDER` | ✅ | `colab_tunnel` | `colab_tunnel` \| `kaggle_tunnel` \| `custom`. The one variable that swaps endpoint (ADR-002). |
+| `COLAB_TUNNEL_URL` | ✅ if provider is `colab_tunnel` | — | The `https://….trycloudflare.com` URL your notebook printed. **Changes every restart.** |
+| `KAGGLE_TUNNEL_URL` | ✅ if provider is `kaggle_tunnel` | — | Same, for the backup session. |
+| `CUSTOM_BASE_URL` | ✅ if provider is `custom` | — | Any other OpenAI-compatible endpoint. |
+| `LLM_API_KEY` | ✅ | — | Shared secret the notebook checks. A quick tunnel is a **public URL** — without this, anyone who finds it gets free inference on your GPU quota. |
+| `LLM_MODEL` | ✅ | `Qwen/Qwen2.5-3B-Instruct` | The served model name. Becomes `finsight-qwen2.5-3b` in Phase 10 — that one value is the whole base-vs-tuned comparison. |
+| `LLM_TIMEOUT_SECONDS` | — | `120` | A cold start loads 3B of weights before answering. |
 | `DATABASE_URL` | — | SQLite fallback | Supabase Postgres URI. Blank → `sqlite:///data/finsight.db`. |
 | `SUPABASE_URL` | Phase 1 | — | Supabase project URL, for file storage. |
 | `SUPABASE_KEY` | Phase 1 | — | Supabase anon key. |
-| `HF_TOKEN` | Phase 3 | — | HuggingFace read token, for downloading the contract and invoice corpora. |
-| `LLM_CACHE_ENABLED` | — | `true` | Cache LLM responses on disk by `sha256(prompt + model)`. Keep this on — you will re-run the same contracts fifty times while debugging, and only the first costs quota. |
+| `HF_TOKEN` | Phase 3 | — | HuggingFace read token — the contract/invoice corpora, and the model weights in Phase 5. |
+| `LLM_CACHE_ENABLED` | — | `true` | Cache responses on disk by `sha256(prompt + model)`. Keep this on: it is what lets a demo survive the tunnel dying. |
 | `LOG_LEVEL` | — | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
 
-Two conveniences worth knowing:
+Three conveniences worth knowing:
 
 - **Unedited placeholders count as unset.** If you copy `.env.example` and leave `DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[REF]...` as-is, FinSight treats it as blank and uses SQLite rather than failing at the first connection with a confusing error.
-- **Switching provider needs no code change.** Set `LLM_PROVIDER=groq`, make sure `GROQ_API_KEY` is set, restart. That is the whole procedure — including switching to the model we fine-tune ourselves in Phase 10.
+- **Paste the tunnel URL in whatever shape the notebook gives you.** `https://x.trycloudflare.com`, `.../v1`, or `.../v1/chat/completions` all normalise to the same thing.
+- **Switching endpoint needs no code change.** Set `LLM_PROVIDER=kaggle_tunnel`, make sure `KAGGLE_TUNNEL_URL` is set, restart. That is the whole procedure — and swapping base weights for our tuned adapter in Phase 10 is likewise just `LLM_MODEL`.
 
 ### Getting the keys
 
@@ -98,10 +104,41 @@ Two conveniences worth knowing:
 |---|---|---|
 | **Supabase** → new project | Settings → Database → Connection string (URI) | `DATABASE_URL` |
 | | Settings → API → Project URL and anon key | `SUPABASE_URL`, `SUPABASE_KEY` |
-| **Google AI Studio** | Create API key | `GEMINI_API_KEY` |
-| **Groq** | Create API key | `GROQ_API_KEY` |
+| **Google Colab** | Sign in. From Phase 5 it runs `training/serve_model.py` and prints a tunnel URL | `COLAB_TUNNEL_URL` |
+| **Kaggle** | Sign in, verify the account for GPU. The backup session | `KAGGLE_TUNNEL_URL` |
 | **HuggingFace** | Settings → Access Tokens → read token | `HF_TOKEN` |
 | **Streamlit Community Cloud** | Sign in with GitHub | Deployment only, no key |
+
+`LLM_API_KEY` is not issued by anyone — invent a long random string, put it in `.env`, and have the serving notebook reject requests without it.
+
+> Earlier drafts of this project used Google AI Studio and Groq API keys. **They are not used and not needed** — see [ADR-011](docs/decisions.md).
+
+## Where the intelligence runs
+
+**No frontier model API is called anywhere in this project** (ADR-011). Every model call — contract extraction, CSV column mapping, agent verification, the decision engine — goes to an open-source model we host ourselves:
+
+```
+Colab / Kaggle notebook (free T4)
+  Qwen 2.5 3B Instruct              base weights, live from Phase 5
+  + our QLoRA adapter               from Phase 10
+  -> FastAPI /v1/chat/completions
+  -> Cloudflare tunnel -> public https URL
+                                    |
+FinSight (Streamlit Cloud)  --------+  LLM_PROVIDER + <provider>_TUNNEL_URL
+```
+
+Phase 5 stands the notebook up on **base** weights so the rest of the build has something to call; Phase 10 trains the adapter and serves it under a second model name; Phase 11 measures base against tuned on identical weights (ADR-012).
+
+**What this costs you, stated plainly.** Availability is now a notebook session rather than a vendor's uptime:
+
+| Reality | What you do about it |
+|---|---|
+| The tunnel URL changes on **every** notebook restart | Update `.env`, or Streamlit Secrets — no redeploy needed |
+| Sessions expire and disconnect when idle | Keep the Kaggle session configured as a backup; start the notebook *before* a demo |
+| Cold start loads 3B of weights — minutes | Generous timeout, one retry, and send a warm-up request yourself |
+| A dead session takes the whole app down | Pre-warm `data/cache/` with every demo document, and record a video of the live path |
+
+That last row is the largest operational risk in the project. It was accepted knowingly, in exchange for a system whose weights, tuning and serving are entirely ours to explain — and for results that are reproducible, because nobody can change the model out from under us between the evaluation run and the demo.
 
 ---
 
@@ -147,7 +184,7 @@ core/
   db/           SQLAlchemy models, session factory, read helpers.
   storage/      Supabase Storage.
 data_sourcing/  One-time sourcing of real contracts (CUAD, SEC EDGAR) + scenario building.
-training/       QLoRA fine-tuning pipeline and the evaluation harness.
+training/       serve_model.py (live from Phase 5), QLoRA fine-tuning, evaluation harness.
 scripts/        Operational entry points.
 tests/          pytest. The engine layer is what must be right.
 docs/           Planning + the memory system. Read these first.
@@ -168,16 +205,20 @@ Secrets go in **Settings → Secrets** as TOML — never in the repo:
 DATABASE_URL = "postgresql://postgres:...@db....supabase.co:5432/postgres"
 SUPABASE_URL = "https://....supabase.co"
 SUPABASE_KEY = "..."
-LLM_PROVIDER = "gemini"
-LLM_MODEL = "gemini-2.5-flash"
-GEMINI_API_KEY = "..."
-GROQ_API_KEY = "..."
+LLM_PROVIDER = "colab_tunnel"
+COLAB_TUNNEL_URL = "https://....trycloudflare.com"
+KAGGLE_TUNNEL_URL = "https://....trycloudflare.com"
+LLM_API_KEY = "..."
+LLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+LLM_TIMEOUT_SECONDS = "120"
 HF_TOKEN = "..."
 LLM_CACHE_ENABLED = "true"
 LOG_LEVEL = "INFO"
 ```
 
 `core/config.py` reads `.env` locally and `st.secrets` when deployed, with no code change between the two.
+
+> **You will edit `COLAB_TUNNEL_URL` in Streamlit Secrets on the morning of every demo**, because it changes when the notebook restarts. Confirm early that this takes effect without a redeploy — that check is part of Phase 11's definition of done.
 
 ---
 
@@ -209,8 +250,9 @@ At the end of every phase, five minutes: append to `docs/progress.md`, flip stat
 3. The UI reads only the database, never a hardcoded dict.
 4. Every anomaly traces to a clause reference. No orphans.
 5. Engine functions are pure: no DB, no network, no model.
-6. No local GPU in the runtime path.
-7. No secrets in git.
+6. No local GPU in the runtime path — the GPU is a free Colab/Kaggle T4 reached over HTTP.
+7. **No frontier model API calls, ever.** Adding a vendor SDK to `requirements.txt` is a violation, not a shortcut.
+8. No secrets in git.
 
 ---
 
@@ -224,6 +266,9 @@ At the end of every phase, five minutes: append to `docs/progress.md`, flip stat
 | Sidebar shows three blank pages | Expected until Phase 2 — `app/pages/*.py` are stubs. |
 | `pytest` exits 5, "no tests ran" | Expected until Phase 6 — the test files are stubs. |
 | `pip install` fails on `pymupdf` or `psycopg2-binary` | You are probably on a Python version with no wheels yet. Use 3.11 or 3.12. |
+| `COLAB_TUNNEL_URL is not set` | Expected before Phase 5 — nothing serves the model yet. Put any `https://` placeholder in to get past it. |
+| The app can't reach the model *(Phase 5+)* | The notebook restarted and the tunnel URL changed. Copy the new one into `.env` / Streamlit Secrets. |
+| First request after starting the notebook times out | Cold start: 3B of weights are loading. Raise `LLM_TIMEOUT_SECONDS`, send one warm-up request, then use the app. |
 
 ---
 

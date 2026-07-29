@@ -113,19 +113,20 @@ class Settings:                         # frozen dataclass
     database_url: str | None            # None -> SQLite fallback
     supabase_url: str | None
     supabase_key: str | None
-    llm_provider: str                   # gemini | groq | openrouter | finetuned_tunnel
-    llm_model: str
-    gemini_api_key: str | None
-    groq_api_key: str | None
-    openrouter_api_key: str | None
-    finetuned_tunnel_url: str | None
+    llm_provider: str                   # colab_tunnel | kaggle_tunnel | custom
+    llm_model: str                      # base weights now, tuned name from Phase 10
+    colab_tunnel_url: str | None
+    kaggle_tunnel_url: str | None
+    custom_base_url: str | None
+    llm_api_key: str | None             # shared secret; the tunnel is PUBLIC
+    llm_timeout_seconds: int            # default 120 — cold starts are slow
     hf_token: str | None
     llm_cache_enabled: bool
     log_level: str
 
     def validate(self) -> None:
         """Raises ConfigError naming EVERY missing required variable at once.
-           Only the ACTIVE provider's credential is required."""
+           Only the ACTIVE endpoint's URL is required."""
 
     @property
     def resolved_database_url(self) -> str:
@@ -135,9 +136,18 @@ class Settings:                         # frozen dataclass
     def using_sqlite_fallback(self) -> bool: ...
 
     @property
-    def active_credential(self) -> str | None:
-        """The API key (or tunnel URL) for llm_provider. Phase 5's llm_client
-           reads this rather than picking a variable itself."""
+    def api_base(self) -> str | None:
+        """Normalised base URL for the active endpoint: no trailing slash, no
+           /v1 suffix. llm_client appends /v1/chat/completions itself.
+           Tolerates the shapes people actually paste after a restart."""
+
+    @property
+    def active_base_url(self) -> str | None:
+        """The raw value, before normalisation."""
+
+    @property
+    def active_endpoint_name(self) -> str:
+        """Which env var holds it — for error messages."""
 
     def checks(self) -> list[Setting]:
         """Every variable with .status ✅/❌/⚪ and .display (masked if secret).
@@ -145,6 +155,8 @@ class Settings:                         # frozen dataclass
 ```
 
 **Contract notes.** `validate()` is the only thing that raises; every other member is safe to read. It reports *all* problems at once, not the first. A missing optional variable is never an error — `DATABASE_URL` unset is a legitimate offline mode, not a failure.
+
+> **Amended 2026-07-29 by ADR-011.** The provider fields used to be `gemini_api_key` / `groq_api_key` / `openrouter_api_key` / `finetuned_tunnel_url`. **No frontier model API is called anywhere in this project.** The endpoints are now our own Colab/Kaggle notebook sessions, and their URLs change on every restart — so `api_base` must be read at call time, never captured at import.
 
 ---
 
@@ -228,12 +240,30 @@ def ocr_page(image_bytes: bytes) -> str: ...
 ## Phase 5 — LLM extraction
 
 ```python
+# training/serve_model.py   (runs IN Colab/Kaggle, not in the repo runtime) [B] ⬜
+#   Stood up FIRST in Phase 5 with BASE Qwen 2.5 3B Instruct (ADR-012).
+#   FastAPI + Cloudflare tunnel exposing OpenAI-compatible
+#   /v1/chat/completions, bearer-authed against LLM_API_KEY.
+#   Phase 10 loads the QLoRA adapter and serves it under a second model name;
+#   llm_client.py needs zero changes for either.
+
 # core/ai/llm_client.py                                        [B]  ⬜
 def complete(prompt: str, system: str = "", **kw) -> str: ...
 def complete_json(prompt: str, schema: type[BaseModel],
                   system: str = "", max_repairs: int = 1) -> BaseModel | None:
     """JSON mode -> Pydantic validate -> one repair retry -> None on failure.
-       Provider chosen by LLM_PROVIDER env var. NEVER raises to the caller."""
+       Endpoint chosen by LLM_PROVIDER; it is always OUR self-hosted model
+       (ADR-011). NEVER raises to the caller.
+
+       Self-hosting obligations, all three required:
+       - read settings.api_base at CALL time (the tunnel URL rotates)
+       - settings.llm_timeout_seconds, plus ONE retry for cold starts
+       - return None on an unreachable endpoint, so the UI can say
+         'model endpoint is down' instead of rendering a blank result"""
+
+def health() -> bool:
+    """Is the endpoint answering? Used by the UI to distinguish 'no anomalies'
+       from 'the notebook died'."""
 
 # core/ai/contract_extractor.py                                [A]  ⬜
 def extract_rules(doc: ExtractedDoc) -> ContractRules | None: ...
@@ -325,12 +355,13 @@ def build_pairs(contract_dir: str, out: str) -> tuple[int,int,int]:
     """Returns (train, val, test) counts. Writes .jsonl."""
 
 # training/evaluate.py                                         [A]  ⬜
-def evaluate(provider: str, eval_set: str) -> EvalReport:
-    """Same harness for baseline and fine-tuned. One arg apart."""
+def evaluate(model_name: str, eval_set: str) -> EvalReport:
+    """Same harness for base and tuned. One arg apart — and since ADR-012 that
+       arg is the served MODEL NAME, not a vendor: identical weights, adapter
+       on or off, so any delta is attributable to our training data."""
 
-# training/serve_finetuned.py  (runs IN Colab, not in the repo runtime)  [B]  ⬜
-#   FastAPI + Cloudflare tunnel, exposes an OpenAI-compatible /v1/chat/completions
-#   so llm_client.py needs zero changes to point at it.
+# training/serve_model.py — see Phase 5 above. It has been serving base
+# weights since then; Phase 10 only teaches it to load an adapter.
 ```
 
 ---

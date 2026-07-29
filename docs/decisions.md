@@ -23,7 +23,7 @@ ADR-001 through ADR-010 were agreed at Phase 0, before any code, and are extract
 
 ## ADR-002 — One swappable LLM client behind a single environment variable
 
-**Status:** Accepted (Phase 0)
+**Status:** Accepted (Phase 0) · **Amended by [ADR-011](#adr-011--self-hosted-open-source-inference-only-no-frontier-api-calls)** — the principle stands, but the provider list is now our own endpoints, not vendor APIs.
 
 **Context.** We use a hosted baseline now and a fine-tuned model in Phase 10, and Phase 11's headline claim is a measured comparison between them. If the swap touches code, the comparison is not one-variable and the result is contestable.
 
@@ -107,7 +107,7 @@ ADR-001 through ADR-010 were agreed at Phase 0, before any code, and are extract
 
 ## ADR-009 — Fine-tuning is a measured comparison, not a dependency
 
-**Status:** Accepted (Phase 0)
+**Status:** ~~Accepted (Phase 0)~~ · **Superseded by [ADR-012](#adr-012--the-base-model-is-served-from-phase-5-the-tuned-adapter-replaces-it-at-phase-10)** (2026-07-29). Kept for the record: this was true while a hosted API was the baseline. ADR-011 removed that baseline, so self-hosted inference became a hard dependency and the comparison became base-vs-tuned.
 
 **Context.** Fine-tuning is the capstone's differentiator, and it is also the single most likely thing to fail on free compute. Anything downstream of it inherits that risk.
 
@@ -132,3 +132,50 @@ ADR-001 through ADR-010 were agreed at Phase 0, before any code, and are extract
 <!-- ================================================================= -->
 <!-- APPEND NEW ADRs BELOW. NEVER EDIT ONE ABOVE — SUPERSEDE IT.       -->
 <!-- ================================================================= -->
+
+## ADR-011 — Self-hosted open-source inference only; no frontier API calls
+
+**Status:** Accepted (2026-07-29, between Phase 0 and Phase 1)
+**Amends:** ADR-001, ADR-002, ADR-004 · **Forces:** ADR-012 (which supersedes ADR-009)
+
+**Context.** Phase 0 shipped with Gemini as the baseline and Groq/OpenRouter as backups. Three problems with that, and the first is the one that matters:
+
+1. **The capstone claim is weaker.** "We called a frontier API" is a systems-integration result. "We tuned and hosted the model that reads the contracts" is an ML result. The whole differentiator of this project is the second one.
+2. **No reproducibility.** A hosted model is a moving target: the vendor can change the weights behind a model name between our evaluation run and our demo, and we cannot pin a revision or explain a number that shifted.
+3. **We do not control the quota.** Free-tier limits change without notice, and the failure lands on demo day.
+
+**Decision.** Every model call in the runtime path goes to an **open-source model we host ourselves** on free Colab/Kaggle GPU, exposed as an OpenAI-compatible `/v1/chat/completions` endpoint over a public tunnel. No Gemini, Groq, or OpenRouter anywhere — not for contract extraction, not for CSV column mapping, not for OCR, not for the decision engine.
+
+Base model: `Qwen 2.5 3B Instruct`, the model Phase 10 was already going to fine-tune.
+
+**Consequences.**
+
+*What we gain.* The result is reproducible — we pin the base weights and the adapter revision, and a number computed in October still computes in December. There is no per-request quota, so batch experiments and repeated eval runs are free. And ADR-004 gets *stronger*: because we control the forward pass on the server side, the serving notebook can constrain generation with a grammar (Outlines/`xgrammar`) and report a genuine valid-JSON rate — something a hosted API could never give us. The client-side repair-retry stays as the safety net.
+
+*What it costs, and this is the real one.* Availability moves from a vendor's uptime to **our notebook session**. Free Colab/Kaggle sessions expire, disconnect when idle, and hand out a **new tunnel URL every time they restart**. Cold start is minutes, not milliseconds — the base weights have to load before the first request. Concretely this means:
+
+- The endpoint URL must be reconfigurable **without a redeploy** (env var / Streamlit secret), because it changes daily.
+- Two sessions stay configured — one Colab, one Kaggle — so a dead session is a one-line change, exactly as two providers used to be.
+- `llm_client` needs a generous timeout and one retry for cold starts, and the UI must say "the model endpoint is unreachable" rather than showing a blank result.
+- **The disk cache stops being an optimisation and becomes demo insurance.** Everything shown on demo day must be pre-warmed into `data/cache/`, so the demo survives the tunnel dying mid-sentence.
+- Record a screen capture of the live path in advance. This is the single largest operational risk in the project and it was accepted knowingly.
+
+*Elsewhere.* The Gemini-vision OCR option is gone; Surya on Colab (Path B) becomes the only OCR fallback, and it stays an offline batch step rather than a live path — which keeps OCR off the critical path, as it always was. A 3B model is meaningfully weaker at zero-shot extraction than a frontier model, so expect Phase 5's extraction quality to start lower; that gap is precisely what Phase 10's fine-tuning exists to close, and Phase 11 now measures it honestly instead of assuming it.
+
+---
+
+## ADR-012 — The base model is served from Phase 5; the tuned adapter replaces it at Phase 10
+
+**Status:** Accepted (2026-07-29) · **Supersedes ADR-009**
+
+**Context.** ADR-009 said fine-tuning was a measured comparison and never a dependency, because the hosted API was always there as the baseline. ADR-011 deleted that baseline. Taken naively, nothing that calls a model could work until Phase 10 — which would push Phases 5 through 9 behind the single riskiest phase in the project and destroy the top-down build order (ADR-008).
+
+**Decision.** Stand the serving notebook up in **Phase 5**, loading the **base** Qwen 2.5 3B Instruct weights, untuned. Phases 5–9 are developed against that endpoint. Phase 10 trains a QLoRA adapter; the notebook loads it and serves it under a different model name. The app changes nothing — one `LLM_MODEL` value.
+
+Phase 11's comparison therefore becomes **base vs tuned**, not hosted-vs-tuned.
+
+**Consequences.** The build order survives intact, and serving infrastructure — tunnels, cold starts, session expiry — gets discovered in Phase 5 rather than in the final fortnight. That deliberately breaks the "riskiest work last" heuristic, and it is the right call here: everything downstream now depends on serving, so it must be proven early.
+
+The comparison also gets cleaner than it was. Same base weights, adapter on or off, one variable — so any delta is attributable to our training data and nothing else. Under ADR-009 we would have been comparing a 3B model against a frontier model, which measures model scale as much as it measures our work.
+
+The product's dependency on fine-tuning is narrower than it looks: if training fails outright, the base-weights endpoint still runs the entire application. We would lose the capstone claim, not the demo. What we cannot lose is self-hosting itself — that is now load-bearing.

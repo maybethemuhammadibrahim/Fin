@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st  # noqa: E402
 
-from core.config import ConfigError, PROVIDER_CREDENTIAL, settings  # noqa: E402
+from core.config import ConfigError, PROVIDER_ENDPOINT, settings  # noqa: E402
 
 st.set_page_config(page_title="FinSight — Config", page_icon="💸", layout="wide")
 
@@ -39,8 +39,11 @@ except ConfigError as exc:
 
 left, mid, right = st.columns(3)
 left.metric("Config source", settings.source)
-mid.metric("LLM provider", settings.llm_provider)
+mid.metric("Inference endpoint", settings.llm_provider)
 right.metric("Model", settings.llm_model or "—")
+
+if settings.api_base:
+    st.caption(f"Model endpoint: `{settings.api_base}/v1/chat/completions`")
 
 # ---- Every variable, one row each ------------------------------------------
 
@@ -73,18 +76,28 @@ if settings.using_sqlite_fallback:
 else:
     st.success(f"Database: `{settings.resolved_database_url.split('@')[-1]}`", icon="🗄️")
 
-with st.expander("Swapping LLM provider (ADR-002)"):
+with st.expander("Inference endpoints (ADR-002 + ADR-011)"):
     st.markdown(
-        "Change one variable. No code changes anywhere, including in Phase 11's "
-        "baseline-vs-fine-tuned comparison."
+        "**No frontier model API is called anywhere in this project.** Every model "
+        "call goes to an open-source model we host ourselves on a free Colab or "
+        "Kaggle GPU, behind an OpenAI-compatible tunnel.\n\n"
+        "Swapping between them is one variable, and so is Phase 11's "
+        "base-vs-tuned comparison — that one is `LLM_MODEL`."
     )
     st.table(
         [
             {
                 "LLM_PROVIDER": provider,
-                "Credential it needs": credential,
-                "Set?": "✅" if getattr(settings, credential.lower(), None) else "—",
+                "URL variable": endpoint,
+                "Set?": "✅" if getattr(settings, endpoint.lower(), None) else "—",
+                "Active": "◀" if provider == settings.llm_provider else "",
             }
-            for provider, credential in PROVIDER_CREDENTIAL.items()
+            for provider, endpoint in PROVIDER_ENDPOINT.items()
         ]
+    )
+    st.warning(
+        "Tunnel URLs change **every time the notebook restarts**. Expect to "
+        "update this daily, and in Streamlit Secrets on the morning of a demo — "
+        "no redeploy required.",
+        icon="🔄",
     )

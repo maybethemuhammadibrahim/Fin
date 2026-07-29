@@ -45,7 +45,8 @@ These four are mutually exclusive by design. Every one traces back to a specific
 ## 4. The pipeline (10,000-foot view)
 
 ```
-Upload  →  Route by type  →  Extract text  →  LLM extracts contract rules
+Upload  →  Route by type  →  Extract text  →  Our self-hosted model
+                                              extracts contract rules
                                                         ↓
                                     Deterministic Python builds Expected Timeline
                                                         ↓
@@ -70,15 +71,18 @@ Upload  →  Route by type  →  Extract text  →  LLM extracts contract rules
 | PDF text | **pdfplumber** + **PyMuPDF (fitz)** | CPU only, free |
 | Clause location | **PyMuPDF `page.search_for()`** | Code finds bboxes — never the LLM |
 | CSV | **pandas** | LLM-assisted column mapping, human-confirmed |
-| OCR (optional) | **Gemini vision** or **Surya on Colab** | Fallback branch only |
-| LLM (baseline) | Free hosted tier via `core/ai/llm_client.py` | Gemini / Groq / OpenRouter — swappable by env var |
-| LLM (upgrade) | **Qwen 2.5 3B + QLoRA**, trained on Colab | Phase 10; compared, not depended on |
+| OCR (optional) | **Surya on Colab** | Offline batch step, fallback branch only |
+| LLM (baseline) | **Qwen 2.5 3B Instruct**, base weights, self-hosted | Served from Colab/Kaggle from Phase 5 (ADR-011, ADR-012) |
+| LLM (upgrade) | **Qwen 2.5 3B + QLoRA**, trained on Colab | Phase 10; same endpoint, one `LLM_MODEL` value apart |
+| Model serving | **FastAPI + Cloudflare tunnel** in a Colab/Kaggle notebook | OpenAI-compatible `/v1/chat/completions` |
 | Structured output | **Pydantic** + JSON mode + repair-retry | NOT Outlines (doesn't work over HTTP) |
 | Agent | **LangGraph** ReAct, max 5 iterations | Verification agent |
 | Charts | **Plotly** | Cash-flow projection |
 | Fine-tuning | **Unsloth + QLoRA** on free Colab/Kaggle T4 | |
 
-**No local GPU is required anywhere in the runtime path.**
+**No local GPU is required anywhere in the runtime path** — the GPU is a free Colab/Kaggle T4, reached over HTTP.
+
+> **Amendment (2026-07-29, ADR-011).** This table originally listed Gemini/Groq/OpenRouter as the LLM baseline. **No frontier model API is used anywhere in this project.** All inference runs on an open-source model we host and tune ourselves. The consequence to keep in mind at all times: our endpoint is a notebook session, so its URL changes when the session restarts, cold starts take minutes, and the disk cache is demo insurance rather than an optimisation.
 
 ---
 
@@ -126,6 +130,7 @@ Upload  →  Route by type  →  Extract text  →  LLM extracts contract rules
 2. The LLM never produces bounding boxes. It returns verbatim `clause_text`; `clause_locator.py` finds the coordinates.
 3. Every anomaly shown to the user must trace to a `clause_reference` row.
 4. No local GPU dependency in the runtime path.
+4a. **No frontier model API calls. Ever** (ADR-011). Every model call goes to an open-source model we host on Colab/Kaggle. Adding a vendor SDK to `requirements.txt` is a violation, not a shortcut.
 5. No secrets in git. `.env` is gitignored; deployment uses Streamlit Secrets.
 6. Update `progress.md` at the end of every phase. Non-negotiable.
 7. Nobody edits a file they don't own.
@@ -134,8 +139,8 @@ Upload  →  Route by type  →  Extract text  →  LLM extracts contract rules
 
 ## 10. Definition of success
 
-**Minimum (must have):** deployed public URL; upload a real contract + a CSV; get correctly classified anomalies with working clause highlighting; the Decision Engine returns a verdict.
+**Minimum (must have):** deployed public URL; upload a real contract + a CSV; get correctly classified anomalies with working clause highlighting; the Decision Engine returns a verdict — **all of it running against our own self-hosted open-source model** (base weights are enough).
 
-**Target:** the above, plus the verification agent visibly filtering a false positive, plus a fine-tuned model with a measured comparison against the baseline.
+**Target:** the above, plus the verification agent visibly filtering a false positive, plus the QLoRA-tuned adapter with a measured base-vs-tuned comparison on the held-out eval set.
 
 **Stretch:** OCR path demoed on a genuinely scanned document.

@@ -5,7 +5,7 @@
 > **This is the file an AI assistant reads to know what already exists.** If it isn't here, the assistant will assume it doesn't exist and rebuild it.
 
 **Current phase:** 0 — done
-**Last entry:** Phase 0 (2026-07-29)
+**Last entry:** Design change — self-hosted inference (2026-07-29)
 
 ---
 
@@ -126,6 +126,61 @@ names that variable at the top instead of failing later.
 <!-- ================================================================= -->
 <!-- APPEND NEW PHASE ENTRIES BELOW THIS LINE. DO NOT EDIT ABOVE.      -->
 <!-- ================================================================= -->
+
+## Design change — self-hosted inference (between Phase 0 and Phase 1)
+
+**Recorded:** 2026-07-29 · **Owners:** A + B · **Not a phase — a decision that invalidates part of the Phase 0 entry above.**
+
+### What changed
+**No frontier model API will be used anywhere in this project.** All inference
+now runs on an open-source model (Qwen 2.5 3B Instruct) that we host ourselves
+on a free Colab/Kaggle GPU, behind an OpenAI-compatible tunnel. Gemini, Groq and
+OpenRouter are out — including the Gemini-vision OCR path.
+
+Recorded as **ADR-011** (self-hosted only) and **ADR-012** (base weights served
+from Phase 5; the tuned adapter replaces them at Phase 10). **ADR-012 supersedes
+ADR-009** — fine-tuning was "a comparison, not a dependency"; self-hosting is now
+load-bearing. **ADR-002 is amended, not replaced**: one variable still swaps the
+endpoint, the values are just our own sessions now.
+
+### Corrections to the Phase 0 entry above
+That entry is left intact per the append-only rule. Three things in it are now wrong:
+- `.env.example` no longer has `GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` / `FINETUNED_TUNNEL_URL`. It has `COLAB_TUNNEL_URL`, `KAGGLE_TUNNEL_URL`, `CUSTOM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_SECONDS`.
+- `LLM_PROVIDER` values are now `colab_tunnel | kaggle_tunnel | custom`, defaulting to `colab_tunnel`. `LLM_MODEL` defaults to `Qwen/Qwen2.5-3B-Instruct`.
+- The accounts list changes: **Colab and Kaggle instead of Google AI Studio and Groq.** Supabase, HuggingFace and Streamlit Cloud are unaffected.
+
+### Changed by A
+- `docs/decisions.md` — ADR-011, ADR-012; ADR-002 marked amended, ADR-009 marked superseded
+- `docs/project_context.md` — stack table, pipeline, hard rule 4a, success criteria
+- `docs/implementation_plan.md` — amendment banner at the top, plus targeted edits to the stack table, Phase 0 accounts and `.env.example`, Phase 4 OCR options, Phase 5, Phase 10, Phase 11, the API budget (now **SESSION BUDGET**), the final architecture diagram, the tech stack summary and the narrative. Not rewritten line by line — the banner says so.
+- `docs/state.json` — ADRs, phase work, three new known issues
+
+### Changed by B
+- `core/config.py` — `PROVIDER_ENDPOINT` replaces `PROVIDER_CREDENTIAL`; added `llm_api_key`, `llm_timeout_seconds`, and `api_base`, which normalises whatever URL shape gets pasted in after a restart (strips a trailing `/v1` or `/v1/chat/completions`). `validate()` now also rejects a URL missing its scheme.
+- `app/main.py` — endpoint table instead of the provider table, live endpoint shown, restart warning
+- `.env.example`, `README.md`, `CLAUDE.md` — rewritten for the new model
+- `training/serve_finetuned.py` → **`training/serve_model.py`** (it serves base weights from Phase 5, so the old name was a lie). Stub docstrings updated on `core/ai/llm_client.py` and `core/extraction/ocr_cloud.py`.
+
+### New interfaces added to interfaces.md
+- `Settings.api_base`, `.active_base_url`, `.active_endpoint_name` replace `.active_credential*`
+- `llm_client.health() -> bool` — so the UI can tell "no anomalies" apart from "the notebook died"
+- `training/serve_model.py` documented under Phase 5, not Phase 10
+- `evaluate(model_name, eval_set)` — the arg is a served model name now, not a vendor
+
+### Known gaps / deliberately deferred
+- **This is the biggest operational risk in the project and it is now accepted, not avoided.** A dead Colab session takes the whole app down. The three mitigations — Kaggle backup session, pre-warmed `data/cache/`, recorded demo video — are all **planned and none built**. Phase 5 owns the first, Phase 11 the last two.
+- Nothing has been served yet. `serve_model.py` is still a docstring; the tunnel has never been stood up, so cold-start time and session lifetime are estimates.
+- Expect Phase 5 extraction quality to start *below* what a frontier model gave. That gap is the thing Phase 10 exists to close — don't read it as a bug.
+- `requirements.txt` is unchanged and still correct: no vendor SDK was ever added, and the serving side lives in Colab, not in this repo.
+
+### How to verify this change landed
+```bash
+python scripts/memory_digest.py     # 12 ADRs, latest ADR-012
+grep -ri "gemini\|groq\|openrouter" --include="*.py" .   # no hits outside docs
+LLM_PROVIDER=kaggle_tunnel KAGGLE_TUNNEL_URL=https://x.trycloudflare.com/v1 \
+  LLM_API_KEY=test python3 -c "from core.config import settings; \
+  print(settings.api_base); settings.validate()"
+```
 
 ---
 

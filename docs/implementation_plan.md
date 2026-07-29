@@ -16,7 +16,7 @@ A web tool for small B2B service businesses that **automatically reads their con
 flowchart TD
     A["👤 User uploads files\n(Contracts + Invoices/Bank Statements)"] --> B["📄 Document Type Detection\n(Is it scanned? Is it CSV?)"]
     B --> C["🔍 Text Extraction\n(pdfplumber for text PDFs, cloud OCR for scans, pandas for CSV)"]
-    C --> D["🧠 AI Extraction\n(Hosted LLM reads contract text → structured rules + verbatim clause quotes)"]
+    C --> D["🧠 AI Extraction\n(Our self-hosted Qwen 2.5 3B reads contract text → structured rules + verbatim clause quotes)"]
     D --> D2["📍 Clause Grounding\n(PyMuPDF text-search finds the real bbox of each quote)"]
     D2 --> E["🏗️ Expected Timeline\n(Pure Python math builds what SHOULD have been billed)"]
     E --> F["⚖️ Reconciliation Engine\n(Python compares Expected vs Actual, client-month aggregate)"]
@@ -33,19 +33,34 @@ flowchart TD
 
 ## The Cloud Stack (Nothing Runs On Your GPU)
 
+> [!CAUTION]
+> **AMENDMENT — 2026-07-29, ADR-011 + ADR-012. Read this before trusting anything below.**
+>
+> This plan was written with Gemini/Groq/OpenRouter as the LLM baseline. **That is gone. No frontier model API is called anywhere in this project.** All inference runs on an open-source model (Qwen 2.5 3B Instruct) that we host ourselves on a free Colab/Kaggle GPU and reach over an OpenAI-compatible tunnel.
+>
+> Four things this changes throughout the document:
+> 1. **Phase 5 now stands up the serving notebook first**, on *base* weights. Phase 10 swaps in our QLoRA adapter under a different model name; the app changes one env var (ADR-012).
+> 2. **Phase 11's comparison is base vs tuned**, same weights, adapter on/off — not hosted-vs-tuned.
+> 3. **The OCR "Gemini vision" option is deleted.** Surya on Colab is the only fallback, and it stays an offline batch step.
+> 4. **The "API BUDGET" section below is obsolete.** Requests-per-minute is no longer the scarce resource — *session uptime* is. See **SESSION BUDGET**, which replaces it.
+>
+> Where the text below still says "hosted model", "provider", "API key" or "quota", read it as *our endpoint*, *our tunnel*, *the tunnel's shared secret*, and *session lifetime*. The two ADRs are authoritative; this document was amended in the places that would actively mislead, not rewritten line by line.
+
 | Layer | Service | Free? | Who sets it up |
 |-------|---------|-------|----------------|
 | App hosting | Streamlit Community Cloud | ✅ | B |
 | Database | Supabase Postgres | ✅ free tier | A |
 | File storage | Supabase Storage | ✅ free tier | A |
-| LLM inference | Google AI Studio (Gemini) primary; Groq / OpenRouter as backups | ✅ rate-limited | B |
-| OCR (optional) | Gemini vision, or Surya batch-run in Colab | ✅ | B |
+| **LLM inference** | **Qwen 2.5 3B Instruct, self-hosted on Colab (primary) / Kaggle (backup)** | ✅ session-limited | B |
+| OCR (optional) | Surya batch-run in Colab | ✅ | B |
 | Fine-tuning | Google Colab **or** Kaggle free T4 | ✅ | A + B |
-| Model hosting (fine-tuned) | HF Hub adapter + Colab FastAPI tunnel | ✅ | B |
+| Model hosting | HF Hub weights + adapter, FastAPI + Cloudflare tunnel in the notebook | ✅ | B |
 | Version control | GitHub | ✅ | A |
 
 > [!IMPORTANT]
-> **Configure two providers from day one.** Free tiers change quotas, and one dead key on demo day should be a one-line env change, not a crisis. Because most of these expose OpenAI-compatible endpoints, `llm_client.py` handles all of them with one code path.
+> **Keep two sessions configured from day one** — one Colab, one Kaggle. Sessions expire, disconnect when idle, and hand out a **new tunnel URL on every restart**. A dead session on demo day should be a one-line env change, not a crisis. Both expose the same OpenAI-compatible shape, so `llm_client.py` handles them with one code path.
+>
+> This replaces the old "configure two providers" rule. Same reasoning, different failure mode: we are no longer worried about a revoked API key, we are worried about a notebook that stopped.
 
 ---
 
@@ -121,14 +136,14 @@ gantt
 | 1 | Cloud Database | ORM models, init script | Query helpers, DB health page | 11 tables live in Supabase |
 | 2 | **Frontend Shell** | Seed script writing real rows | All pages, all components | **A complete-looking product** |
 | 3 | Data Sourcing | Fetch CUAD + EDGAR | Scenario builder + ground truth | Real contracts on disk |
-| 4 | Text Extraction | PDF router + text path | CSV parser + cloud OCR | Upload → text in DB |
-| 5 | LLM Extraction | Schemas, extractor, clause locator | `llm_client`, prompt, caching | Contract → structured rules |
+| 4 | Text Extraction | PDF router + text path | CSV parser + Colab OCR | Upload → text in DB |
+| 5 | LLM Extraction | Schemas, extractor, clause locator | **`serve_model.py` (base weights) first**, then `llm_client`, prompts, caching | **Our own model, served** → structured rules |
 | 6 | Timeline + Reconcile | Timeline generator | Reconciliation + classifier | Real anomalies replace seeds |
 | 7 | Clause Viewer | Locator hardening | PDF render + drill-down UI | Click a row → see the clause |
 | 8 | Verification Agent | Agent tools (DB-backed) | LangGraph loop + UI badges | Agent kills a false positive |
 | 9 | Decision Engine | Cash-flow math | Question parser + chart | Page 2 answers a question |
-| 10 | Fine-Tuning | Training pairs from CUAD | Colab QLoRA + tunnel serving | A model you trained |
-| 11 | Eval & Deploy | Eval harness + metrics | Deploy + README + demo script | Public URL |
+| 10 | Fine-Tuning | Training pairs from CUAD | Colab QLoRA; adapter into the running notebook | A model you trained |
+| 11 | Eval & Deploy | Eval harness + metrics | Deploy + README + demo script | Public URL + base-vs-tuned numbers |
 
 ---
 
@@ -171,7 +186,7 @@ finsight/
 │   │   ├── pdf_extractor.py                 # [A] pdfplumber text + tables
 │   │   ├── clause_locator.py                # [A] ⭐ text-search → real bbox
 │   │   ├── csv_parser.py                    # [B] pandas + mapping
-│   │   ├── ocr_cloud.py                     # [B] Gemini-vision OCR fallback
+│   │   ├── ocr_cloud.py                     # [B] Surya-on-Colab OCR fallback
 │   │   └── pdf_renderer.py                  # [B] render page w/ highlight
 │   │
 │   ├── ai/
@@ -210,7 +225,7 @@ finsight/
 ├── training/
 │   ├── build_pairs.py                       # [A] contracts → instruction pairs
 │   ├── finetune_colab.ipynb                 # [B] Unsloth QLoRA notebook
-│   ├── serve_finetuned.py                   # [B] Colab FastAPI + tunnel
+│   ├── serve_model.py                       # [B] ⭐ Colab FastAPI + tunnel — LIVE FROM PHASE 5
 │   ├── evaluate.py                          # [A] baseline vs fine-tuned
 │   └── data/
 │       ├── train.jsonl                      # [A] generated, gitignored
@@ -320,10 +335,12 @@ pytest
 
 1. **Create the accounts** (all free, ~20 minutes total):
    - Supabase → new project → copy the Postgres connection string and the anon key
-   - Google AI Studio → API key (primary LLM)
-   - Groq → API key (backup LLM)
-   - HuggingFace → account + read token (for datasets in Phase 3)
+   - **Google Colab** → sign in (primary GPU + model serving, from Phase 5)
+   - **Kaggle** → sign in, verify the account for GPU (backup session)
+   - HuggingFace → account + read token (for datasets in Phase 3 and weights in Phase 5)
    - Streamlit Community Cloud → sign in with GitHub
+
+   *(Amended by ADR-011: Google AI Studio and Groq API keys were on this list. They are not used — no frontier model API is called anywhere in this project.)*
 
 2. `.env.example` — every variable, no real values:
 
@@ -333,13 +350,16 @@ DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres
 SUPABASE_URL=https://[REF].supabase.co
 SUPABASE_KEY=
 
-# ---- LLM (ADR-002: swap provider with ONE variable) ----
-LLM_PROVIDER=gemini            # gemini | groq | openrouter | finetuned_tunnel
-GEMINI_API_KEY=
-GROQ_API_KEY=
-OPENROUTER_API_KEY=
-FINETUNED_TUNNEL_URL=          # filled in Phase 10
-LLM_MODEL=gemini-2.5-flash
+# ---- LLM: our own self-hosted endpoints (ADR-011) ----
+# ADR-002 still holds — one variable swaps the endpoint. The values just
+# changed from vendors to our own notebook sessions.
+LLM_PROVIDER=colab_tunnel      # colab_tunnel | kaggle_tunnel | custom
+COLAB_TUNNEL_URL=              # changes EVERY notebook restart
+KAGGLE_TUNNEL_URL=             # the backup session
+CUSTOM_BASE_URL=               # any other OpenAI-compatible endpoint
+LLM_API_KEY=                   # shared secret; the tunnel is PUBLIC
+LLM_MODEL=Qwen/Qwen2.5-3B-Instruct   # -> finsight-qwen2.5-3b in Phase 10
+LLM_TIMEOUT_SECONDS=120        # cold starts load 3B of weights
 
 # ---- Data sourcing ----
 HF_TOKEN=
@@ -348,6 +368,9 @@ HF_TOKEN=
 LLM_CACHE_ENABLED=true
 LOG_LEVEL=INFO
 ```
+
+> [!WARNING]
+> **A Cloudflare quick tunnel is a public URL.** Without `LLM_API_KEY` checked by the notebook, anyone who finds it gets free inference on your GPU quota. Treat it as required, not optional, and have `serve_model.py` reject requests without the bearer token.
 
 3. `core/config.py` — loads `.env` locally and `st.secrets` when deployed, exposes one `settings` object, and **fails loudly at startup** with a readable message if a required key is missing. A beginner debugging a silent `None` API key loses an hour; a startup error that names the missing variable costs thirty seconds.
 
@@ -915,11 +938,11 @@ flowchart TD
 
 | Option | How | Trade-off |
 |--------|-----|-----------|
-| **A — Gemini vision** (recommended) | Send the page PNG to the free Gemini tier, ask for markdown | One API call, dead simple, no bboxes — which is fine, ADR-005 means we don't need them |
-| **B — Surya OCR in Colab** | Batch pre-process in a Colab notebook, write a text layer back into the PDF | Free GPU, gives real bboxes, but a manual step — not live |
+| ~~**A — Gemini vision**~~ | ~~Send the page PNG to the free Gemini tier~~ | **Deleted by ADR-011.** No frontier API calls. |
+| **B — Surya OCR in Colab** (the only option) | Batch pre-process in a Colab notebook, write a text layer back into the PDF | Free GPU, gives real bboxes, but a manual step — not live |
 
 > [!IMPORTANT]
-> **The v1 plan ran Surya live on a local 3060 and budgeted VRAM for it.** That's gone. There is no VRAM budget in v2 because nothing loads a model onto your hardware. What replaced it is the **API budget** section near the end of this document — requests-per-minute is now your scarce resource.
+> **The v1 plan ran Surya live on a local 3060 and budgeted VRAM for it.** That's gone — nothing loads a model onto your hardware. Surya now runs in the same free Colab GPU environment that serves the main model, as an offline batch step before upload. OCR stays deliberately **off the critical path**: CUAD and EDGAR contracts are digital-text PDFs, so the primary path never touches it.
 
 ### Path C — CSV files (ADR-010: template *and* smart mapping)
 
@@ -946,7 +969,7 @@ The human-confirmation step is what makes this safe: it can never *silently* mis
 
 ## 👤 User B — tasks
 - `csv_parser.py` — `sniff_columns()` + `parse_transactions()`
-- `ocr_cloud.py` — Gemini-vision page OCR
+- `ocr_cloud.py` — reads the Surya-on-Colab text layer (ADR-011: no vision API)
 - `app/components/column_mapper.py` — the confirmation dropdowns
 - Wire Phase 2's upload widgets to actually call A's `extract()`
 
@@ -1105,17 +1128,27 @@ def complete_json(prompt, schema, system="", max_repairs=1):
        validation error text
     4. On second failure, return None  -- NEVER raise to the caller
 
-    Provider chosen by LLM_PROVIDER. Most expose OpenAI-compatible
-    endpoints, so one code path covers gemini / groq / openrouter /
-    finetuned_tunnel. Phase 10's comparison is then one env var, not a
-    refactor.
+    Endpoint chosen by LLM_PROVIDER (colab_tunnel | kaggle_tunnel |
+    custom). All of them are OUR notebook serving an OpenAI-compatible
+    /v1/chat/completions, so one code path covers every case, and
+    Phase 11's base-vs-tuned comparison is one LLM_MODEL value.
     """
 ```
 
-> [!WARNING]
-> **Why not `Outlines`, as v1 planned?** Outlines works by masking logits during token generation, which needs local access to the model's forward pass. **It cannot work against a hosted HTTP API.** v1's guarantee — *"the model literally cannot produce invalid output"* — silently stops being true the moment you move to the cloud. The three-layer replacement above reaches ~99% in practice, and its failures are *visible* rather than silent. Outlines stays valid in one place only: the Colab notebook in Phase 10, where the model runs locally. That's worth one honest row in your eval table.
+**Serving comes first in this phase (ADR-012).** Before any extraction code can run, B stands up `training/serve_model.py` in a Colab notebook with the **base** Qwen 2.5 3B Instruct weights — no adapter, no training. Phases 5–9 are built against that endpoint. Phase 10 later loads a QLoRA adapter into the same notebook and serves it under a different model name; nothing in the app changes.
 
-**Caching is not optional.** `core/ai/cache.py` keys on `sha256(prompt + model)` and writes to `data/cache/`. Reasons: free tiers are rate-limited (Risk R2), you'll re-run the same 10 contracts fifty times while debugging, and on demo day every document you've already processed responds instantly with zero quota consumed.
+Three things the client needs that a hosted API never required:
+
+| Need | Why |
+|---|---|
+| A generous timeout (~120s) and **one** cold-start retry | The first request after a session starts waits for weights to load |
+| The base URL read fresh from config, never baked in | The tunnel URL changes every time the notebook restarts |
+| An honest "model endpoint unreachable" path | The session *will* die at some point; a blank result is worse than an error |
+
+> [!WARNING]
+> **`Outlines` — now partly back on the table.** Outlines masks logits during generation, which needs access to the model's forward pass. It could never work against a hosted vendor API, which is why ADR-004 replaced it with JSON-mode + Pydantic + repair-retry. **We now control the server**, so the serving notebook *can* constrain generation with a grammar (Outlines or `xgrammar`) and we can report a genuine valid-JSON rate for that configuration. Keep the client-side repair-retry regardless — it costs nothing and it covers the case where the constraint is off. This is a real upgrade ADR-011 bought us; give it a row in the Phase 11 eval table.
+
+**Caching is not optional — and it is now demo insurance, not an optimisation.** `core/ai/cache.py` keys on `sha256(prompt + model)` and writes to `data/cache/`. You'll re-run the same 10 contracts fifty times while debugging, cold starts are slow, and — the point that matters — **anything already in the cache still works after the tunnel dies.** Pre-warm every demo document.
 
 ## 📐 Client attribution
 
@@ -1135,13 +1168,17 @@ That step-4 human check is the safety net for Risk R8, and it was already in v1 
 - `client_matcher.py` — fuzzy grouping
 
 ## 👤 User B — tasks
-- `llm_client.py` — the multi-provider client
+- **`training/serve_model.py` FIRST** (ADR-012) — FastAPI + Cloudflare tunnel in a Colab notebook, serving **base** Qwen 2.5 3B Instruct. Nothing else in this phase can run until this answers a request. Do the Kaggle copy too, so the backup exists before you need it.
+- `llm_client.py` — the endpoint client: timeout, one cold-start retry, honest failure
 - `prompts.py` — every prompt template in one file, versioned
 - `cache.py` — disk cache
 - `client_confirm.py` — the confirmation UI
 
+> [!TIP]
+> A 3B model needs a tighter prompt than a frontier model did. Expect to spend real time in `prompts.py`: few-shot examples, an explicit JSON skeleton, and one instruction per line. If extraction quality disappoints here, that is the expected starting point — closing that gap is exactly what Phase 10 exists for, and Phase 11 measures how much of it we closed.
+
 ## ✅ Definition of done
-Run over 10 sourced contracts: ≥8 produce valid `ContractRules`; clause-grounding rate ≥80% (exact + fuzzy); switching `LLM_PROVIDER` from `gemini` to `groq` requires no code change.
+The Colab notebook serves base Qwen 2.5 3B over a public tunnel and the app talks to it. Run over 10 sourced contracts: ≥8 produce valid `ContractRules`; clause-grounding rate ≥80% (exact + fuzzy). Restart the notebook, paste the new tunnel URL into `.env`, reload — everything works again with no code change. Point `LLM_PROVIDER` at the Kaggle session and confirm the same.
 
 ---
 
@@ -1514,7 +1551,7 @@ CONCLUDE: FALSE_POSITIVE — Payment found in bank records under a slightly
 > [!TIP]
 > **Plant this case deliberately in Phase 3's `realistic` scenario.** It is the single best thing you can show in a live demo: a mechanical rule produces a confident $15,000 error, and the agent catches it by reasoning about a missing space. It takes twenty seconds to demonstrate and it makes the agent's existence obviously justified rather than decorative.
 
-**Model used:** the same hosted model via `llm_client`. No separate model needed. In Phase 10 you can point the agent at the fine-tuned endpoint too and compare — though extraction is where fine-tuning will help most.
+**Model used:** the same self-hosted model via `llm_client`. No separate model needed. From Phase 10 the agent runs on the tuned adapter too, by the same `LLM_MODEL` switch — though extraction is where fine-tuning will help most.
 
 ## 👤 User A — tasks
 - `core/agents/tools.py` — the four tools, each a plain DB function with a docstring the agent reads as its tool description
@@ -1659,7 +1696,7 @@ Three different questions produce correct verdicts. Every number in the explanat
 # PHASE 10 — Fine-Tuning (The Capstone Differentiator)
 
 ## 🎯 Goal
-Train your own model and measure it against the hosted baseline. **The product already works without this** (ADR-009) — this phase makes the capstone claim.
+Train your own adapter and measure it against the base weights we have been serving since Phase 5. **The product already works without this** — if training fails, the base endpoint still runs everything (ADR-012, superseding ADR-009). This phase makes the capstone claim.
 
 ## 🤖 Phase Prompt
 
@@ -1684,7 +1721,8 @@ Before writing ANY code for Phase 10:
 Only then begin Phase 10: build training data and fine-tune.
 
 Owner split — A: training/build_pairs.py and the train/val/test split.
-B: training/finetune_colab.ipynb and training/serve_finetuned.py.
+B: training/finetune_colab.ipynb, and extending training/serve_model.py
+(already serving base weights since Phase 5) to load the adapter.
 
 Constraints:
 - the held-out eval set is created BEFORE training and never trained on
@@ -1693,7 +1731,9 @@ Constraints:
 - no code outside training/ may change in this phase
 
 Definition of done: a fine-tuned adapter on HF Hub, and setting
-LLM_PROVIDER=finetuned_tunnel runs the whole app end to end unchanged.
+LLM_MODEL=finsight-qwen2.5-3b runs the whole app end to end unchanged,
+against the same tunnel URL that has been serving base weights since
+Phase 5 (ADR-012).
 
 After finishing, append a Phase 10 entry to memory/progress.md and update
 memory/state.json.
@@ -1748,38 +1788,43 @@ flowchart LR
 > [!WARNING]
 > **Colab disconnects.** Checkpoint every epoch to Google Drive or HF Hub. Losing a 45-minute run to a dropped tab is the most common way this phase eats a day.
 
-## 📐 Serving it — the Colab tunnel
+## 📐 Serving it — the adapter goes into the notebook we already run
 
-This is what makes Phase 11's comparison a one-variable change (ADR-002):
+**The serving infrastructure already exists.** `training/serve_model.py` has been running base weights since Phase 5 (ADR-012). This phase changes what it loads, not how the app reaches it:
 
 ```
-Colab notebook:
-  load base + adapter  ->  FastAPI exposing /v1/chat/completions
-                           (OpenAI-compatible shape)
-                        ->  Cloudflare quick tunnel  ->  public https URL
+Colab notebook (already running since Phase 5):
+  load base                ->  serves as "Qwen/Qwen2.5-3B-Instruct"
+  load base + our adapter  ->  serves as "finsight-qwen2.5-3b"
+                           ->  FastAPI /v1/chat/completions
+                           ->  Cloudflare quick tunnel -> public https URL
 
 Your app:
-  FINETUNED_TUNNEL_URL=<that url>
-  LLM_PROVIDER=finetuned_tunnel
-  # llm_client.py needs ZERO changes
+  LLM_MODEL=finsight-qwen2.5-3b     # that's the whole change
+  # llm_client.py needs ZERO changes, and neither does the tunnel URL
 ```
 
-> [!IMPORTANT]
-> **Risk R4 — the tunnel dies when the notebook stops.** Plan for it: keep the notebook running through your demo, and **record a screen capture of the fine-tuned path in advance** as a backup. The hosted-model path is always live, so the product never breaks — only the comparison does.
+Serve **both** names from the same notebook if memory allows — a 3B base plus a ~50–100MB adapter fits comfortably on a T4. Then Phase 11 can run baseline and tuned back to back in one session, against one endpoint, with no reload between them. That removes the last confound from the comparison.
 
-This is also the one place `Outlines` remains valid: inside Colab the model is local, so you can genuinely constrain generation and report a true 100% valid-JSON rate for that configuration.
+> [!IMPORTANT]
+> **Risk R4 — the tunnel dies when the notebook stops, and now the whole product dies with it** (ADR-011 accepted this knowingly). Mitigations, all of them, not a subset: keep the Kaggle session as a live backup; pre-warm `data/cache/` with every demo document so cached results survive a dead tunnel; **record a screen capture of the full live path in advance**; and make sure the endpoint URL is editable in Streamlit Secrets without a redeploy.
+>
+> If training fails outright, the base-weights endpoint still runs the entire application. You lose the capstone claim, not the demo.
+
+`Outlines` is fully available here — the model is ours, so generation can be genuinely constrained and you can report a true valid-JSON rate for that configuration.
 
 ## 👤 User A — tasks
 - `training/build_pairs.py`, the split, and the human-verification workflow
 - Commit `eval_set.jsonl` to git (it's small, and it must not drift)
+- Note: the pairs are now verified against **base-model** output rather than a frontier model's, so budget more human correction time — this is the highest-leverage hour in the project
 
 ## 👤 User B — tasks
-- `finetune_colab.ipynb` — Unsloth + QLoRA, checkpointing
-- `serve_finetuned.py` — FastAPI + tunnel
-- Add the `finetuned_tunnel` branch to `llm_client.py`
+- `finetune_colab.ipynb` — Unsloth + QLoRA, checkpointing every epoch
+- Extend `serve_model.py` to load an adapter and serve it under a second model name
+- **No `llm_client.py` change at all** — that is the point of ADR-002 + ADR-012
 
 ## ✅ Definition of done
-Adapter on HF Hub. `LLM_PROVIDER=finetuned_tunnel` runs the entire app end to end with no other change.
+Adapter on HF Hub. Setting `LLM_MODEL=finsight-qwen2.5-3b` runs the entire app end to end with no other change, against the same tunnel URL.
 
 ---
 
@@ -1828,8 +1873,8 @@ phase in memory/state.json to done, and record the deployed URL.
 # training/evaluate.py                                                 [A]
 def evaluate(provider: str, eval_set: str) -> EvalReport:
     """Identical harness for every configuration. One argument apart.
-    Run it three times: baseline, fine-tuned, and (optionally) a larger
-    hosted model for the size comparison."""
+    Run it twice: BASE weights and TUNED adapter, same endpoint (ADR-012).
+    `provider` is now the served model name, not a vendor."""
 ```
 
 **Metrics — every one of these is measurable, none is guessed:**
@@ -1851,8 +1896,10 @@ def evaluate(provider: str, eval_set: str) -> EvalReport:
 > [!WARNING]
 > The v1 plan carried this table pre-filled with round numbers marked *"estimated targets"*. In a capstone report, a table that looks like results but is actually a hope is a serious liability the moment someone asks how you measured it. Leave these cells empty until `evaluate.py` fills them.
 
-| Metric | Hosted baseline (zero-shot) | Fine-tuned Qwen 3B | Larger hosted model |
-|--------|------------------------------|--------------------|---------------------|
+Since ADR-012 the comparison is **base vs tuned on identical weights** — same model family, same endpoint, adapter on or off. Any delta is attributable to our training data and nothing else, which is a stronger claim than the old hosted-vs-tuned column ever was (that one measured model scale as much as it measured our work). The optional third column, if you want it, is **base + grammar-constrained decoding** — a configuration only self-hosting makes possible.
+
+| Metric | Base Qwen 2.5 3B (zero-shot) | + our QLoRA adapter | + grammar-constrained *(optional)* |
+|--------|------------------------------|---------------------|------------------------------------|
 | Field extraction accuracy | ___ | ___ | ___ |
 | Money-field accuracy | ___ | ___ | ___ |
 | Valid JSON rate | ___ | ___ | ___ |
@@ -1861,7 +1908,7 @@ def evaluate(provider: str, eval_set: str) -> EvalReport:
 | Anomaly precision | ___ | ___ | ___ |
 | Anomaly recall | ___ | ___ | ___ |
 | Latency / contract | ___ | ___ | ___ |
-| Cost / contract | $0 | $0 | ___ |
+| Cost / contract | $0 | $0 | $0 |
 
 **If fine-tuning doesn't win, report that.** A negative result with proper error analysis — *which* fields got worse, and your hypothesis about why, e.g. only 100 training examples, or CUAD's domain skew from Risk R1 — is a stronger piece of work than a table of convenient numbers. Examiners have seen a great many convenient tables.
 
@@ -1871,7 +1918,8 @@ def evaluate(provider: str, eval_set: str) -> EvalReport:
 2. Streamlit Community Cloud → connect the repo → point at `app/main.py`
 3. Paste every secret into Streamlit Secrets (**never** commit `.env`)
 4. Verify the deployed app reaches Supabase
-5. Pre-load one demo run so the URL is never empty for a visitor
+5. Verify it reaches the **tunnel**, and confirm you can change `COLAB_TUNNEL_URL` in Streamlit Secrets and have the app pick it up **without a redeploy** — you will do this on the morning of the demo, because the URL changes when the notebook restarts
+6. Pre-load one demo run so the URL is never empty for a visitor *and* so the page still renders when no session is running
 
 **`docs/demo_script.md`** — the five-minute walkthrough, timed:
 
@@ -1905,9 +1953,9 @@ flowchart TB
             ST[("Storage — uploaded PDFs")]
         end
 
-        subgraph AI["🧠 Hosted inference (swappable, ADR-002)"]
-            L1["Gemini / Groq / OpenRouter"]
-            L2["Fine-tuned Qwen 3B<br/>Colab + tunnel"]
+        subgraph AI["🧠 Self-hosted inference (ADR-011) — Colab / Kaggle T4 + tunnel"]
+            L1["Qwen 2.5 3B Instruct<br/>BASE — from Phase 5"]
+            L2["+ our QLoRA adapter<br/>TUNED — from Phase 10"]
         end
     end
 
@@ -1936,7 +1984,7 @@ flowchart TB
     P2 --> L1
     D1 --> D2 --> DB
     D1 --> D3 --> L2
-    L2 -.->|"LLM_PROVIDER=finetuned_tunnel"| AI
+    L2 -.->|"LLM_MODEL=finsight-qwen2.5-3b"| AI
 ```
 
 ## The layer rules
@@ -1952,9 +2000,10 @@ flowchart TB
 
 ---
 
-# API BUDGET (replaces v1's VRAM Budget)
+# SESSION BUDGET (replaces the API Budget, which replaced v1's VRAM Budget)
 
-v1 budgeted GPU memory because everything ran on one 3060. In v2 nothing loads onto your hardware, so the scarce resource changed: **requests per minute**.
+> [!NOTE]
+> **Superseded by ADR-011.** The API budget below the fold was about requests-per-minute against a vendor's free tier. We no longer call a vendor. Nothing rate-limits us — we own the GPU for as long as the notebook lives. **The scarce resource is now session uptime.**
 
 | Operation | Calls | When |
 |-----------|-------|------|
@@ -1964,17 +2013,26 @@ v1 budgeted GPU memory because everything ran on one 3060. In v2 nothing loads o
 | Decision question parse | 1 | On question |
 | Decision explanation | 1 | On verdict |
 
-**A typical full run** — 5 contracts, 1 CSV, 7 anomalies: roughly **35–55 calls**. Comfortably inside free-tier daily limits, and comfortably *outside* per-minute limits if you fire them in a burst.
+**A typical full run** — 5 contracts, 1 CSV, 7 anomalies: roughly **35–55 calls**. On our own endpoint that is free and unthrottled. What it costs instead is wall-clock time on a T4, and it requires the session to stay alive from the first call to the last.
 
-**Four rules that keep you inside the limits:**
+**What actually constrains us now:**
 
-1. **Cache everything.** `sha256(prompt + model)` → response, on disk. You will re-run the same contracts fifty times while debugging; only the first costs quota.
-2. **Sequential, not parallel.** Add a small sleep between agent calls. Bursting is what trips per-minute limits, not volume.
-3. **Two providers configured.** A dead key on demo day should be a one-line env change (Risk R3).
-4. **Pre-run the demo documents.** On demo day, everything you show is already in the cache and responds instantly at zero quota.
+| Constraint | Reality | What you do about it |
+|---|---|---|
+| **Session lifetime** | Free Colab/Kaggle sessions are capped in hours and disconnect when idle. Quotas differ between the two and change over time — check before you rely on a number. | Start the session before the demo, not during it. Keep the tab active. |
+| **The tunnel URL rotates** | Every notebook restart hands out a new public URL. | Config is read at runtime from env / Streamlit Secrets. Never bake a URL into code. |
+| **Cold start** | The first request waits for 3B of weights to load — minutes, not milliseconds. | Generous client timeout, one retry, and send a warm-up request yourself before the demo. |
+| **One session, one GPU** | Concurrent requests queue behind each other on a single T4. | Sequential calls, as before. This is now about latency rather than rate limits. |
+
+**Four rules, restated for the self-hosted world:**
+
+1. **Cache everything.** `sha256(prompt + model)` → response, on disk. This is no longer about quota — **it is what lets the demo survive a dead tunnel.** Pre-warm every document you intend to show.
+2. **Sequential, not parallel.** One T4 serving one model: parallel requests just queue.
+3. **Two sessions configured** — Colab primary, Kaggle backup. A dead session on demo day is a one-line env change (Risk R3, restated).
+4. **Warm up before you present.** Start the notebook, run one throwaway extraction, confirm the app reaches it, *then* begin.
 
 > [!TIP]
-> Free-tier quotas change often — check your provider's current limits before your demo rather than trusting a number written here.
+> Free Colab and Kaggle quotas change often and differ from each other — check both before your demo rather than trusting a number written here.
 
 ---
 
@@ -1989,10 +2047,11 @@ v1 budgeted GPU memory because everything ran on one 3060. In v2 nothing loads o
 | **PDF text** | pdfplumber | Text and tables from digital PDFs — the primary path |
 | **PDF render + search** | PyMuPDF (fitz) | Page images, highlights, and `search_for()` clause grounding |
 | **CSV** | pandas | Reads and cleans spreadsheet data |
-| **OCR (fallback)** | Gemini vision, or Surya in Colab | Scanned documents only, never on the critical path |
-| **LLM (baseline)** | Gemini / Groq / OpenRouter via `llm_client` | Contract prose → structured rules |
-| **LLM (upgrade)** | Qwen 2.5 3B + QLoRA, Colab-served | The capstone comparison |
-| **Structured output** | Pydantic + JSON mode + repair-retry | Valid, validated JSON (**not** Outlines — ADR-004) |
+| **OCR (fallback)** | Surya, batch-run in Colab | Scanned documents only, never on the critical path |
+| **LLM (baseline)** | **Qwen 2.5 3B Instruct, base weights, self-hosted** via `llm_client` | Contract prose → structured rules. From Phase 5 (ADR-011, ADR-012) |
+| **LLM (upgrade)** | Same model + our QLoRA adapter | The capstone comparison: adapter on vs off |
+| **Model serving** | FastAPI + Cloudflare tunnel inside a Colab/Kaggle notebook | OpenAI-compatible endpoint the app talks to |
+| **Structured output** | Pydantic + JSON mode + repair-retry, optionally grammar-constrained server-side | Valid, validated JSON (ADR-004; ADR-011 puts Outlines back within reach) |
 | **Clause grounding** | PyMuPDF text search + `thefuzz` | Real bounding boxes, never model-invented |
 | **Client matching** | thefuzz | "Starter Labs" vs "StarterLabs" |
 | **Agent framework** | LangGraph | The verification agent's ReAct loop |
@@ -2012,7 +2071,7 @@ The user opens FinSight at a public URL and sees two upload zones. In the first 
 
 On upload, each document is routed through the appropriate extraction path. Digital PDFs — which is what real contracts filed with regulators actually are — go through pdfplumber, which pulls text and table structure directly, instantly, at no cost. Scanned documents and images fall back to a cloud OCR path. CSVs are parsed with pandas, with the column mapping proposed by a language model from just the header row and three sample rows, then confirmed by the user in a dropdown so it can never silently mis-parse. At this point we have clean, machine-readable text from every uploaded document.
 
-The contract text is then sent to a large language model through a provider-agnostic client, which forces a JSON-schema response, validates it against a Pydantic schema, and issues a single self-correcting repair call if validation fails. The model returns the client name, base fees, billing frequency, price escalation percentages and triggers, temporary discount terms, milestone payment conditions — and, critically, **the exact sentence each rule came from, copied verbatim**. It is not asked for page numbers or pixel coordinates, because a model reading text cannot know them. Instead, a separate deterministic step takes each verbatim quote and locates it in the source PDF using PyMuPDF's text search, with a fuzzy fallback for OCR noise. This yields a genuine bounding box, and it doubles as a hallucination check: a quote that cannot be found in the document was invented, and the rule is flagged low-confidence automatically. When multiple contracts arrive, the system groups them by client using fuzzy name matching and asks the user to confirm.
+The contract text is then sent to **an open-source language model we host and fine-tune ourselves** — Qwen 2.5 3B Instruct, running on a free Colab or Kaggle T4 behind an OpenAI-compatible endpoint. No frontier model API is called at any point in this system (ADR-011). The client forces a JSON-schema response, validates it against a Pydantic schema, and issues a single self-correcting repair call if validation fails. The model returns the client name, base fees, billing frequency, price escalation percentages and triggers, temporary discount terms, milestone payment conditions — and, critically, **the exact sentence each rule came from, copied verbatim**. It is not asked for page numbers or pixel coordinates, because a model reading text cannot know them. Instead, a separate deterministic step takes each verbatim quote and locates it in the source PDF using PyMuPDF's text search, with a fuzzy fallback for OCR noise. This yields a genuine bounding box, and it doubles as a hallucination check: a quote that cannot be found in the document was invented, and the rule is flagged low-confidence automatically. When multiple contracts arrive, the system groups them by client using fuzzy name matching and asks the user to confirm.
 
 A deterministic Python engine — no AI, just arithmetic — then takes the extracted rules and generates an Expected Timeline: a month-by-month schedule of what *should* have been billed to each client, applying escalations at the correct anniversary dates and removing temporary discounts when they expire. This is compared against actual invoices and transactions, aggregated per client per calendar month. Every discrepancy is classified into one of four types: a Ghost Invoice (a billing that never happened), a Forgotten Raise (an escalation clause never applied), a Zombie Discount (a temporary discount never removed), or a Short-Change (a partial payment accepted without follow-up).
 
@@ -2020,7 +2079,7 @@ Before results are shown, a LangGraph ReAct agent reviews each flagged anomaly. 
 
 The user sees summary cards (total leaked revenue, anomaly count, clients affected) and a detailed anomaly table. Clicking any row renders the original contract page as an image with the violated clause highlighted — showing exactly which contractual promise was broken, and where. When the clause cannot be located precisely, the system says so rather than highlighting the wrong paragraph. On a second page the user types a strategic question — *"Can I afford to hire a $5,000/month senior designer starting in September?"* The model parses the question into a structured cost and date; Python computes the cash-flow baseline from actual transactions, adds back only the **confirmed** recoverable revenue, subtracts the proposed cost, and produces a Yes or No. The model then phrases those computed figures in two or three sentences. It never calculates any of them.
 
-Everything runs in the cloud on free tiers, requires no GPU, no accounting-software integration, and no local installation — and every anomaly it reports can be traced back to a specific sentence in a specific contract on a specific page.
+Everything runs in the cloud on free tiers, requires no local GPU, no accounting-software integration, and no local installation — and every anomaly it reports can be traced back to a specific sentence in a specific contract on a specific page. The model doing the reading is one we tuned and are serving ourselves, so the whole pipeline, weights included, is ours to explain.
 
 ---
 
@@ -2059,7 +2118,8 @@ Everything runs in the cloud on free tiers, requires no GPU, no accounting-softw
 # Quick Reference — The Rules That Matter
 
 1. **The LLM never does arithmetic.** Ever.
-2. **The LLM never produces bounding boxes.** Verbatim `clause_text` in, `clause_locator` finds the box.
+2. **No frontier model API calls. Ever** (ADR-011). Every model call goes to the open-source model we host on Colab/Kaggle.
+3. **The LLM never produces bounding boxes.** Verbatim `clause_text` in, `clause_locator` finds the box.
 3. **The UI reads only the database.** Never a hardcoded dict.
 4. **Every anomaly traces to a clause reference.** No orphans.
 5. **Engine functions are pure.** No DB, no network, no model.

@@ -2,7 +2,7 @@
   "project": "FinSight",
   "updated": "2026-07-29",
   "current_phase": 0,
-  "llm_provider": "gemini",
+  "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
   "memory_dir": "docs/",
   "phases": [
     {
@@ -47,7 +47,7 @@
       "status": "not_started",
       "work": {
         "A": "document_router+pdf_extractor",
-        "B": "csv_parser+ocr_cloud"
+        "B": "csv_parser+Surya-on-Colab OCR"
       }
     },
     {
@@ -56,7 +56,7 @@
       "status": "not_started",
       "work": {
         "A": "schemas+extractor+clause_locator",
-        "B": "llm_client+prompts+cache"
+        "B": "serve_model.py (base weights) FIRST, then llm_client+prompts+cache"
       }
     },
     {
@@ -101,7 +101,7 @@
       "status": "not_started",
       "work": {
         "A": "build_pairs",
-        "B": "Colab QLoRA+tunnel"
+        "B": "Colab QLoRA; adapter into the already-running notebook"
       }
     },
     {
@@ -109,7 +109,7 @@
       "name": "Evaluation & Deployment",
       "status": "not_started",
       "work": {
-        "A": "eval harness",
+        "A": "eval harness, base vs tuned",
         "B": "deploy+demo script"
       }
     }
@@ -119,61 +119,97 @@
       "name": "Directory skeleton, every file tagged [A] or [B]",
       "phase": 0,
       "owner": "A",
-      "files": ["app/", "core/", "data_sourcing/", "training/", "scripts/", "tests/"]
+      "files": [
+        "app/",
+        "core/",
+        "data_sourcing/",
+        "training/",
+        "scripts/",
+        "tests/"
+      ]
     },
     {
       "name": "Dependency manifest, CPU-only",
       "phase": 0,
       "owner": "A",
-      "files": ["requirements.txt"]
+      "files": [
+        "requirements.txt"
+      ]
     },
     {
       "name": "Ignore rules; eval_set.jsonl deliberately tracked",
       "phase": 0,
       "owner": "A",
-      "files": [".gitignore"]
+      "files": [
+        ".gitignore"
+      ]
     },
     {
       "name": "Config loader: .env + st.secrets, fails loudly with named variables",
       "phase": 0,
       "owner": "B",
-      "files": ["core/config.py"]
+      "files": [
+        "core/config.py"
+      ]
     },
     {
       "name": "Config page: every variable, secrets masked",
       "phase": 0,
       "owner": "B",
-      "files": ["app/main.py"]
+      "files": [
+        "app/main.py"
+      ]
     },
     {
       "name": "Secrets template covering every variable",
       "phase": 0,
       "owner": "B",
-      "files": [".env.example"]
+      "files": [
+        ".env.example"
+      ]
     },
     {
       "name": "Memory digest CLI",
       "phase": 0,
       "owner": "B",
-      "files": ["scripts/memory_digest.py"]
+      "files": [
+        "scripts/memory_digest.py"
+      ]
     },
     {
       "name": "ADR log and machine-readable state",
       "phase": 0,
       "owner": "A+B",
-      "files": ["docs/decisions.md", "docs/state.json"]
+      "files": [
+        "docs/decisions.md",
+        "docs/state.json"
+      ]
     },
     {
       "name": "Setup, run and deployment instructions",
       "phase": 0,
       "owner": "B",
-      "files": ["README.md"]
+      "files": [
+        "README.md"
+      ]
     },
     {
       "name": "Orientation file for AI coding sessions",
       "phase": 0,
       "owner": "A+B",
-      "files": ["CLAUDE.md"]
+      "files": [
+        "CLAUDE.md"
+      ]
+    },
+    {
+      "name": "Config reworked for self-hosted endpoints (tunnel URL, shared secret, timeout)",
+      "phase": 0,
+      "owner": "B",
+      "files": [
+        "core/config.py",
+        "app/main.py",
+        ".env.example"
+      ]
     }
   ],
   "known_issues": [
@@ -185,7 +221,7 @@
     {
       "id": 2,
       "phase": 0,
-      "text": "pytest collects 0 tests — the three test files are docstring-only stubs until Phase 6."
+      "text": "pytest collects 0 tests \u2014 the three test files are docstring-only stubs until Phase 6."
     },
     {
       "id": 3,
@@ -193,26 +229,85 @@
       "text": "app/pages/*.py are stubs, so the Streamlit sidebar shows three blank pages until Phase 2."
     },
     {
-      "id": 4,
-      "phase": 0,
-      "text": "Cloud accounts (Supabase, Google AI Studio, Groq, HuggingFace, Streamlit Cloud) are created by hand and cannot be verified from the repo. The config page is the check."
-    },
-    {
       "id": 5,
       "phase": 0,
       "text": "No dependency pinning and no CI. Revisit before Phase 11 deployment."
+    },
+    {
+      "id": 6,
+      "phase": 0,
+      "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo \u2014 none built yet."
+    },
+    {
+      "id": 7,
+      "phase": 0,
+      "text": "Accounts needed are now Supabase, Colab, Kaggle, HuggingFace, Streamlit Cloud. Google AI Studio and Groq keys are NOT used. Created by hand; the config page is the only check."
+    },
+    {
+      "id": 8,
+      "phase": 5,
+      "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures \u2014 do not treat early Phase 5 quality as a failure."
     }
   ],
   "adrs": [
-    {"id": "ADR-001", "title": "No local GPU anywhere in the runtime path"},
-    {"id": "ADR-002", "title": "One swappable LLM client behind a single env var"},
-    {"id": "ADR-003", "title": "Supabase Postgres as the primary database"},
-    {"id": "ADR-004", "title": "Pydantic + JSON mode + repair-retry, not Outlines"},
-    {"id": "ADR-005", "title": "Code finds bounding boxes; the model never does"},
-    {"id": "ADR-006", "title": "Reconcile on client-month aggregates"},
-    {"id": "ADR-007", "title": "Contracts are sourced; actuals are derived"},
-    {"id": "ADR-008", "title": "Top-down build order: shell and database first"},
-    {"id": "ADR-009", "title": "Fine-tuning is a measured comparison, not a dependency"},
-    {"id": "ADR-010", "title": "CSV column mapping is LLM-proposed, human-confirmed"}
-  ]
+    {
+      "id": "ADR-001",
+      "title": "No local GPU anywhere in the runtime path"
+    },
+    {
+      "id": "ADR-002",
+      "title": "One swappable LLM client behind a single env var"
+    },
+    {
+      "id": "ADR-003",
+      "title": "Supabase Postgres as the primary database"
+    },
+    {
+      "id": "ADR-004",
+      "title": "Pydantic + JSON mode + repair-retry, not Outlines"
+    },
+    {
+      "id": "ADR-005",
+      "title": "Code finds bounding boxes; the model never does"
+    },
+    {
+      "id": "ADR-006",
+      "title": "Reconcile on client-month aggregates"
+    },
+    {
+      "id": "ADR-007",
+      "title": "Contracts are sourced; actuals are derived"
+    },
+    {
+      "id": "ADR-008",
+      "title": "Top-down build order: shell and database first"
+    },
+    {
+      "id": "ADR-009",
+      "title": "Fine-tuning is a measured comparison, not a dependency"
+    },
+    {
+      "id": "ADR-010",
+      "title": "CSV column mapping is LLM-proposed, human-confirmed"
+    },
+    {
+      "id": "ADR-011",
+      "title": "Self-hosted open-source inference only; no frontier API calls"
+    },
+    {
+      "id": "ADR-012",
+      "title": "Base model served from Phase 5; tuned adapter replaces it at Phase 10"
+    }
+  ],
+  "inference": {
+    "policy": "self-hosted open-source only; NO frontier model API calls (ADR-011)",
+    "base_model": "Qwen/Qwen2.5-3B-Instruct",
+    "tuned_model": "finsight-qwen2.5-3b (from Phase 10)",
+    "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
+    "serving_live_from_phase": 5
+  },
+  "superseded_adrs": {
+    "ADR-009": "superseded by ADR-012",
+    "ADR-002": "amended by ADR-011 (provider list is now our own endpoints)"
+  }
 }

@@ -26,21 +26,21 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = PROJECT_ROOT / ".env"
 SQLITE_FALLBACK = f"sqlite:///{PROJECT_ROOT / 'data' / 'finsight.db'}"
 
-#: The credential each provider needs. Only the active provider's is required.
-PROVIDER_CREDENTIAL = {
-    "gemini": "GEMINI_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "finetuned_tunnel": "FINETUNED_TUNNEL_URL",
+#: Where each provider's OpenAI-compatible endpoint lives. Only the active
+#: provider's URL is required. These are OUR notebook sessions, not vendors
+#: (ADR-011) — and the URL changes every time a session restarts.
+PROVIDER_ENDPOINT = {
+    "colab_tunnel": "COLAB_TUNNEL_URL",
+    "kaggle_tunnel": "KAGGLE_TUNNEL_URL",
+    "custom": "CUSTOM_BASE_URL",
 }
 
-#: Used only when LLM_MODEL is unset, so switching provider stays a one-liner.
-PROVIDER_DEFAULT_MODEL = {
-    "gemini": "gemini-2.5-flash",
-    "groq": "llama-3.3-70b-versatile",
-    "openrouter": "google/gemini-2.0-flash-exp:free",
-    "finetuned_tunnel": "finsight-qwen2.5-3b",
-}
+#: Base weights we serve from Phase 5. Phase 10 swaps this for the tuned
+#: adapter's served name; that single value is the whole comparison (ADR-012).
+DEFAULT_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+
+#: A cold start loads 3B of weights before answering the first request.
+DEFAULT_TIMEOUT_SECONDS = 120
 
 
 class ConfigError(RuntimeError):
@@ -99,6 +99,16 @@ def _read(name: str, default: str | None = None) -> str | None:
     return value
 
 
+def _read_int(name: str, default: int) -> int:
+    raw = _read(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def _read_bool(name: str, default: bool) -> bool:
     raw = _read(name)
     if raw is None:
@@ -151,10 +161,11 @@ class Settings:
     supabase_key: str | None
     llm_provider: str
     llm_model: str
-    gemini_api_key: str | None
-    groq_api_key: str | None
-    openrouter_api_key: str | None
-    finetuned_tunnel_url: str | None
+    colab_tunnel_url: str | None
+    kaggle_tunnel_url: str | None
+    custom_base_url: str | None
+    llm_api_key: str | None
+    llm_timeout_seconds: int
     hf_token: str | None
     llm_cache_enabled: bool
     log_level: str
@@ -187,38 +198,57 @@ class Settings:
         return not self.database_url
 
     @property
-    def active_credential_name(self) -> str:
-        return PROVIDER_CREDENTIAL.get(self.llm_provider, "GEMINI_API_KEY")
+    def active_endpoint_name(self) -> str:
+        """The env var holding the active provider's base URL."""
+        return PROVIDER_ENDPOINT.get(self.llm_provider, "COLAB_TUNNEL_URL")
 
     @property
-    def active_credential(self) -> str | None:
+    def active_base_url(self) -> str | None:
+        """Raw value of the active endpoint variable."""
         return {
-            "GEMINI_API_KEY": self.gemini_api_key,
-            "GROQ_API_KEY": self.groq_api_key,
-            "OPENROUTER_API_KEY": self.openrouter_api_key,
-            "FINETUNED_TUNNEL_URL": self.finetuned_tunnel_url,
-        }.get(self.active_credential_name)
+            "COLAB_TUNNEL_URL": self.colab_tunnel_url,
+            "KAGGLE_TUNNEL_URL": self.kaggle_tunnel_url,
+            "CUSTOM_BASE_URL": self.custom_base_url,
+        }.get(self.active_endpoint_name)
+
+    @property
+    def api_base(self) -> str | None:
+        """Normalised base URL for llm_client: no trailing slash, no /v1.
+
+        The tunnel URL is pasted in by hand after every notebook restart, so
+        tolerate the shapes people actually paste.
+        """
+        url = self.active_base_url
+        if not url:
+            return None
+        url = url.rstrip("/")
+        for suffix in ("/v1/chat/completions", "/v1"):
+            if url.endswith(suffix):
+                url = url[: -len(suffix)]
+        return url
 
     # ---- inspection ----
 
     def checks(self) -> list[Setting]:
         """Every variable with its status. Drives the config page and validate()."""
-        active = self.active_credential_name
+        endpoint = self.active_endpoint_name
         return [
-            Setting("LLM_PROVIDER", self.llm_provider, True, False, "ADR-002: the one variable that swaps providers"),
-            Setting("LLM_MODEL", self.llm_model, True, False, "Defaults per provider"),
-            Setting(
-                active,
-                self.active_credential,
-                True,
-                active != "FINETUNED_TUNNEL_URL",
-                f"Credential for the active provider ({self.llm_provider})",
-            ),
+            Setting("LLM_PROVIDER", self.llm_provider, True, False,
+                    "ADR-002: the one variable that swaps endpoint"),
+            Setting("LLM_MODEL", self.llm_model, True, False,
+                    "ADR-012: base weights now, tuned adapter from Phase 10"),
+            Setting(endpoint, self.active_base_url, True, False,
+                    f"Our {self.llm_provider} endpoint — CHANGES ON EVERY NOTEBOOK RESTART"),
+            Setting("LLM_API_KEY", self.llm_api_key, True, True,
+                    "Shared secret. The tunnel is a PUBLIC URL — never run it open"),
+            Setting("LLM_TIMEOUT_SECONDS", str(self.llm_timeout_seconds), False, False,
+                    "Cold starts load 3B of weights before the first answer"),
             Setting("DATABASE_URL", self.database_url, False, True, f"Falls back to {SQLITE_FALLBACK}"),
             Setting("SUPABASE_URL", self.supabase_url, False, False, "Needed from Phase 1 (file storage)"),
             Setting("SUPABASE_KEY", self.supabase_key, False, True, "Needed from Phase 1 (file storage)"),
-            Setting("HF_TOKEN", self.hf_token, False, True, "Needed from Phase 3 (dataset downloads)"),
-            Setting("LLM_CACHE_ENABLED", str(self.llm_cache_enabled).lower(), False, False, "Cache LLM responses on disk"),
+            Setting("HF_TOKEN", self.hf_token, False, True, "Needed from Phase 3 (datasets) and Phase 5 (weights)"),
+            Setting("LLM_CACHE_ENABLED", str(self.llm_cache_enabled).lower(), False, False,
+                    "Also what keeps a demo alive when the tunnel dies"),
             Setting("LOG_LEVEL", self.log_level, False, False, "DEBUG | INFO | WARNING | ERROR"),
         ]
 
@@ -229,10 +259,17 @@ class Settings:
         """Raise ConfigError naming everything that is missing or invalid."""
         problems: list[str] = []
 
-        if self.llm_provider not in PROVIDER_CREDENTIAL:
+        if self.llm_provider not in PROVIDER_ENDPOINT:
             problems.append(
                 f"LLM_PROVIDER={self.llm_provider!r} is not one of "
-                f"{' | '.join(PROVIDER_CREDENTIAL)}"
+                f"{' | '.join(PROVIDER_ENDPOINT)}"
+            )
+
+        url = self.active_base_url
+        if url and not url.startswith(("http://", "https://")):
+            problems.append(
+                f"{self.active_endpoint_name}={url!r} is not a URL — paste the "
+                "full https://... the notebook printed"
             )
 
         for setting in self.missing_required():
@@ -272,17 +309,18 @@ def configure_logging(level: str | None = None) -> None:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Resolve every variable once per process."""
-    provider = (_read("LLM_PROVIDER", "gemini") or "gemini").lower()
+    provider = (_read("LLM_PROVIDER", "colab_tunnel") or "colab_tunnel").lower()
     return Settings(
         database_url=_read("DATABASE_URL"),
         supabase_url=_read("SUPABASE_URL"),
         supabase_key=_read("SUPABASE_KEY"),
         llm_provider=provider,
-        llm_model=_read("LLM_MODEL", PROVIDER_DEFAULT_MODEL.get(provider)) or "",
-        gemini_api_key=_read("GEMINI_API_KEY"),
-        groq_api_key=_read("GROQ_API_KEY"),
-        openrouter_api_key=_read("OPENROUTER_API_KEY"),
-        finetuned_tunnel_url=_read("FINETUNED_TUNNEL_URL"),
+        llm_model=_read("LLM_MODEL", DEFAULT_MODEL) or "",
+        colab_tunnel_url=_read("COLAB_TUNNEL_URL"),
+        kaggle_tunnel_url=_read("KAGGLE_TUNNEL_URL"),
+        custom_base_url=_read("CUSTOM_BASE_URL"),
+        llm_api_key=_read("LLM_API_KEY"),
+        llm_timeout_seconds=_read_int("LLM_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
         hf_token=_read("HF_TOKEN"),
         llm_cache_enabled=_read_bool("LLM_CACHE_ENABLED", True),
         log_level=(_read("LOG_LEVEL", "INFO") or "INFO").upper(),
