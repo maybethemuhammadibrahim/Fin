@@ -1,0 +1,218 @@
+{
+  "project": "FinSight",
+  "updated": "2026-07-29",
+  "current_phase": 0,
+  "llm_provider": "gemini",
+  "memory_dir": "docs/",
+  "phases": [
+    {
+      "n": 0,
+      "name": "Foundations",
+      "status": "done",
+      "work": {
+        "A": "skeleton+deps+gitignore",
+        "B": "config+config page+digest"
+      }
+    },
+    {
+      "n": 1,
+      "name": "Cloud Database",
+      "status": "not_started",
+      "work": {
+        "A": "models+init_db",
+        "B": "queries+db_health page"
+      }
+    },
+    {
+      "n": 2,
+      "name": "Frontend Shell",
+      "status": "not_started",
+      "work": {
+        "A": "seed_demo",
+        "B": "all pages+components"
+      }
+    },
+    {
+      "n": 3,
+      "name": "Online Data Sourcing",
+      "status": "not_started",
+      "work": {
+        "A": "fetch CUAD+EDGAR",
+        "B": "scenario_builder"
+      }
+    },
+    {
+      "n": 4,
+      "name": "Text Extraction",
+      "status": "not_started",
+      "work": {
+        "A": "document_router+pdf_extractor",
+        "B": "csv_parser+ocr_cloud"
+      }
+    },
+    {
+      "n": 5,
+      "name": "LLM Rule Extraction",
+      "status": "not_started",
+      "work": {
+        "A": "schemas+extractor+clause_locator",
+        "B": "llm_client+prompts+cache"
+      }
+    },
+    {
+      "n": 6,
+      "name": "Timeline & Reconciliation",
+      "status": "not_started",
+      "work": {
+        "A": "timeline_generator",
+        "B": "reconciliation+classifier"
+      }
+    },
+    {
+      "n": 7,
+      "name": "Clause Viewer",
+      "status": "not_started",
+      "work": {
+        "A": "locator hardening",
+        "B": "pdf_renderer+drill-down"
+      }
+    },
+    {
+      "n": 8,
+      "name": "Verification Agent",
+      "status": "not_started",
+      "work": {
+        "A": "agent tools",
+        "B": "LangGraph loop+badges"
+      }
+    },
+    {
+      "n": 9,
+      "name": "Decision Engine",
+      "status": "not_started",
+      "work": {
+        "A": "cashflow math",
+        "B": "question parser+chart"
+      }
+    },
+    {
+      "n": 10,
+      "name": "Fine-Tuning",
+      "status": "not_started",
+      "work": {
+        "A": "build_pairs",
+        "B": "Colab QLoRA+tunnel"
+      }
+    },
+    {
+      "n": 11,
+      "name": "Evaluation & Deployment",
+      "status": "not_started",
+      "work": {
+        "A": "eval harness",
+        "B": "deploy+demo script"
+      }
+    }
+  ],
+  "implemented_features": [
+    {
+      "name": "Directory skeleton, every file tagged [A] or [B]",
+      "phase": 0,
+      "owner": "A",
+      "files": ["app/", "core/", "data_sourcing/", "training/", "scripts/", "tests/"]
+    },
+    {
+      "name": "Dependency manifest, CPU-only",
+      "phase": 0,
+      "owner": "A",
+      "files": ["requirements.txt"]
+    },
+    {
+      "name": "Ignore rules; eval_set.jsonl deliberately tracked",
+      "phase": 0,
+      "owner": "A",
+      "files": [".gitignore"]
+    },
+    {
+      "name": "Config loader: .env + st.secrets, fails loudly with named variables",
+      "phase": 0,
+      "owner": "B",
+      "files": ["core/config.py"]
+    },
+    {
+      "name": "Config page: every variable, secrets masked",
+      "phase": 0,
+      "owner": "B",
+      "files": ["app/main.py"]
+    },
+    {
+      "name": "Secrets template covering every variable",
+      "phase": 0,
+      "owner": "B",
+      "files": [".env.example"]
+    },
+    {
+      "name": "Memory digest CLI",
+      "phase": 0,
+      "owner": "B",
+      "files": ["scripts/memory_digest.py"]
+    },
+    {
+      "name": "ADR log and machine-readable state",
+      "phase": 0,
+      "owner": "A+B",
+      "files": ["docs/decisions.md", "docs/state.json"]
+    },
+    {
+      "name": "Setup, run and deployment instructions",
+      "phase": 0,
+      "owner": "B",
+      "files": ["README.md"]
+    },
+    {
+      "name": "Orientation file for AI coding sessions",
+      "phase": 0,
+      "owner": "A+B",
+      "files": ["CLAUDE.md"]
+    }
+  ],
+  "known_issues": [
+    {
+      "id": 1,
+      "phase": 0,
+      "text": "Memory files live in docs/, not memory/ as implementation_plan.md says. docs/ wins; the plan text was not rewritten."
+    },
+    {
+      "id": 2,
+      "phase": 0,
+      "text": "pytest collects 0 tests — the three test files are docstring-only stubs until Phase 6."
+    },
+    {
+      "id": 3,
+      "phase": 0,
+      "text": "app/pages/*.py are stubs, so the Streamlit sidebar shows three blank pages until Phase 2."
+    },
+    {
+      "id": 4,
+      "phase": 0,
+      "text": "Cloud accounts (Supabase, Google AI Studio, Groq, HuggingFace, Streamlit Cloud) are created by hand and cannot be verified from the repo. The config page is the check."
+    },
+    {
+      "id": 5,
+      "phase": 0,
+      "text": "No dependency pinning and no CI. Revisit before Phase 11 deployment."
+    }
+  ],
+  "adrs": [
+    {"id": "ADR-001", "title": "No local GPU anywhere in the runtime path"},
+    {"id": "ADR-002", "title": "One swappable LLM client behind a single env var"},
+    {"id": "ADR-003", "title": "Supabase Postgres as the primary database"},
+    {"id": "ADR-004", "title": "Pydantic + JSON mode + repair-retry, not Outlines"},
+    {"id": "ADR-005", "title": "Code finds bounding boxes; the model never does"},
+    {"id": "ADR-006", "title": "Reconcile on client-month aggregates"},
+    {"id": "ADR-007", "title": "Contracts are sourced; actuals are derived"},
+    {"id": "ADR-008", "title": "Top-down build order: shell and database first"},
+    {"id": "ADR-009", "title": "Fine-tuning is a measured comparison, not a dependency"},
+    {"id": "ADR-010", "title": "CSV column mapping is LLM-proposed, human-confirmed"}
+  ]
+}

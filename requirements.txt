@@ -1,0 +1,32 @@
+# FinSight — runtime dependencies  [A]
+# Nothing here needs a GPU (ADR-001). Everything installs on CPU, free.
+
+# ---- Frontend ----
+streamlit>=1.40
+plotly
+
+# ---- Database & storage ----
+sqlalchemy>=2.0
+psycopg2-binary
+supabase
+
+# ---- Document extraction ----
+pdfplumber
+pymupdf
+pandas
+
+# ---- AI ----
+pydantic>=2.0
+langgraph
+langchain-core
+
+# ---- Utilities ----
+python-dotenv
+requests
+thefuzz[speedup]
+
+# ---- Data sourcing (Phase 3) ----
+datasets
+
+# ---- Testing ----
+pytest

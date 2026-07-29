@@ -1,0 +1,27 @@
+# ---- Secrets. Never commit these. ----
+.env
+.streamlit/secrets.toml
+
+# ---- Data: sourced corpora, built scenarios, uploads, LLM cache ----
+# Keep the directory skeleton, ignore everything in it.
+data/**
+!data/**/
+!data/**/.gitkeep
+
+# ---- Local databases ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- Training data is generated; the held-out eval set is NOT. ----
+training/data/*.jsonl
+!training/data/eval_set.jsonl
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
