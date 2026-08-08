@@ -111,7 +111,7 @@ Three conveniences worth knowing:
 
 `LLM_API_KEY` is not issued by anyone — invent a long random string, put it in `.env`, and have the serving notebook reject requests without it.
 
-> Earlier drafts of this project used Google AI Studio and Groq API keys. **They are not used and not needed** — see [ADR-011](docs/decisions.md).
+> Earlier drafts of this project used Google AI Studio and Groq API keys. **They are not used and not needed** — see [ADR-011](docs/progress.md#adr-011--self-hosted-open-source-inference-only-no-frontier-api-calls).
 
 ## Where the intelligence runs
 
@@ -230,16 +230,15 @@ Two people, twelve phases, many separate AI sessions. Three rules keep that from
 2. **Interfaces before implementations.** A signature that crosses the A/B boundary goes into [`docs/interfaces.md`](docs/interfaces.md) *before* it is implemented, so the other person can code against a stub immediately and neither of you blocks.
 3. **Both people work every phase.** Nobody waits.
 
-At the end of every phase, five minutes: append to `docs/progress.md`, flip statuses in `docs/interfaces.md`, add any ADR to `docs/decisions.md`, update `docs/state.json`, commit as `memory: close phase N`. The full ritual is in [`docs/memory_system.md`](docs/memory_system.md).
+At the end of every phase, five minutes: append a phase entry to Part 1 of `docs/progress.md`, flip statuses in `docs/interfaces.md`, append any ADR to Part 2 of `docs/progress.md`, update `docs/state.json`, commit as `memory: close phase N`. The full ritual, the entry template and the project context all live in [`CLAUDE.md`](CLAUDE.md).
 
 ### Read these, in this order
 
 | File | Answers |
 |---|---|
-| [`docs/project_context.md`](docs/project_context.md) | What are we building, and with what? |
-| [`docs/progress.md`](docs/progress.md) | What already exists? *(append-only — if it isn't here, it doesn't exist)* |
+| [`CLAUDE.md`](CLAUDE.md) | What are we building, with what, and how do we work? |
+| [`docs/progress.md`](docs/progress.md) | Part 1: what already exists? *(append-only — if it isn't here, it doesn't exist)* · Part 2: why is it this way and not the obvious other way? |
 | [`docs/interfaces.md`](docs/interfaces.md) | What can I call, and what will it return? |
-| [`docs/decisions.md`](docs/decisions.md) | Why is it this way and not the obvious other way? |
 | [`docs/state.json`](docs/state.json) | Where are we right now? |
 | [`docs/implementation_plan.md`](docs/implementation_plan.md) | The full 12-phase plan, with a copy-paste prompt per phase. |
 

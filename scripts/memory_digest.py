@@ -3,9 +3,10 @@
 
     python scripts/memory_digest.py
 
-Reads docs/state.json. Use this when you want an assistant oriented fast;
-use the full Phase Prompt from docs/implementation_plan.md when starting
-real work.
+Reads docs/state.json — status only. What was built is docs/progress.md
+Part 1; why it is that way is Part 2. Use this when you want an assistant
+oriented fast; use the full Phase Prompt from docs/implementation_plan.md
+when starting real work.
 """
 
 from __future__ import annotations
@@ -34,14 +35,13 @@ def build_digest(state: dict) -> str:
     current_n = state.get("current_phase", 0)
     current = by_number.get(current_n, {})
 
-    features = state.get("implemented_features", [])
-    file_count = len({f for feat in features for f in feat.get("files", [])})
+    done_count = sum(1 for p in phases if p.get("status") == "done")
 
     out = [
         f"{state.get('project', 'PROJECT').upper()} — "
         f"phase {current_n} {current.get('status', 'unknown')} | "
         f"provider={state.get('llm_provider', '?')} | "
-        f"{len(features)} features across {file_count} files"
+        f"{done_count}/{len(phases)} phases done"
     ]
 
     done = [p for p in phases if p.get("status") == "done"]

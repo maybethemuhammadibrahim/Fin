@@ -1,9 +1,10 @@
 {
   "project": "FinSight",
-  "updated": "2026-07-29",
-  "current_phase": 0,
+  "updated": "2026-08-08",
+  "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
+  "current_phase": 2,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
-  "memory_dir": "docs/",
+  "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
   "phases": [
     {
       "n": 0,
@@ -17,20 +18,22 @@
     {
       "n": 1,
       "name": "Cloud Database",
-      "status": "not_started",
+      "status": "done",
       "work": {
-        "A": "models+init_db",
+        "A": "models+database+init_db+reset_run",
         "B": "queries+db_health page"
-      }
+      },
+      "note": "All 12 tables and 13 query helpers. The same 47 assertions pass identically on SQLite and on Supabase Postgres. ADR-005 nullability and all 6 CheckConstraints confirmed in information_schema. Tables exist and are empty — Phase 2 seeds them."
     },
     {
       "n": 2,
       "name": "Frontend Shell",
-      "status": "not_started",
+      "status": "done",
       "work": {
-        "A": "seed_demo",
-        "B": "all pages+components"
-      }
+        "A": "seed_demo+storage(supabase)+report_notes",
+        "B": "main+2 pages+6 components+state"
+      },
+      "note": "Full UI reading real Supabase rows; no hardcoded dict anywhere in app/. Seeded run: $26,908 across 7 findings, all 4 leak types, 3 of 5 clients. Dashboard totals match the seeder via two independent queries. Supabase Storage live on a private bucket with content-addressed keys."
     },
     {
       "n": 3,
@@ -114,119 +117,21 @@
       }
     }
   ],
-  "implemented_features": [
-    {
-      "name": "Directory skeleton, every file tagged [A] or [B]",
-      "phase": 0,
-      "owner": "A",
-      "files": [
-        "app/",
-        "core/",
-        "data_sourcing/",
-        "training/",
-        "scripts/",
-        "tests/"
-      ]
-    },
-    {
-      "name": "Dependency manifest, CPU-only",
-      "phase": 0,
-      "owner": "A",
-      "files": [
-        "requirements.txt"
-      ]
-    },
-    {
-      "name": "Ignore rules; eval_set.jsonl deliberately tracked",
-      "phase": 0,
-      "owner": "A",
-      "files": [
-        ".gitignore"
-      ]
-    },
-    {
-      "name": "Config loader: .env + st.secrets, fails loudly with named variables",
-      "phase": 0,
-      "owner": "B",
-      "files": [
-        "core/config.py"
-      ]
-    },
-    {
-      "name": "Config page: every variable, secrets masked",
-      "phase": 0,
-      "owner": "B",
-      "files": [
-        "app/main.py"
-      ]
-    },
-    {
-      "name": "Secrets template covering every variable",
-      "phase": 0,
-      "owner": "B",
-      "files": [
-        ".env.example"
-      ]
-    },
-    {
-      "name": "Memory digest CLI",
-      "phase": 0,
-      "owner": "B",
-      "files": [
-        "scripts/memory_digest.py"
-      ]
-    },
-    {
-      "name": "ADR log and machine-readable state",
-      "phase": 0,
-      "owner": "A+B",
-      "files": [
-        "docs/decisions.md",
-        "docs/state.json"
-      ]
-    },
-    {
-      "name": "Setup, run and deployment instructions",
-      "phase": 0,
-      "owner": "B",
-      "files": [
-        "README.md"
-      ]
-    },
-    {
-      "name": "Orientation file for AI coding sessions",
-      "phase": 0,
-      "owner": "A+B",
-      "files": [
-        "CLAUDE.md"
-      ]
-    },
-    {
-      "name": "Config reworked for self-hosted endpoints (tunnel URL, shared secret, timeout)",
-      "phase": 0,
-      "owner": "B",
-      "files": [
-        "core/config.py",
-        "app/main.py",
-        ".env.example"
-      ]
-    }
-  ],
   "known_issues": [
     {
       "id": 1,
       "phase": 0,
-      "text": "Memory files live in docs/, not memory/ as implementation_plan.md says. docs/ wins; the plan text was not rewritten."
+      "text": "Memory files live in docs/, not memory/ as implementation_plan.md says, and there are 4 of them, not the 5 the plan names. docs/ wins; the plan text was not rewritten."
     },
     {
       "id": 2,
       "phase": 0,
-      "text": "pytest collects 0 tests \u2014 the three test files are docstring-only stubs until Phase 6."
+      "text": "pytest collects 0 tests — the three test files are docstring-only stubs until Phase 6."
     },
     {
       "id": 3,
       "phase": 0,
-      "text": "app/pages/*.py are stubs, so the Streamlit sidebar shows three blank pages until Phase 2."
+      "text": "RESOLVED 2026-08-08 (Phase 2): app/pages/*.py are all built. The sidebar now shows Revenue Integrity, Decision Engine and DB Health, all rendering real rows."
     },
     {
       "id": 5,
@@ -234,9 +139,49 @@
       "text": "No dependency pinning and no CI. Revisit before Phase 11 deployment."
     },
     {
+      "id": 9,
+      "phase": 0,
+      "text": "DECIDED 2026-08-08, no action: COLAB_TUNNEL_URL shows ❌ and validate() raises until Phase 5 stands up the tunnel (ADR-012). Phase 0's 'all keys ✅' definition of done is unreachable before then, by design. Accepted as honest rather than demoting the variable to optional, which would move the loud failure out of startup and into llm_client. Do not 'fix' this."
+    },
+    {
+      "id": 10,
+      "phase": 0,
+      "text": "RESOLVED 2026-08-08: .venv rebuilt on Python 3.12.13 via uv, for Streamlit Cloud parity. All 16 deps install and import. The old 'py3.14 lacks pymupdf/psycopg2 wheels' warning was stale — they build fine on 3.14 too; the real reason for 3.12 is that Cloud does not offer 3.14."
+    },
+    {
+      "id": 13,
+      "phase": 1,
+      "text": "RESOLVED 2026-08-08: Supabase project created, DATABASE_URL set, 12/12 tables created in Postgres and all 47 assertions re-run there with identical results. ADR-005 nullability and the 6 CheckConstraints confirmed via information_schema. Residual: connection pooling under Streamlit reruns is only lightly exercised, and a free Supabase project pauses after ~1 week idle, failing like a bad password."
+    },
+    {
+      "id": 16,
+      "phase": 2,
+      "text": "RESOLVED 2026-08-08: private bucket `finsight-documents` created (public=False, verified) and core/storage/files.py runs on the Supabase backend via SUPABASE_SERVICE_KEY. The anon key cannot write to a private bucket (403 RLS); service_role bypasses RLS and never reaches a browser because Streamlit is server-side. 11 live assertions pass. Residual: no orphan-object cleanup when a run is deleted."
+    },
+    {
+      "id": 14,
+      "phase": 1,
+      "text": "Phase 1 added two things the plan's ER diagram omits: a `milestones` table (the diagram draws 11 tables while the plan text and models.py stub say 12; ContractRules.milestones and TimelineEntry.payment_type='milestone' both require it) and expected_timeline.source_clause_ref_id (declared by TimelineEntry in interfaces.md, missing from the diagram, needed so an anomaly can inherit its proving clause)."
+    },
+    {
+      "id": 15,
+      "phase": 1,
+      "text": "Phase 1's 47 verification assertions ran from a scratch script, not pytest — tests/ stays docstring-only until Phase 6 by plan. The verification is therefore not repeatable in CI. Phase 6 owns porting them."
+    },
+    {
+      "id": 12,
+      "phase": 4,
+      "text": "Import PyMuPDF as `import pymupdf`, NOT `import fitz` — the fitz alias emits a DeprecationWarning on the installed version. implementation_plan.md and project docs say 'fitz'. Affects clause_locator.py (Phase 4/5) and pdf_renderer.py (Phase 7)."
+    },
+    {
+      "id": 11,
+      "phase": 0,
+      "text": "PARTLY RESOLVED 2026-08-08: Supabase created; DATABASE_URL / SUPABASE_URL / SUPABASE_KEY are set and working. LLM_API_KEY generated locally. Still unset: HF_TOKEN (needed Phase 3) and the tunnel URL (Phase 5, see #9). Colab/Kaggle/HuggingFace/Streamlit Cloud accounts unverified."
+    },
+    {
       "id": 6,
       "phase": 0,
-      "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo \u2014 none built yet."
+      "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo — none built yet."
     },
     {
       "id": 7,
@@ -246,7 +191,37 @@
     {
       "id": 8,
       "phase": 5,
-      "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures \u2014 do not treat early Phase 5 quality as a failure."
+      "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures — do not treat early Phase 5 quality as a failure."
+    },
+    {
+      "id": 17,
+      "phase": 4,
+      "text": "app/components/column_mapper.py is the one component in the tree Phase 2 did not build. It confirms an LLM-proposed CSV mapping (ADR-010), which does not exist until Phase 4."
+    },
+    {
+      "id": 18,
+      "phase": 2,
+      "text": "Anomaly row selection uses st.dataframe(selection_mode='single-row'), which streamlit AppTest cannot click. The drill-down was verified by injecting session_state; the widget itself is manual-only."
+    },
+    {
+      "id": 19,
+      "phase": 7,
+      "text": "The clause viewer shows page number, verbatim quote and locate_method but no rendered PDF page — pdf_renderer.py is a Phase 7 stub and seeded documents use seed:// URLs with no bytes behind them."
+    },
+    {
+      "id": 20,
+      "phase": 4,
+      "text": "Supabase's CDN ignores cache-control: re-uploading DIFFERENT bytes to the same object key returns the OLD content for up to an hour, and a deleted object stays readable. Verified (server-side size said 7 while download() returned the 3-byte original). Mitigated by content-addressed keys (<run_id>/<sha256[:12]>_<name>) so a key's bytes never change. NEVER build a bucket key by hand — use files.save_upload and the returned documents.storage_url."
+    },
+    {
+      "id": 21,
+      "phase": 11,
+      "text": "No orphan cleanup in Storage: deleting a run removes its documents rows but leaves the objects. Content-addressing means every edited re-upload also leaves its predecessor. Fine at demo scale (1 GB free tier); sweep before deployment."
+    },
+    {
+      "id": 22,
+      "phase": 11,
+      "text": "SUPABASE_SERVICE_KEY must go into Streamlit Secrets at deploy time, never the repo. It bypasses all RLS and has full DB access. SUPABASE_KEY (anon) is currently unused — files.py uses service_role and the DB goes through SQLAlchemy, not PostgREST."
     }
   ],
   "adrs": [
@@ -256,7 +231,8 @@
     },
     {
       "id": "ADR-002",
-      "title": "One swappable LLM client behind a single env var"
+      "title": "One swappable LLM client behind a single env var",
+      "status": "amended by ADR-011 (provider list is now our own endpoints)"
     },
     {
       "id": "ADR-003",
@@ -284,7 +260,8 @@
     },
     {
       "id": "ADR-009",
-      "title": "Fine-tuning is a measured comparison, not a dependency"
+      "title": "Fine-tuning is a measured comparison, not a dependency",
+      "status": "superseded by ADR-012"
     },
     {
       "id": "ADR-010",
@@ -305,9 +282,5 @@
     "tuned_model": "finsight-qwen2.5-3b (from Phase 10)",
     "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
     "serving_live_from_phase": 5
-  },
-  "superseded_adrs": {
-    "ADR-009": "superseded by ADR-012",
-    "ADR-002": "amended by ADR-011 (provider list is now our own endpoints)"
   }
 }

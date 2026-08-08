@@ -94,6 +94,12 @@ def _read(name: str, default: str | None = None) -> str | None:
     if value is None:
         return default
     value = value.strip()
+    # python-dotenv strips an inline "# comment" only when the variable has a
+    # value; on a BLANK one the comment text is handed back as the value. That
+    # turned an unset tunnel URL into a ✅ on the config page — the exact
+    # opposite of failing loudly. A value that starts with '#' is never real.
+    if value.startswith("#"):
+        return default
     if not value or any(p in value for p in _PLACEHOLDERS):
         return default
     return value
@@ -159,6 +165,11 @@ class Settings:
     database_url: str | None
     supabase_url: str | None
     supabase_key: str | None
+    #: service_role key. Bypasses RLS, so Storage works against a fully private
+    #: bucket with no policies. Streamlit renders server-side and never ships
+    #: this to a browser — that is the condition that makes it safe here.
+    #: NEVER log it, never render it unmasked, never commit it.
+    supabase_service_key: str | None
     llm_provider: str
     llm_model: str
     colab_tunnel_url: str | None
@@ -244,8 +255,10 @@ class Settings:
             Setting("LLM_TIMEOUT_SECONDS", str(self.llm_timeout_seconds), False, False,
                     "Cold starts load 3B of weights before the first answer"),
             Setting("DATABASE_URL", self.database_url, False, True, f"Falls back to {SQLITE_FALLBACK}"),
-            Setting("SUPABASE_URL", self.supabase_url, False, False, "Needed from Phase 1 (file storage)"),
-            Setting("SUPABASE_KEY", self.supabase_key, False, True, "Needed from Phase 1 (file storage)"),
+            Setting("SUPABASE_URL", self.supabase_url, False, False, "Needed from Phase 2 (file storage)"),
+            Setting("SUPABASE_KEY", self.supabase_key, False, True, "anon key — safe to publish"),
+            Setting("SUPABASE_SERVICE_KEY", self.supabase_service_key, False, True,
+                    "service_role — SERVER ONLY. Writes to the private Storage bucket"),
             Setting("HF_TOKEN", self.hf_token, False, True, "Needed from Phase 3 (datasets) and Phase 5 (weights)"),
             Setting("LLM_CACHE_ENABLED", str(self.llm_cache_enabled).lower(), False, False,
                     "Also what keeps a demo alive when the tunnel dies"),
@@ -314,6 +327,7 @@ def get_settings() -> Settings:
         database_url=_read("DATABASE_URL"),
         supabase_url=_read("SUPABASE_URL"),
         supabase_key=_read("SUPABASE_KEY"),
+        supabase_service_key=_read("SUPABASE_SERVICE_KEY"),
         llm_provider=provider,
         llm_model=_read("LLM_MODEL", DEFAULT_MODEL) or "",
         colab_tunnel_url=_read("COLAB_TUNNEL_URL"),

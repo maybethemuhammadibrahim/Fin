@@ -7,7 +7,7 @@
 ## What Is FinSight?
 
 A web tool for small B2B service businesses that **automatically reads their contracts and compares them against their actual invoices/bank statements** to find money they forgot to collect — then helps them make smarter financial decisions with the recovered revenue factored in.
-
+this is an mvp
 ---
 
 ## The 10,000-Foot View (Full Pipeline)

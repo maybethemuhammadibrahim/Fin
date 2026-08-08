@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phase 0 complete. Phase 0's own signatures are ✅; everything from Phase 1 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0, 1 and 2 complete and marked ✅; everything from Phase 3 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -163,36 +163,165 @@ class Settings:                         # frozen dataclass
 ## Phase 1 — Database
 
 ```python
-# core/db/database.py                                          [A]  ⬜
-def get_session() -> Session: ...
-def init_db() -> None: ...
+# core/db/models.py                                            [A]  ✅
+#   12 models: Run, Document, Client, ContractRule, ClauseReference,
+#   PriceEscalation, Discount, Milestone, ExpectedTimeline,
+#   ActualTransaction, Anomaly, ColumnMapping.
+#   ALL_MODELS is the canonical tuple, in dependency order.
+Base: DeclarativeBase
+ALL_MODELS: tuple[type[Base], ...]
+ANOMALY_TYPES / ANOMALY_STATUSES / LOCATE_METHODS / PAYMENT_TYPES
+BILLING_FREQUENCIES / EXTRACTION_STATUSES   # allowed values, enforced by CheckConstraint
 
-# core/db/queries.py                                           [B]  ⬜
+# core/db/database.py                                          [A]  ✅
+def get_engine() -> Engine: ...            # lazy; import never opens a socket
+def get_session() -> Session: ...          # caller closes
+def session_scope() -> Iterator[Session]:  # contextmanager: commits/rolls back/closes
+def init_db() -> None: ...                 # create_all, idempotent
+def drop_all() -> None: ...                # destructive; init_db.py --drop only
+def check_connection() -> tuple[bool, str] # never raises
+def describe_backend() -> str              # password stripped, safe to display
+def reset_engine() -> None                 # tests that swap DATABASE_URL
+
+# core/db/queries.py                                           [B]  ✅
+def create_run(session, label: str) -> int: ...
+def list_runs(session) -> list[RunRow]: ...
+def get_latest_run(session) -> RunRow | None: ...
 def get_summary_stats(session, run_id: int) -> SummaryStats: ...
-def list_anomalies(session, run_id: int, status: str | None = None) -> list[Anomaly]: ...
+def list_anomalies(session, run_id: int, status: str | None = None,
+                   anomaly_type: str | None = None) -> list[AnomalyRow]: ...
+def get_anomaly(session, anomaly_id: int) -> AnomalyRow | None: ...
 def get_clause_reference(session, clause_ref_id: int) -> ClauseRefRow | None: ...
 def list_clients(session, run_id: int) -> list[ClientRow]: ...
 def get_document(session, document_id: int) -> DocumentRow | None: ...
-def create_run(session, label: str) -> int: ...
+def list_documents(session, run_id: int) -> list[DocumentRow]: ...
+def table_counts(session, run_id: int | None = None) -> dict[str, int]: ...
+def list_transactions(session, run_id: int,
+                      client_id: int | None = None) -> list[ActualTransaction]: ...
 ```
+
+**Row shapes** — frozen dataclasses defined in `queries.py`, not ORM objects.
+Streamlit reruns the script on every interaction, and a detached ORM instance
+raises `DetachedInstanceError` the moment a lazy relationship is touched after
+its session closed. Plain data cannot.
+
+```python
+SummaryStats(run_id, total_leaked, anomaly_count, client_count, document_count,
+             by_type: dict[str,int], unverified_count, ungrounded_count)
+             .grounded_count
+AnomalyRow(id, run_id, client_id, client_name, anomaly_type, expected_amount,
+           actual_amount, gap, confidence_score, status, billing_date,
+           clause_reference_id, expected_timeline_id, actual_transaction_id,
+           agent_reasoning, verified_at).has_clause
+ClauseRefRow(id, contract_rule_id, document_id, clause_type, clause_text,
+             source_page, source_bbox, locate_method, document_filename)
+             .is_grounded          # False is NORMAL (ADR-005), not an error
+ClientRow(id, run_id, name, normalized_name, contract_count)
+DocumentRow(id, run_id, filename, file_type, category, storage_url,
+            extraction_status, error_message, uploaded_at)
+RunRow(id, label, llm_provider, model_name, created_at)
+```
+
+> **⚠️ Signature changed 2026-08-08 — `list_anomalies` returns `list[AnomalyRow]`, not `list[Anomaly]`.**
+> `Anomaly` is already the ORM model *and* the Phase-5 Pydantic schema in `core/ai/schemas.py`. Three
+> different things cannot share one name. The DB row also carries `id`, `status`, `client_name` and the
+> agent's output, which the Phase-5 schema does not, while the schema carries `billing_date`, which lives
+> on `expected_timeline`. Phase 5 keeps its `Anomaly` schema unchanged; the query layer returns rows.
+
+> **Two additions Phase 1 made to the plan's schema.** A **`milestones`** table — the ER diagram draws 11
+> tables while the plan text and the `models.py` stub both say 12, and milestones are the missing one
+> (`ContractRules.milestones` exists above, `TimelineEntry.payment_type` includes `"milestone"`).
+> And **`expected_timeline.source_clause_ref_id`**, which `TimelineEntry` in this file already declared
+> but the ER diagram omitted — without it an anomaly cannot inherit the clause that proves it.
 
 ---
 
 ## Phase 2 — Seeding & UI
 
 ```python
-# scripts/seed_demo.py                                         [A]  ⬜
-def seed_run(session, scenario_dir: str, label: str) -> int:
-    """Loads a built scenario into the DB. Returns run_id.
-       Writes every table the UI reads, so B's pages work end-to-end."""
+# scripts/seed_demo.py                                         [A]  ✅
+def seed_run(session, scenario_dir: str | None = None,
+             label: str = "demo_v1") -> int:
+    """Writes a complete, internally consistent run into every table the UI
+       reads. Returns run_id. scenario_dir raises NotImplementedError until
+       Phase 3 builds scenarios on disk — omit it for the built-in demo."""
 
-# app/components/*.py                                          [B]  ⬜
-def render_summary_cards(stats: SummaryStats) -> None: ...
-def render_anomaly_table(anomalies: list[Anomaly]) -> int | None:
+# core/storage/files.py                                        [A]  ✅ (Supabase backend live)
+BUCKET = "finsight-documents"           # private, no RLS policies
+class StorageError(RuntimeError): ...
+def save_upload(data: bytes, filename: str, run_id: int) -> str   # raises StorageError
+def load(storage_url: str) -> bytes | None                        # None, never raises
+def signed_url(storage_url: str, expires_in: int = 3600) -> str | None
+def delete(storage_url: str) -> bool
+def check() -> tuple[bool, str]         # for the health page; never raises
+def backend() -> str                    # "supabase" when URL + SERVICE_KEY set, else "local"
+def is_cloud() -> bool
+def describe() -> str                   # one line for the UI
+def safe_filename(name: str) -> str
+def object_key(filename: str, run_id: int, data: bytes) -> str
+    """<run_id>/<sha256(data)[:12]>_<safe name>"""
+
+# app/state.py                                                 [B]  ✅
+def db() -> Iterator[Session]                # contextmanager, one per render
+def get_run_id() -> int | None               # defaults to the newest run
+def set_run_id(run_id: int | None) -> None
+def render_run_selector(label="Run") -> int | None
+def get_selected_anomaly() -> int | None
+def set_selected_anomaly(anomaly_id: int | None) -> None
+def clear_selected_anomaly() -> None
+
+# app/components/summary_cards.py                              [B]  ✅
+LEAK_TYPES: dict[str, tuple[str, str]]       # type -> (emoji, label)
+def money(amount: float) -> str
+def render_summary_cards(stats: SummaryStats) -> None
+def render_type_breakdown(stats: SummaryStats) -> None
+def render_grounding_note(stats: SummaryStats) -> None
+
+# app/components/anomaly_table.py                              [B]  ✅
+def render_anomaly_table(anomalies: list[AnomalyRow]) -> int | None
     """Returns the anomaly_id of the clicked row, or None."""
-def render_clause_viewer(clause_ref_id: int) -> None: ...
-def render_cash_flow_chart(baseline: list[float], recovered: list[float]) -> None: ...
+def render_filters(anomalies: list[AnomalyRow]) -> tuple[str | None, str | None]
+def render_anomaly_detail(anomaly: AnomalyRow) -> None
+def type_label(anomaly_type: str) -> str
+
+# app/components/clause_viewer.py                              [B]  ✅ (placeholder until Phase 7)
+def render_clause_viewer(clause: ClauseRefRow | None) -> None
+def render_placeholder() -> None
+
+# app/components/client_confirm.py                             [B]  ✅ (display only until Phase 5)
+def render_client_confirm(clients: list[ClientRow]) -> bool   # True when confirmed
+
+# app/components/file_uploader.py                              [B]  ✅
+def render_file_uploaders(session, run_id: int) -> int        # count of new documents
+def render_document_list(documents: list[DocumentRow]) -> None
+
+# app/components/cash_flow_chart.py                            [B]  ✅ (real series from Phase 9)
+def render_cash_flow_chart(baseline: list[float], recovered: list[float],
+                           labels: list[str] | None = None,
+                           threshold: float | None = None,
+                           threshold_label: str = "Cost of the hire") -> None
+def render_breakdown(rows: list[tuple[str, float]]) -> None
+
+# app/components/column_mapper.py                              [B]  ⬜ Phase 4
 ```
+
+> **⚠️ `render_clause_viewer` takes a `ClauseRefRow | None`, not a `clause_ref_id: int`.**
+> The page already holds an open session and has to handle "this finding has no clause" anyway
+> (hard rule 5), so passing the row keeps the component free of database access and makes the
+> None case explicit in the type. Phase 7 adds the rendered page image behind the same signature.
+
+> **⚠️ `render_anomaly_table` takes `list[AnomalyRow]`** — same rename as `list_anomalies`, see Phase 1.
+
+> **⚠️ Object keys are content-addressed, and `object_key` takes the bytes.** Supabase's CDN ignores
+> `cache-control`: re-uploading different bytes to the same key returns the **old** content for up to an
+> hour, and a deleted object stays readable. Verified against the live bucket. Hashing the content into
+> the key makes a key's bytes immutable, so a stale cache is always correct. **Never construct a bucket
+> key by hand** — a `documents.storage_url` is the only valid handle to a stored file.
+
+**Two `SummaryStats` fields were added in Phase 2** because the UI must not compute figures:
+`affected_client_count` (the "3 of 5" card) and the split of the old `ungrounded_count` into
+`unlinked_count` (no clause at all — unproven, hard rule 5) and `unlocatable_count` (clause quoted
+but not locatable — valid finding, degraded highlight, ADR-005). `grounding_rate` derives from them.
 
 ---
 
