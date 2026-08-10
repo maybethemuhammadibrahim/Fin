@@ -732,6 +732,110 @@ now with `backend() == "supabase"`.
 
 ---
 
+## Pre-Phase-3 spike — CUAD/EDGAR data-source viability (Risk R1)
+**Completed:** 2026-08-10 · **Owners:** A / B · **Not a phase.** No phase status changed.
+
+Run before writing Phase 3 code, to test the assumption the plan never tested:
+*do real CUAD contracts actually contain the billing rules FinSight looks for?*
+They largely do not. EDGAR does. Details below; decisions in ADR-013 and ADR-014.
+
+### Built (throwaway probes, not Phase 3 deliverables)
+- `scripts/contract_scoring.py` — shared scoring so CUAD and EDGAR are judged by
+  identical criteria. Five rule categories, a concrete/unredacted second stage,
+  clause fingerprinting and blank counting.
+- `scripts/cuad_probe.py` — downloads all 510 CUAD PDFs from HF
+  `theatticusproject/cuad` (public, **no HF_TOKEN needed**), extracts text with
+  PyMuPDF, scores, writes `VERDICT.md` + gold/templates/survivors/evidence.
+- `scripts/edgar_probe.py` — SEC full-text search (`efts.sec.gov`), fetches
+  EX-10/EX-99 exhibits, same scoring. SEC requires a contact User-Agent.
+- `scripts/fill_blanks.py` — assembles the deduplicated corpus and inserts
+  values into redacted clauses **deterministically**, recording each as ground
+  truth by construction (ADR-014).
+
+### The measurements that decided it
+
+| | CUAD (510) | EDGAR (288) |
+|---|---:|---:|
+| Plan's ANY-keyword filter | 248 (48.6%) | — |
+| Real recurring $ amount | 55 (10.8%) | 161 (55.9%) |
+| Real % / CPI escalation | 18 (3.5%) | 68 (23.6%) |
+| **Both, unredacted ("gold")** | **8 (1.6%)** | **51 (17.7%)** |
+| Gold surviving a hand read | **3** | — |
+| Redacted financials | 121 (23.7%) | 72 (25.0%) |
+
+**Two traps the plan's filter hides, both now measured:**
+1. **`escalat*` is a false friend.** 81 CUAD contracts match it; **68 mean the
+   *dispute* escalation procedure**, not a price rise. Any filter containing bare
+   `escalat` silently imports them as `forgotten_raise` candidates.
+2. **Redaction.** ~24% of both corpora carry `[***]` where the rate should be —
+   SEC confidential treatment. A perfect clause with no number is unusable as-is.
+
+**Counting documents overstates the corpus ~2.5x.** EDGAR's 51 gold carry only
+**21 distinct escalation clauses** — one administrator (Ultimus) sends every fund
+trust the same fee letter. Dedupe on the clause, not the filename.
+
+**The inversion that mattered:** the *redacted* pile is more varied than the gold
+pile — 49 templates carry **33** distinct clauses vs gold's 21, with **zero
+overlap**. Boilerplate fee letters publish their numbers; genuinely negotiated
+commercial contracts redact them. Redaction is a signal of a *better* document.
+
+### Result: `data/corpus/contracts_v0/` — 44 distinct contracts
+One per filer, one per distinct clause wording. Target was 30.
+
+| Bucket | N | Meaning |
+|---|---:|---|
+| `ready/` | 19 | Real amount + real escalation already present |
+| `filled/` | 6 | 16 values inserted deterministically; key in `ground_truth_fills.json` |
+| `review/` | 19 | Clause shape right, no figure found — **needs a human look** |
+| `skipped/` | 0 | — |
+
+Plus 3 CUAD contracts that survived hand-reading (UAGH `$40,000/month` + anniversary;
+BNL `$5,000/month` + 10%/yr cap; SPI Energy 3%/yr at first anniversary).
+
+### New interfaces added to interfaces.md
+- None. These are spike scripts outside the A/B boundary. When
+  `data_sourcing/filter_contracts.py` is written for real it should inherit the
+  patterns and the three-bucket idea from `scripts/contract_scoring.py`.
+
+### Decisions recorded
+- ADR-013: EDGAR is the primary contract source; CUAD is demoted
+- ADR-014: Redacted values are filled deterministically, never by a model
+
+### Known gaps / deliberately deferred
+- **The 19 in `review/` are unverified.** Some will have the amount in an exhibit
+  that was never filed. Expect to lose ~a quarter, landing near 40. Nobody has
+  read them yet.
+- **Corpus variety is adequate, not good.** 44 contracts, and the EX-99 fund
+  cluster is over-represented because the probe's queries were generic and it
+  only ever read **page 1** of each result list. A broader, deeper search
+  (industry-specific queries, pages 2–10, cap per filer) is written up but not
+  run. Do it before Phase 10, not before Phase 3 — variety is only load-bearing
+  for training and the base-vs-tuned claim.
+- **EDGAR serves HTML, not PDF.** Phase 7's clause viewer locates quotes with
+  PyMuPDF `page.search_for()`, which needs a PDF. Either convert before these
+  enter `data/corpus/contracts/`, or accept page-level degradation (ADR-005
+  already permits a null bbox). Not solved, not costed.
+- `data_sourcing/fetch_contracts.py` and `filter_contracts.py` are **still
+  one-line stubs**. This spike did not write Phase 3; it de-risked it.
+- Contracts are large-company SEC filings. FinSight's stated customer is a 3–20
+  person studio. The prose is genuine but the domain is not the target domain —
+  say so in the report rather than letting a reader assume otherwise.
+- No ground truth exists yet for the `ready/` 19 — only the 6 `filled/` ones have
+  a recorded answer key, and that covers the inserted values only, not a full
+  `ContractRules` extraction.
+
+### How to verify this phase works
+```bash
+python scripts/cuad_probe.py     # -> data/corpus/cuad_probe/VERDICT.md
+python scripts/edgar_probe.py    # -> data/corpus/edgar_probe/REPORT.md
+python scripts/fill_blanks.py    # -> data/corpus/contracts_v0/MANIFEST.md
+```
+Then open `data/corpus/contracts_v0/MANIFEST.md`; `ready/` + `filled/` + `review/`
+must total 44, and every value in `ground_truth_fills.json` must appear verbatim
+in the corresponding `filled/*.txt`.
+
+---
+
 <!-- ================================================================= -->
 <!-- APPEND NEW PHASE ENTRIES ABOVE THIS LINE.                         -->
 <!-- ================================================================= -->
@@ -918,3 +1022,62 @@ Phase 11's comparison therefore becomes **base vs tuned**, not hosted-vs-tuned.
 The comparison also gets cleaner than it was. Same base weights, adapter on or off, one variable — so any delta is attributable to our training data and nothing else. Under ADR-009 we would have been comparing a 3B model against a frontier model, which measures model scale as much as it measures our work.
 
 The product's dependency on fine-tuning is narrower than it looks: if training fails outright, the base-weights endpoint still runs the entire application. We would lose the capstone claim, not the demo. What we cannot lose is self-hosting itself — that is now load-bearing.
+
+---
+
+## ADR-013 — SEC EDGAR is the primary contract source; CUAD is demoted
+
+**Status:** Accepted (2026-08-10, pre-Phase-3 spike) · **Amends ADR-007**
+
+**Context.** ADR-007 said contracts are *sourced* and actuals *derived*, naming CUAD and EDGAR together as if interchangeable. Risk R1 in the plan flagged CUAD's M&A skew and prescribed a keyword filter expecting 15–25% retention. The spike measured all 510 CUAD contracts and found that number is real *and meaningless*:
+
+- 248 (48.6%) pass the plan's ANY-keyword filter.
+- **8 (1.6%)** carry both a real recurring amount and a real escalation clause.
+- **3** survive being read by hand.
+
+Three usable contracts cannot support `forgotten_raise`, one of the four headline leak types. The plan's filter fails in two specific ways, both now quantified: bare `escalat*` matches 81 documents of which **68 mean the dispute-escalation procedure**, and 121 documents (23.7%) redact their financials under SEC confidential treatment.
+
+Aiming EDGAR's full-text search at service agreements gives **51 gold in 288 documents (17.7%)** — an 11x better rate on the same underlying archive.
+
+**Decision.** EDGAR is the primary source for the contract corpus. CUAD is retained for two narrower jobs: extraction development in Phase 5, and training volume in Phase 10. It is no longer expected to supply anomaly scenarios.
+
+Filtering is redefined. A contract qualifies on **concrete, unredacted values** — a real amount tied to a period and a real percentage or CPI reference tied to a fee — not on keyword presence. Bare `escalat` is removed from any keep-list. Deduplication is on the **clause fingerprint and the filer**, never the filename.
+
+**Consequences.**
+
+*What we gain.* A 44-contract corpus against a 30 target, and an honest data-provenance section: we can state the funnel from 798 documents scanned to 44 distinct contracts, with the reason for each drop. Reporting distinct clauses rather than document counts is the defensible metric, and it is ~2.5x lower than the naive count — better to publish that ourselves than have it found.
+
+*What it costs.* EDGAR serves **HTML, not PDF**. Phase 7's clause viewer locates quotes with PyMuPDF `page.search_for()`, which requires a PDF. Either convert on the way into `data/corpus/contracts/`, or accept page-level degradation — ADR-005 already permits a null bbox. This is unsolved and uncosted, and it is the main debt this decision creates.
+
+Also: everything on EDGAR is a large-company filing, because that is who files with the SEC. FinSight's stated customer is a 3–20 person studio. The legal prose is genuine but the domain is not the target domain. Say so in the report rather than letting a reader infer otherwise.
+
+*What we deliberately did not do.* The corpus still over-represents one cluster of mutual-fund service agreements, because the probe used generic queries and read only the first page of each result list. A broader search is designed but unrun. It is scheduled before **Phase 10**, not Phase 3, because variety is load-bearing only for training and the base-vs-tuned comparison — the MVP demo needs a handful of good contracts and already has them.
+
+---
+
+## ADR-014 — Redacted values are filled deterministically, never by a model
+
+**Status:** Accepted (2026-08-10, pre-Phase-3 spike) · **Extends ADR-007 · Constrained by ADR-011**
+
+**Context.** About a quarter of both corpora redact financials: *"fees shall increase by `[***]` percent per annum"*. The prose is real lawyer-written text; only the figure was withheld. Discarding these documents would be wasteful, and it turns out actively harmful — the redacted pile carries **33 distinct escalation clauses against gold's 21, with zero overlap**, because boilerplate fee letters publish their numbers while genuinely negotiated contracts hide them. Redaction correlates with *quality*.
+
+The obvious move is to have a language model fill the blanks — and there were spare DeepSeek credits available to do it.
+
+**Decision.** Blanks are filled by **seeded deterministic Python** (`scripts/fill_blanks.py`). No model call, no API, no vendor SDK.
+
+Two rules make it sound:
+
+1. **The value is substituted into the contract text, not only into the answer key.** If the document still said `[***]` while ground truth claimed 5%, we would be training the model to invent a number that is not in front of it — precisely the behaviour architecture rule 1 exists to prevent.
+2. **The filler refuses when it cannot read the blank's type.** Money only when `$` immediately precedes; percentage only when `%` or "percent" immediately follows; duration only with an explicit period word and a duration verb. Anything else is left redacted.
+
+**Consequences.**
+
+*Why this is better than a model, not merely compliant.* If a model picks the number, we must read its output to learn what it chose and record that as ground truth — a verification step. When Python picks it, **the inserted value *is* ground truth, known by construction, recorded as it is written**. This is the same principle ADR-007 already applies to actuals: sourced prose, derived arithmetic. Using a model here would add a step and a way to be silently wrong.
+
+*Why refusing matters.* The first implementation guessed at every blank and filled a Vantiv rate card — "Card Activation Monthly Fee `****`" — with counts like 5 and 12, corrupting a fee schedule invisibly. Precision costs nothing here: we need ~6 usable documents out of 44. Recall is worthless; a wrong value poisons ground truth without ever failing loudly. The current rules fill 16 values across 6 contracts and leave every ambiguous blank alone.
+
+*A second pass was needed and is narrow on purpose.* Genomatica prices two services in separate sentences; a window around one clause left the other redacted, leaving the contract internally inconsistent. A document-wide pass fills only `$<blank> … per month/annum/year`. Tier tables are not caught, because `< $ **** **** $ ****` has no period word after each cell.
+
+*What it costs.* The filled documents are no longer verbatim public records. Any report or demo using them must say which values were inserted — `ground_truth_fills.json` records every one, with the seed, so the corpus is reproducible and the claim is auditable.
+
+*On the DeepSeek credits.* ADR-011 forbids vendor API calls in the runtime path. It does not obviously cover offline data preparation, and the plan already contemplates drafting training pairs with "the best available model" before human verification. That remains an **open decision** for Phase 10 — using DeepSeek to draft `ContractRules` JSON would be standard distillation and defensible if disclosed, but it dents the "everything runs on the model we host" story. It is not decided here, and it is not needed here.

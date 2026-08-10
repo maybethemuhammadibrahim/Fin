@@ -329,11 +329,34 @@ but not locatable — valid finding, degraded highlight, ADR-005). `grounding_ra
 
 ```python
 # data_sourcing/fetch_contracts.py                             [A]  ⬜
-def fetch_cuad(limit: int = 200, out_dir: str = "data/corpus/contracts") -> list[Path]: ...
+#   ADR-013: EDGAR is PRIMARY, CUAD is secondary. Reverse of the plan's ordering.
+def fetch_edgar_msa(count: int, out_dir: str) -> list[Path]:
+    """SEC full-text search, aimed at master/professional services agreements.
+       Requires a contact address in the User-Agent; 10 req/s ceiling.
+       Measured yield: ~17.7% carry a real amount AND a real escalation."""
+def fetch_cuad(limit: int = 200, out_dir: str = "data/corpus/contracts") -> list[Path]:
+    """Use HF `theatticusproject/cuad` — public, no token, real PDFs.
+       NOT the plan's dvgodoy mirror. Demoted by ADR-013 to Phase 5
+       extraction dev and Phase 10 volume; yields ~1.6% usable scenarios."""
+
 def filter_service_contracts(paths: list[Path]) -> list[Path]:
-    """Keyword filter for retainer/escalation/discount language.
-       Expect ~15-25% retention on CUAD."""
-def fetch_edgar_msa(count: int, out_dir: str) -> list[Path]: ...
+    """Keep on CONCRETE UNREDACTED VALUES, not keyword presence (ADR-013).
+       The plan's ANY-keyword KEEP list gives 48.6% retention and 1.6% usable.
+       NEVER include bare `escalat` — 68 of its 81 CUAD matches are the
+       dispute-escalation procedure. Port the patterns from
+       scripts/contract_scoring.py, which is measured."""
+
+def deduplicate(paths: list[Path]) -> list[Path]:
+    """One document per filer AND per distinct clause fingerprint.
+       Counting documents overstates the corpus ~2.5x: 51 EDGAR 'gold'
+       documents carry only 21 distinct clauses. Near-duplicates either side
+       of a train/test split silently invalidate Phase 11."""
+
+# scripts/fill_blanks.py  (spike; fold into data_sourcing at Phase 3)  [A]  ✅
+def fill_document(text: str, row: dict, rng: Random) -> tuple[str, list[dict]]:
+    """Substitute redacted values INTO the contract text, deterministically,
+       recording each as ground truth by construction (ADR-014). Returns None
+       for any blank whose type cannot be read — refusing beats guessing."""
 
 # data_sourcing/scenario_builder.py                            [B]  ⬜
 def build_scenario(contract_paths: list[Path],

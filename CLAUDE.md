@@ -16,13 +16,22 @@ What the UI deliberately does *not* do yet: parse uploads (Phase 4), read the De
 
 **Supabase Storage is live** — private bucket `finsight-documents`, reached with `SUPABASE_SERVICE_KEY` (service_role) because the anon key gets a 403 from RLS on a private bucket. That key is safe here *only* because Streamlit renders server-side; it must go into Streamlit Secrets, never the repo. **Object keys are content-addressed** (`<run_id>/<sha256[:12]>_<name>`) because Supabase's CDN ignores `cache-control` and serves stale bytes after a re-upload — verified, and it survives deletion. Never build a bucket key by hand; use `files.save_upload` and the `documents.storage_url` it returns.
 
+**A pre-Phase-3 spike ran on 2026-08-10 and changed the data source (ADR-013 + ADR-014).** Before writing any Phase 3 code, the plan's untested assumption was tested: *do real CUAD contracts contain the billing rules FinSight looks for?* Mostly not. **8 of 510 (1.6%)** carry both a real recurring amount and a real escalation clause; **3** survive a hand read. EDGAR, aimed at service agreements, hits **17.7%**. So **EDGAR is now the primary source and CUAD is demoted** to extraction development and training volume.
+
+The spike left a working corpus at **`data/corpus/contracts_v0/` — 44 distinct contracts** (19 ready, 6 with values filled in deterministically, 19 awaiting a human look), built by `scripts/contract_scoring.py`, `cuad_probe.py`, `edgar_probe.py` and `fill_blanks.py`. **`data_sourcing/*.py` are still one-line stubs** — the spike de-risked Phase 3, it did not write it.
+
+Three findings a fresh session must not rediscover the hard way:
+- **Never put bare `escalat` in a keep-list.** 81 CUAD contracts match it; **68 mean the *dispute* escalation procedure**, not a price rise. The plan's `KEEP` list contains it.
+- **~24% of both corpora redact financials** with `[***]`. Counter-intuitively the redacted pile is *more* varied — 33 distinct clauses vs gold's 21, zero overlap — because boilerplate fee letters publish their numbers while negotiated contracts hide them.
+- **Counting documents overstates the corpus ~2.5x.** 51 EDGAR "gold" documents carry only **21 distinct clauses**. Dedupe on clause fingerprint *and* filer, never filename, and report distinct clauses.
+
 **Since Phase 0 closed, the inference design changed (ADR-011 + ADR-012):** no frontier model API is used anywhere. All inference runs on an open-source model we host on free Colab/Kaggle GPU. `core/config.py`, `.env.example`, `README.md` and the docs were updated; `docs/progress.md` carries the correction entry.
 
 Run `python scripts/memory_digest.py` first — it prints current phase, open issues and latest ADR from `docs/state.json`. Then read, in this order:
 
 | File | Purpose |
 |---|---|
-| `docs/progress.md` | **Part 1** — append-only log of what actually exists. *If it isn't here, it doesn't exist* — do not assume a module is built. **Part 2** — ADR-001…ADR-012, with what each one cost us. **ADR-011/012 changed the inference design after Phase 0** — read them before touching anything LLM-shaped. |
+| `docs/progress.md` | **Part 1** — append-only log of what actually exists. *If it isn't here, it doesn't exist* — do not assume a module is built. **Part 2** — ADR-001…ADR-014, with what each one cost us. **ADR-011/012 changed the inference design after Phase 0**; **ADR-013/014 changed the data source before Phase 3** — read all four before touching anything LLM- or corpus-shaped. |
 | `docs/interfaces.md` | Function signatures across the A/B boundary, per phase, with ⬜/✅ status. |
 | `docs/state.json` | Machine-readable phase / known-issue / ADR state. |
 | `docs/implementation_plan.md` | 2000-line phase-by-phase plan: directory tree with per-file ownership, DB schema, algorithms, per-phase "definition of done". |
@@ -32,6 +41,8 @@ Everything stable about the project — what it is, the stack, the data sources,
 Known drift — do not silently "fix" by guessing:
 - **The memory files live in `docs/`, not `memory/`, and there are four of them, not five.** `implementation_plan.md` says `memory/` throughout and names `project_context.md` / `decisions.md` / `memory_system.md`, because it predates the repo and predates the 2026-08-08 consolidation. `docs/` is authoritative; the plan text was deliberately left alone.
 - Phase 11 references a `changes.md` that does not exist.
+- **Phase 3's `KEEP` keyword list in `implementation_plan.md` is measurably wrong** and must not be copied as written. It contains bare `escalat` (68 of its 81 CUAD matches are dispute-resolution boilerplate) and it passes a contract on *any one* keyword, which is how 48.6% retention coexists with a 1.6% usable rate. ADR-013 replaces it with a concrete-value test. The plan text was deliberately left alone.
+- The plan's Phase 3 fetch example uses `dvgodoy/CUAD_v1_Contract_Understanding_PDF`. Use `theatticusproject/cuad` instead — it is the same corpus with the real PDFs, needs no token, and is what the probes already download.
 - Phase 0's stated definition of done ("config page with all keys ✅") **cannot be met until Phase 5**: `COLAB_TUNNEL_URL` is required but no tunnel exists until `serve_model.py` is stood up (ADR-012). Expect one ❌ row and a raising `settings.validate()`. Plan-vs-ADR conflict, not a code fault — do not "fix" it either way without asking.
 
 ---
@@ -113,13 +124,15 @@ These are the rules that make the product's numbers defensible. Violating them i
 
 | Purpose | Source | Access |
 |---------|--------|--------|
-| Real contracts | **CUAD v1** — 510 real commercial contracts, expert-annotated, CC BY 4.0 | HuggingFace `theatticusproject/cuad`, PDFs via `dvgodoy/CUAD_v1_Contract_Understanding_PDF` |
-| More contracts | **SEC EDGAR** EX-10 material contracts | `efts.sec.gov` full-text search |
+| **Primary contracts** | **SEC EDGAR** EX-10 / EX-99 exhibits, aimed at master/professional services agreements (ADR-013) | `efts.sec.gov` full-text search — needs a contact address in the User-Agent |
+| Secondary contracts | **CUAD v1** — 510 real commercial contracts, CC BY 4.0. Demoted by ADR-013: use for Phase 5 extraction dev and Phase 10 volume, **not** for anomaly scenarios | HuggingFace `theatticusproject/cuad` — **public, no `HF_TOKEN` needed**; it carries the PDFs directly (510 of them, 311 with an uppercase `.PDF` extension) |
 | Invoice images | `mychen76/invoices-and-receipts_ocr_v1`, `Voxel51/high-quality-invoice-images-for-ocr` | HuggingFace |
 | Receipt OCR ground truth | SROIE / CORD | HuggingFace |
 | Transaction realism | Kaggle bank-transaction datasets | `kagglehub` |
 
 **Rule:** contracts are **sourced**. Actuals (invoice ledgers, transactions) are **derived** from those real contracts by deterministic arithmetic in `data_sourcing/scenario_builder.py`, which plants known anomalies and writes `ground_truth.json`. No model invents a contract.
+
+**Corollary (ADR-014).** Where a real contract redacts its figures — *"fees shall increase by `[***]` percent"* — the missing values are supplied by **seeded deterministic Python**, never by a model, and written **into the contract text** as well as the answer key. The inserted value *is* ground truth by construction, so nothing needs verifying. If a model chose it, you would have to read its output to learn what it picked — a step, and a way to be silently wrong. The filler **refuses when it cannot read a blank's type**; an early version guessed and corrupted a rate card invisibly.
 
 ## Key design decisions worth knowing before writing code
 

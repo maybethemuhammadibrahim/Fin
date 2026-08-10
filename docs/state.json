@@ -1,6 +1,6 @@
 {
   "project": "FinSight",
-  "updated": "2026-08-08",
+  "updated": "2026-08-10",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
   "current_phase": 2,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
@@ -40,9 +40,10 @@
       "name": "Online Data Sourcing",
       "status": "not_started",
       "work": {
-        "A": "fetch CUAD+EDGAR",
+        "A": "fetch EDGAR (primary) + CUAD (secondary); filter on concrete values, not keywords",
         "B": "scenario_builder"
-      }
+      },
+      "note": "De-risked 2026-08-10 before any code. ADR-013: EDGAR primary, CUAD demoted. 44-contract corpus already exists at data/corpus/contracts_v0/ from spike scripts (scripts/cuad_probe.py, edgar_probe.py, fill_blanks.py, contract_scoring.py). data_sourcing/*.py are STILL one-line stubs — the spike de-risked Phase 3, it did not write it."
     },
     {
       "n": 4,
@@ -222,6 +223,56 @@
       "id": 22,
       "phase": 11,
       "text": "SUPABASE_SERVICE_KEY must go into Streamlit Secrets at deploy time, never the repo. It bypasses all RLS and has full DB access. SUPABASE_KEY (anon) is currently unused — files.py uses service_role and the DB goes through SQLAlchemy, not PostgREST."
+    },
+    {
+      "id": 23,
+      "phase": 3,
+      "text": "CUAD is inadequate as the primary contract source: 8 of 510 (1.6%) carry both a real recurring amount and a real escalation clause, and only 3 survive a hand read. ADR-013 demotes it to extraction-dev (Phase 5) and training volume (Phase 10). Do not build anomaly scenarios from CUAD alone."
+    },
+    {
+      "id": 24,
+      "phase": 3,
+      "text": "NEVER put bare `escalat` in a keep-list. Measured on CUAD: 81 contracts match it, 68 mean the DISPUTE escalation procedure ('escalate to senior management'), not a price rise. The plan's KEEP list in implementation_plan.py contains it. Filter on a real percentage or CPI reference tied to a fee instead."
+    },
+    {
+      "id": 25,
+      "phase": 3,
+      "text": "~24% of both CUAD and EDGAR redact financials with [***] under SEC confidential treatment. A contract can have a perfect escalation clause and still be unusable. Counter-intuitively the redacted pile is MORE varied (33 distinct clauses vs gold's 21, zero overlap) because boilerplate fee letters publish numbers while negotiated contracts hide them."
+    },
+    {
+      "id": 26,
+      "phase": 10,
+      "text": "Counting documents overstates the corpus ~2.5x. EDGAR's 51 gold documents carry only 21 distinct escalation clauses — one administrator (Ultimus) sends every fund trust the same fee letter. Dedupe on clause fingerprint AND filer, never filename. Report DISTINCT CLAUSES, not document count. Near-duplicates either side of a train/test split are the invisible leak that makes Phase 11 meaningless."
+    },
+    {
+      "id": 27,
+      "phase": 10,
+      "text": "Corpus variety is adequate (44) but not good: the EX-99 mutual-fund cluster is over-represented because edgar_probe.py used generic queries and read only PAGE 1 of each result list. Broader search designed but NOT RUN — industry-specific queries, pages 2-10, cap per filer. Do it before Phase 10, not Phase 3: variety is load-bearing only for training and the base-vs-tuned claim."
+    },
+    {
+      "id": 28,
+      "phase": 7,
+      "text": "EDGAR serves HTML, not PDF. Phase 7's clause viewer uses PyMuPDF page.search_for(), which needs a PDF. Either convert on the way into data/corpus/contracts/, or accept page-level degradation (ADR-005 already permits a null bbox). UNSOLVED and UNCOSTED — the main debt ADR-013 creates."
+    },
+    {
+      "id": 29,
+      "phase": 3,
+      "text": "19 of the 44 corpus contracts sit in data/corpus/contracts_v0/review/ — clause shape is right but no figure was found; the amount may live in an exhibit that was never filed. NOBODY HAS READ THEM. Expect to lose ~a quarter, landing near 40."
+    },
+    {
+      "id": 30,
+      "phase": 11,
+      "text": "Corpus contracts are large-company SEC filings; FinSight's stated customer is a 3-20 person studio. The legal prose is genuine but the domain is NOT the target domain. State this in the report rather than letting a reader infer otherwise. Also disclose which values were inserted by fill_blanks.py (recorded with seed in ground_truth_fills.json)."
+    },
+    {
+      "id": 31,
+      "phase": 10,
+      "text": "OPEN DECISION (ADR-014): whether to use a vendor model (e.g. DeepSeek credits) to DRAFT the 80-120 ContractRules training pairs offline. ADR-011 forbids vendor calls in the runtime path; the plan itself says draft with 'the best available model' then human-verify. Standard distillation, defensible if disclosed, but it dents the self-hosting story. NOT decided. Not needed for filling redactions — that is deterministic (ADR-014)."
+    },
+    {
+      "id": 32,
+      "phase": 3,
+      "text": "HF_TOKEN is NOT required to download CUAD — theatticusproject/cuad is public and downloads unauthenticated. Still unset in .env; wanted for rate limits and Phase 5/10 model pulls. CLI is `hf` (huggingface_hub 1.27); `huggingface-cli` is the deprecated alias, same situation as fitz/pymupdf in issue #12."
     }
   ],
   "adrs": [
@@ -274,6 +325,14 @@
     {
       "id": "ADR-012",
       "title": "Base model served from Phase 5; tuned adapter replaces it at Phase 10"
+    },
+    {
+      "id": "ADR-013",
+      "title": "SEC EDGAR is the primary contract source; CUAD is demoted"
+    },
+    {
+      "id": "ADR-014",
+      "title": "Redacted values are filled deterministically, never by a model"
     }
   ],
   "inference": {
@@ -282,5 +341,6 @@
     "tuned_model": "finsight-qwen2.5-3b (from Phase 10)",
     "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
     "serving_live_from_phase": 5
-  }
+  },
+  "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct). See progress.md 'Pre-Phase-3 spike' + ADR-013/014. No phase status changed."
 }
