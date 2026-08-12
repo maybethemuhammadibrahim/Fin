@@ -76,7 +76,7 @@ def main() -> int:
         print(f"No state file at {STATE_PATH}", file=sys.stderr)
         return 1
     try:
-        state = json.loads(STATE_PATH.read_text())
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         print(f"{STATE_PATH} is not valid JSON: {exc}", file=sys.stderr)
         return 1

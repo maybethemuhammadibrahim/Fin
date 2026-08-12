@@ -136,6 +136,15 @@ class Document(Base):
     extraction_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     error_message: Mapped[str | None] = mapped_column(String(2000))
 
+    #: The raw text document_router.extract() produced (Phase 4). Not in the plan's
+    #: original ER diagram — added because "documents rows appear with... readable
+    #: text" (Phase 4 definition of done) has nowhere else to live, and re-extracting
+    #: from storage on every page view would be wasteful. Same pattern as Phase 1's
+    #: milestones table: extend the schema, drop-and-recreate, never Alembic-migrate
+    #: before Phase 9.
+    extracted_text: Mapped[str | None] = mapped_column(String)
+    extracted_page_count: Mapped[int | None] = mapped_column(Integer)
+
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     run: Mapped[Run] = relationship(back_populates="documents")

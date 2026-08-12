@@ -163,6 +163,8 @@ class DocumentRow:
     extraction_status: str
     error_message: str | None
     uploaded_at: datetime | None
+    extracted_text: str | None
+    extracted_page_count: int | None
 
 
 @dataclass(frozen=True)
@@ -376,6 +378,8 @@ def get_document(session: Session, document_id: int) -> DocumentRow | None:
         extraction_status=doc.extraction_status,
         error_message=doc.error_message,
         uploaded_at=doc.uploaded_at,
+        extracted_text=doc.extracted_text,
+        extracted_page_count=doc.extracted_page_count,
     )
 
 
@@ -416,6 +420,8 @@ def list_documents(session: Session, run_id: int) -> list[DocumentRow]:
             extraction_status=d.extraction_status,
             error_message=d.error_message,
             uploaded_at=d.uploaded_at,
+            extracted_text=d.extracted_text,
+            extracted_page_count=d.extracted_page_count,
         )
         for d in docs
     ]

@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0, 1, 2 and 3 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below); everything from Phase 4 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0, 1, 2, 3 and 4 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below); everything from Phase 5 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -88,6 +88,30 @@ class ClauseLocation(BaseModel):
     page: int
     bbox: list[float]                # [x0, y0, x1, y1] in PDF points
     method: Literal["exact","fuzzy"]
+
+# ---- Phase 4 extraction (added when Phase 4 needed them, not pre-declared) ----
+class DocBlock(BaseModel):
+    page_number: int
+    text: str
+    is_table: bool = False
+
+class ExtractedDoc(BaseModel):
+    doc_type: Literal["text_pdf","scanned","image","csv"]
+    blocks: list[DocBlock]
+    full_text: str
+    page_count: int
+    warnings: list[str] = []         # non-fatal notes; this module never raises
+
+class TransactionRow(BaseModel):
+    transaction_date: date
+    amount: float
+    description: str | None = None
+    source_type: Literal["invoice","bank"] | None = None
+
+class ColumnProposal(BaseModel):
+    mapping: dict[str, str]          # {"date": "Txn Date", "amount": "Amount (USD)", ...}
+    header_signature: str            # sha256 of the normalised header row (ADR-010 cache key)
+    sample_rows: list[dict[str, str]] = []
 ```
 
 ---
@@ -392,19 +416,37 @@ def build_scenario(contract_paths: list[Path],
 ## Phase 4 — Text extraction
 
 ```python
-# core/extraction/document_router.py                           [A]  ⬜
+# core/extraction/document_router.py                           [A]  ✅
 def detect_type(file_path: str) -> Literal["text_pdf","scanned","image","csv"]: ...
 def extract(file_path: str) -> ExtractedDoc:
     """Single entry point. Routes internally. ExtractedDoc.blocks is a list of
-       {page_number, text, is_table}."""
+       {page_number, text, is_table}. Raises ValueError (readable message) on
+       an unsupported type or an unreadable file -- never a raw library
+       exception. csv routes to a raw-text passthrough; structured parsing is
+       csv_parser.parse_transactions, which needs a confirmed mapping first."""
 
-# core/extraction/csv_parser.py                                [B]  ⬜
+# core/extraction/pdf_extractor.py                              [A]  ✅
+#   Not in the plan's original interfaces.md stub -- added because
+#   document_router actually calls these two directly.
+def char_density(path: str) -> list[int]: ...
+def extract_text_pdf(path: str) -> ExtractedDoc: ...
+
+# core/extraction/csv_parser.py                                [B]  ✅
 def sniff_columns(file_path: str) -> ColumnProposal:
-    """Reads header + 3 rows, asks the LLM to map them. Human confirms in UI."""
+    """Header-name heuristic (thefuzz), NOT an LLM call -- core/ai/llm_client.py
+       doesn't exist until Phase 5 (ADR-012). Human confirms in UI either way;
+       Phase 5 can swap the body with no change to column_mapper.py."""
 def parse_transactions(file_path: str, mapping: dict) -> list[TransactionRow]: ...
 
-# core/extraction/ocr_cloud.py                                 [B]  ⬜
-def ocr_page(image_bytes: bytes) -> str: ...
+# core/extraction/ocr_cloud.py                                 [B]  ✅
+def has_text_layer(path: str) -> bool: ...
+def extract_scanned(path: str) -> ExtractedDoc: ...
+def ocr_page(image_bytes: bytes) -> str | None:
+    """Always returns None -- no live OCR call exists (ADR-001, ADR-011).
+       Documented interface point for a future Surya-on-Colab lookup."""
+
+# app/components/column_mapper.py                              [B]  ✅
+def render_column_mapper(session, file_path: str, key_prefix: str) -> dict[str, str] | None: ...
 ```
 
 ---

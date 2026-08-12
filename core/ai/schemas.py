@@ -80,3 +80,47 @@ class ClauseLocation(BaseModel):
     page: int
     bbox: list[float]  # [x0, y0, x1, y1] in PDF points
     method: Literal["exact", "fuzzy"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — extraction. Not pre-declared as "shared data shapes" the way the
+# AI-boundary types above were (docs/interfaces.md's Phase 3/5 entries), because
+# Phase 4 is what first needs them. Defined here anyway, not split into a second
+# module, because they cross the same A/B boundary this file exists to serve:
+# document_router/pdf_extractor (A) produce ExtractedDoc, csv_parser (B) produces
+# TransactionRow/ColumnProposal, and Phase 5's contract_extractor (A) consumes
+# ExtractedDoc.blocks.
+# ---------------------------------------------------------------------------
+
+
+class DocBlock(BaseModel):
+    page_number: int
+    text: str
+    is_table: bool = False
+
+
+class ExtractedDoc(BaseModel):
+    doc_type: Literal["text_pdf", "scanned", "image", "csv"]
+    blocks: list[DocBlock]
+    full_text: str
+    page_count: int
+    #: Non-fatal notes ("no extractable text on any page") that still let the
+    #: caller decide complete vs. failed — this module never raises.
+    warnings: list[str] = []
+
+
+class TransactionRow(BaseModel):
+    transaction_date: date
+    amount: float
+    description: str | None = None
+    source_type: Literal["invoice", "bank"] | None = None
+
+
+class ColumnProposal(BaseModel):
+    #: {"date": "Txn Date", "amount": "Amount (USD)", "description": "Memo"}
+    mapping: dict[str, str]
+    #: sha256 of the normalised header row — how a confirmed mapping is cached
+    #: (ADR-010) and looked up again for the same CSV shape.
+    header_signature: str
+    #: First few rows, for the confirmation UI to show next to the dropdowns.
+    sample_rows: list[dict[str, str]] = []

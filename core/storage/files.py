@@ -177,6 +177,26 @@ def _save_local(data: bytes, filename: str, run_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _file_uri_to_path(storage_url: str) -> Path:
+    """`file://` URI -> a real native path, on Windows too.
+
+    `storage_url[len("file://"):]` looks right and is wrong: `Path.as_uri()` on
+    Windows produces `file:///C:/Users/...` (three slashes), so a naive strip
+    leaves a leading `/` in front of the drive letter (`/C:/Users/...`).
+    `WindowsPath` parses that as a folder literally named `C:` under the current
+    drive's root, not the C: drive itself, so `is_file()` is always False.
+    Found live: `render_pending_csv_mappings` marked every CSV upload
+    'failed -- could not read the uploaded file back from storage' on Windows
+    (Phase 4) — Phase 2's own verification only exercised the Supabase backend.
+    `urllib.request.url2pathname` is the stdlib function that already knows the
+    per-platform rule.
+    """
+    import urllib.parse
+    import urllib.request
+
+    return Path(urllib.request.url2pathname(urllib.parse.urlparse(storage_url).path))
+
+
 def load(storage_url: str) -> bytes | None:
     """Read a stored file back, or None if it is not retrievable.
 
@@ -193,7 +213,7 @@ def load(storage_url: str) -> bytes | None:
             return None
 
     if storage_url.startswith("file://"):
-        path = Path(storage_url[len("file://") :])
+        path = _file_uri_to_path(storage_url)
         return path.read_bytes() if path.is_file() else None
 
     if storage_url.startswith("seed://"):
@@ -234,7 +254,7 @@ def delete(storage_url: str) -> bool:
             return False
 
     if storage_url.startswith("file://"):
-        path = Path(storage_url[len("file://") :])
+        path = _file_uri_to_path(storage_url)
         path.unlink(missing_ok=True)
         return not path.exists()
 

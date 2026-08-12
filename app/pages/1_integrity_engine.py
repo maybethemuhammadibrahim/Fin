@@ -1,4 +1,4 @@
-"""[B] Page 1: upload documents, review detected revenue leaks. Phase 2.
+"""[B] Page 1: upload documents, review detected revenue leaks. Phase 2/4.
 
 The v1 mockup, built against real database rows.
 
@@ -10,10 +10,11 @@ Reads (all via `core/db/queries.py`):
   get_anomaly        -> the selected finding's detail
   get_clause_reference -> the clause viewer
 
-Writes: `documents`, and only via the upload component. Every number rendered
-here is a database aggregate. There is no hardcoded dict anywhere on this page
-— that is the rule that makes Phase 6 a data change instead of an integration
-project (ADR-008).
+Writes: `documents` (upload component, Phase 2) and, since Phase 4,
+`actual_transactions` + `column_mappings` once a pending CSV's columns are
+confirmed. Every number rendered here is a database aggregate. There is no
+hardcoded dict anywhere on this page — that is the rule that makes Phase 6 a
+data change instead of an integration project (ADR-008).
 """
 
 from __future__ import annotations
@@ -28,7 +29,11 @@ from app.components.anomaly_table import (
 )
 from app.components.clause_viewer import render_clause_viewer, render_placeholder
 from app.components.client_confirm import render_client_confirm
-from app.components.file_uploader import render_document_list, render_file_uploaders
+from app.components.file_uploader import (
+    render_document_list,
+    render_file_uploaders,
+    render_pending_csv_mappings,
+)
 from app.components.summary_cards import (
     render_grounding_note,
     render_summary_cards,
@@ -98,6 +103,14 @@ if saved:
 
 with st.expander(f"Documents in this run ({len(documents)})"):
     render_document_list(documents)
+
+pending_csvs = [d for d in documents if d.category == "statement" and d.extraction_status == "pending"]
+if pending_csvs:
+    st.markdown("**Confirm CSV columns before parsing amounts (ADR-010):**")
+    with state.db() as session:
+        finalized = render_pending_csv_mappings(session, documents)
+    if finalized:
+        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Confirm clients

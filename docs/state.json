@@ -2,7 +2,7 @@
   "project": "FinSight",
   "updated": "2026-08-12",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
-  "current_phase": 3,
+  "current_phase": 4,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
   "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
   "phases": [
@@ -48,11 +48,12 @@
     {
       "n": 4,
       "name": "Text Extraction",
-      "status": "not_started",
+      "status": "done",
       "work": {
-        "A": "document_router+pdf_extractor",
-        "B": "csv_parser+Surya-on-Colab OCR"
-      }
+        "A": "document_router+pdf_extractor+Document schema extension+files.py bugfix",
+        "B": "csv_parser+ocr_cloud+column_mapper+upload wiring"
+      },
+      "note": "Completed 2026-08-12. Uploads now route through document_router.extract() synchronously (PDFs/images) or through a human-confirmed column mapping (CSVs, ADR-010) that writes actual_transactions. Verified end-to-end via browser automation against a real CUAD PDF and a real Phase-3 scenario CSV (47/47 rows). csv_parser.sniff_columns() is a thefuzz heuristic, not an LLM call -- llm_client.py doesn't exist until Phase 5 (ADR-012). Two real bugs found and fixed during verification, not designed for up front: core/storage/files.py's file:// URI parsing was broken on Windows (load()/delete() always returned None locally), and a corrupt/non-PDF upload crashed with a raw pdfminer exception instead of failing cleanly."
     },
     {
       "n": 5,
@@ -288,6 +289,26 @@
       "id": 35,
       "phase": 3,
       "text": "data/scenarios/{easy,realistic,edge}/ are built and internally consistent (gap == expected-actual; total == sum of gaps, asserted directly against the written files) but nothing LOADS them into the database yet. scripts/seed_demo.py's scenario_dir parameter still raises NotImplementedError by its own Phase 2 design. Wiring a scenario on disk into a live run is not in Phase 3's definition of done; left for whichever later phase needs it (likely Phase 6, once timeline_generator/reconciliation are real)."
+    },
+    {
+      "id": 36,
+      "phase": 2,
+      "text": "RESOLVED 2026-08-12 (found in Phase 4): core/storage/files.py's load()/delete() stripped `file://` naively (storage_url[len(\"file://\"):]), which on Windows leaves a stray leading `/` before the drive letter (Path.as_uri() produces file:///C:/Users/... -- three slashes). WindowsPath then parses /C:/Users/... as a folder literally named `C:`, so is_file() was always False -- every local-backend load() call was silently broken. Phase 2's own 11 verification assertions only exercised the Supabase backend. Fixed with urllib.request.url2pathname + urlparse. Caught because Phase 4's CSV column-mapping step is the first code to call files.load() on a real local upload."
+    },
+    {
+      "id": 37,
+      "phase": 4,
+      "text": "RESOLVED 2026-08-12: a corrupt or non-PDF file uploaded with a .pdf extension crashed pdfplumber.open() with a raw PdfminerException ('No /Root object! - Is this really a PDF?'), which would have taken the whole Streamlit page down instead of landing as extraction_status='failed'. Fixed in core/extraction/pdf_extractor.py's new _open() wrapper, which both char_density() and extract_text_pdf() now use; raises ValueError with a readable message instead. Re-verified through the full upload-widget path (_extract_and_finalize) and live in the browser, not just the unit call."
+    },
+    {
+      "id": 38,
+      "phase": 4,
+      "text": "ACTUALS_TYPES (app/components/file_uploader.py, Phase 2) includes 'xlsx', but core/extraction/csv_parser.py only reads real CSVs (Phase 4). An .xlsx upload now fails cleanly with 'only .csv is parsed today -- xlsx support is not wired up yet' rather than crashing pandas.read_csv, but nobody has built the xlsx path. Not in Phase 4's definition of done (which only asks for a real actuals.csv); pick up whenever xlsx actuals actually matter."
+    },
+    {
+      "id": 39,
+      "phase": 0,
+      "text": "RESOLVED 2026-08-12: scripts/memory_digest.py read docs/state.json with the platform default encoding (json.loads(STATE_PATH.read_text())), which raised UnicodeDecodeError on Windows (cp1252) the moment state.json contained an em-dash. Fixed with an explicit encoding=\"utf-8\". Console output containing emoji (the checkmarks/crosses already in known_issues text) still needs PYTHONIOENCODING=utf-8 set to print on a default Windows terminal -- not fixed, workaround only, since changing the checkmark characters would touch unrelated content."
     }
   ],
   "adrs": [

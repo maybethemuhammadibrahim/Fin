@@ -12,8 +12,8 @@
 > template lives in `CLAUDE.md`. Part 2 gets one ADR per *real* choice — where a competent
 > person would plausibly have chosen the other thing, not for defaults nobody argued about.
 
-**Current phase:** 3 — done
-**Last entry:** Phase 3 — Online Data Sourcing (2026-08-12)
+**Current phase:** 4 — done
+**Last entry:** Phase 4 — Document Ingestion & Text Extraction (2026-08-12)
 
 ---
 
@@ -974,6 +974,129 @@ row, `ground_truth.json.total_gap == sum(client_gap) == sum(anomaly gaps)`, and
 `manifest.json.total_gap`/`n_anomalies` match `ground_truth.json` exactly — all
 asserted directly against the written files as part of this phase (not eyeballed).
 `edge` produces 0 anomalies from 2 real, correctly-paid contracts.
+
+---
+
+## Phase 4 — Document Ingestion & Text Extraction
+**Completed:** 2026-08-12 · **Owners:** A / B
+
+### Built by A
+- `core/extraction/pdf_extractor.py` — `char_density()` (cheap per-page peek used
+  for the text_pdf/scanned decision) and `extract_text_pdf()` (pdfplumber text +
+  table extraction, page-tagged). Both raise `ValueError` with a readable message
+  on a corrupt/unopenable file instead of leaking pdfminer's raw exception —
+  found live (see "Known gaps" below), not anticipated.
+- `core/extraction/document_router.py` — `detect_type()` and `extract()`, the
+  single entry point. Routes `.pdf` by measured char density, `.png/.jpg/.jpeg`
+  to the OCR fallback, `.csv` to a raw-text passthrough (structured parsing is
+  csv_parser's job, not this file's).
+- `core/db/models.py` — added `Document.extracted_text` / `.extracted_page_count`
+  (nullable `String`/`Integer`). Not in the plan's original schema; added because
+  "documents rows appear with... readable text" (Phase 4 definition of done) has
+  nowhere else to live and re-extracting from storage on every page view would be
+  wasteful. Same pattern as Phase 1's `milestones` table: extend, drop-and-recreate
+  locally, never Alembic-migrate before Phase 9. `core/db/queries.py`'s
+  `DocumentRow`/`get_document`/`list_documents` updated to carry the two fields.
+- **Fixed a live bug in `core/storage/files.py`** (Phase 2 code, owned by A):
+  `load()`/`delete()` stripped `file://` naively (`storage_url[len("file://"):]`),
+  which leaves a stray leading `/` before the drive letter on Windows
+  (`Path.as_uri()` produces `file:///C:/Users/...` — three slashes). `WindowsPath`
+  then parses `/C:/Users/...` as a folder literally named `C:` under the current
+  drive's root, so `is_file()` was always `False`. Every local-backend `load()`
+  call was silently broken; Phase 2's own verification only exercised the
+  Supabase backend. Fixed with `urllib.request.url2pathname` + `urlparse`, the
+  stdlib functions that already encode the per-platform rule. Caught because this
+  phase is the first code to call `files.load()` on a real local upload — CSV
+  column mapping needs the bytes back after `save_upload`.
+
+### Built by B
+- `core/extraction/csv_parser.py` — `sniff_columns()` proposes a `{field: column}`
+  mapping via `thefuzz` header-name matching against a synonym vocabulary, **not**
+  an LLM call: `core/ai/llm_client.py` doesn't exist until Phase 5 stands up the
+  self-hosted endpoint (ADR-012; `COLAB_TUNNEL_URL` is unset by design until
+  then). `parse_transactions()` cleans currency strings (`"$6,000.00"`,
+  `"(1,500)"` → negative) and dates (dayfirst auto-detected from parse-failure
+  rate) into `list[TransactionRow]`.
+- `core/ai/schemas.py` — added `DocBlock`, `ExtractedDoc`, `TransactionRow`,
+  `ColumnProposal`. Not pre-declared as Phase 3's `ContractRules` was in
+  `interfaces.md`'s "Shared data shapes" section; defined here because Phase 4 is
+  what first needs them, in the same file since they cross the same A/B boundary
+  it exists to serve.
+- `app/components/column_mapper.py` — the ADR-010 human-confirmation dropdowns
+  over `sniff_columns()`'s proposal. Identical UI regardless of whether the
+  proposal came from the heuristic (today) or an LLM (Phase 5) — it doesn't know
+  or care. Caches a confirmed mapping by header signature in `column_mappings`.
+- `app/components/file_uploader.py` — rewritten to actually call extraction.
+  Contracts and invoice/statement PDFs or images now route through
+  `document_router.extract()` **synchronously at upload time** (bytes are
+  already in memory from the upload — no storage round trip needed), landing
+  with `extraction_status` already `complete`/`failed`. A CSV stays `pending`
+  until `render_pending_csv_mappings()` (new) walks the human-confirmation step
+  and writes `actual_transactions` with `client_id=None` (resolved later by
+  Phase 5's `client_matcher`). `render_document_list()` gained a "Preview
+  extracted text" expander.
+- `app/pages/1_integrity_engine.py` — wired `render_pending_csv_mappings()` in
+  between the upload block and "2 · Confirm clients".
+
+### New interfaces added to interfaces.md
+- `core/ai/schemas.py`: `DocBlock`, `ExtractedDoc`, `TransactionRow`,
+  `ColumnProposal` — added to "Shared data shapes".
+- `core/extraction/document_router.py: detect_type, extract` — ✅
+- `core/extraction/pdf_extractor.py: char_density, extract_text_pdf` — ✅ (not
+  in the plan's original interfaces.md stub; added to match what document_router
+  actually calls)
+- `core/extraction/ocr_cloud.py: has_text_layer, extract_scanned, ocr_page` — ✅
+- `core/extraction/csv_parser.py: sniff_columns, parse_transactions` — ✅
+- `app/components/column_mapper.py: render_column_mapper` — ✅
+
+### Decisions recorded
+- No new ADR. `sniff_columns()`'s heuristic-instead-of-LLM choice is a phasing
+  consequence of ADR-012 (serving stands up in Phase 5), not a new architectural
+  decision — the swap point is documented in the module docstring instead.
+
+### Known gaps / deliberately deferred
+- **`.xlsx` actuals are accepted by the upload widget but not parsed.**
+  `ACTUALS_TYPES` includes it (Phase 2), but `csv_parser` only reads real CSVs.
+  An uploaded `.xlsx` now fails cleanly with "only .csv is parsed today" instead
+  of crashing pandas — not silently mis-parsed, just not built yet.
+- **`sniff_columns()` is a heuristic, not the LLM ADR-010 describes.** Phase 5
+  can swap the function body for a real `llm_client.complete_json` call with zero
+  changes to `column_mapper.py` or the `ColumnProposal` shape — that boundary was
+  deliberately kept clean for exactly this swap.
+- **OCR fallback is untested against a real scanned document.** No scanned PDF
+  exists in this project's corpus (EDGAR/CUAD are all digital-text —
+  known_issue #28 is the opposite problem, EDGAR has no PDF at all). `ocr_cloud.py`'s
+  logic was verified directly (`has_text_layer` correctly reads a real digital
+  PDF; `ocr_page` correctly returns `None`), not through an actual OCR pass,
+  because there is no Surya-on-Colab batch step to test against yet.
+  Off the critical path per the plan; unchanged this phase.
+- **A malformed-PDF crash was found and fixed during verification, not designed
+  for up front.** `pdfplumber.open()` on a non-PDF raised a raw
+  `PdfminerException` that would have taken the whole Streamlit page down.
+  Fixed in `pdf_extractor._open()`; both the direct call and the full
+  upload-widget path (`_extract_and_finalize`) were re-verified afterward.
+  Worth remembering for Phase 5: any new pdfplumber/pymupdf call site needs the
+  same "corrupt input degrades to a message" treatment, it does not come free.
+- **`data/uploads/<run_id>/` has no cleanup**, same residual as Storage's orphan
+  gap (known_issue #21) — content accumulates locally across test runs.
+
+### How to verify this phase works
+```bash
+streamlit run app/main.py   # then, on the Revenue Integrity page:
+```
+- Upload a real EDGAR or CUAD contract PDF (e.g. from `data/corpus/contracts/` or
+  fetched via `data_sourcing.fetch_contracts.fetch_cuad`) → `documents` row lands
+  `extraction_status='complete'` immediately, with readable text in "Preview
+  extracted text".
+- Upload a real `actuals.csv` (e.g. `data/scenarios/easy/actuals.csv`) → stays
+  `pending`, shows a column-mapping confirmation UI pre-filled from the real
+  headers → confirming writes `actual_transactions` (verified: 47/47 rows for
+  the `easy` scenario) and flips the document to `complete`.
+- Upload a non-PDF renamed to `.pdf` → `extraction_status='failed'` with
+  "file is not a readable PDF", page renders normally, no stack trace.
+
+All four verified directly against a running `streamlit run app/main.py`
+instance via browser automation, not just unit-style Python calls.
 
 ---
 
