@@ -12,8 +12,8 @@
 > template lives in `CLAUDE.md`. Part 2 gets one ADR per *real* choice — where a competent
 > person would plausibly have chosen the other thing, not for defaults nobody argued about.
 
-**Current phase:** 0 — done
-**Last entry:** Docs consolidation (2026-08-08)
+**Current phase:** 3 — done
+**Last entry:** Phase 3 — Online Data Sourcing (2026-08-12)
 
 ---
 
@@ -833,6 +833,147 @@ python scripts/fill_blanks.py    # -> data/corpus/contracts_v0/MANIFEST.md
 Then open `data/corpus/contracts_v0/MANIFEST.md`; `ready/` + `filled/` + `review/`
 must total 44, and every value in `ground_truth_fills.json` must appear verbatim
 in the corresponding `filled/*.txt`.
+
+---
+
+## Phase 3 — Online Data Sourcing
+**Completed:** 2026-08-12 · **Owners:** A / B
+
+**Starting condition, corrected.** `docs/state.json` and this file's own "Pre-Phase-3
+spike" entry above describe a 44-contract corpus at `data/corpus/contracts_v0/`. That
+directory did not exist on disk at the start of this phase — `data/` is entirely
+gitignored (`.gitignore` line 7, `data/**`), so the spike's output never persisted past
+the session that built it. The spike de-risked Phase 3 (proved EDGAR beats CUAD, proved
+the concrete-value filter, proved deterministic filling); it did not leave artifacts.
+This phase re-ran the real pipeline — now as `data_sourcing/*.py`, not throwaway
+`scripts/*_probe.py` — against live EDGAR and got materially the same yield (43 vs. the
+spike's 44), which is itself a second confirmation of ADR-013's numbers.
+
+### Built by A
+- `core/ai/schemas.py` — `Escalation`, `Discount`, `Milestone`, `ContractRules`,
+  `TimelineEntry`, `Anomaly`, `ClauseLocation` Pydantic models, per the "Shared data
+  shapes" section of `docs/interfaces.md`. **Pulled forward from Phase 5** — only the
+  data shapes, not `contract_extractor.extract_rules()` — because
+  `data_sourcing/scenario_builder.py`'s own documented signature takes
+  `rules: list[ContractRules]` and Phase 3 runs before Phase 5 exists (ADR-008's
+  top-down order). No model call lives here.
+- `data_sourcing/fetch_contracts.py` — `fetch_edgar_msa()` (SEC full-text search,
+  EX-10/EX-99 exhibits, compliant User-Agent + 429 backoff) and `fetch_cuad()`
+  (`theatticusproject/cuad` via `huggingface_hub`, no token). Ported from
+  `scripts/edgar_probe.py`/`cuad_probe.py`, cleaned up as real (non-throwaway) code.
+- `data_sourcing/filter_contracts.py` — `filter_service_contracts()` and
+  `deduplicate()` on **concrete unredacted values**, never keyword presence (ADR-013);
+  `fill_document()`/`choose_value()` folded in from `scripts/fill_blanks.py` per
+  ADR-014, including the refuse-when-unsure behaviour. Adds `build_corpus()`, an
+  orchestrator (fetch → filter → dedupe → fill → write buckets) that
+  `python -m data_sourcing.filter_contracts` runs end to end.
+- Ran the real pipeline against live EDGAR (260 exhibits fetched, ~6 req/s, SEC-compliant):
+  **43 distinct contracts** into `data/corpus/contracts/` — `ready/` 19, `filled/` 6,
+  `review/` 18 — plus `ground_truth_fills.json` and `MANIFEST.md`. Matches the spike's
+  19/6/19 split almost exactly, on a fresh, independently-drawn EDGAR sample.
+
+### Built by B
+- `data_sourcing/fetch_invoices.py` — `fetch_invoice_images()` (`mychen76/invoices-
+  and-receipts_ocr_v1`), `fetch_invoice_ocr_ground_truth()` (`naver-clova-ix/cord-v2`),
+  both HF `streaming=True` with a `limit` so nothing pulls a multi-GB dataset for a
+  Phase 4 fallback path that isn't built yet. `fetch_kaggle_transactions()` wraps
+  `kagglehub` (added to `requirements.txt`) and returns `None` rather than raising —
+  Kaggle credentials are not part of `core/config.py` and are unverified (known_issues
+  #7), so nothing downstream may hard-depend on it.
+- `data_sourcing/scenario_builder.py` — `TrueRule` (one hand-read real contract),
+  `expected_row()` (private, pure timeline arithmetic — deliberately duplicates the
+  shape of Phase 6's future `timeline_generator.generate_timeline`, since Phase 6 does
+  not exist yet and this file does not own `core/engine/`), and `build_scenario()`.
+  Hand-verified **7 real contracts** from `data/corpus/contracts/` (GameznFlix Inc.,
+  RMD Technologies Inc., CBS Outdoor Americas Inc., Central Garden & Pet Co., Vision
+  Hydrogen Corp., Cellteck Inc., Regal Entertainment Group) — recurring amount,
+  escalation %/trigger, discount %/duration and clause text all read by hand from the
+  actual filing text (Regal's amount and percentage were ADR-014 fills, flagged
+  `filled_by_adr014=true` in its `ground_truth.json` entry). One hand-read candidate
+  (Cellteck) was caught mid-build: its automated "concrete_escalation" match was a
+  **false positive** — an 18%-per-annum loan interest rate, not a fee escalation — so
+  it is used only for its genuine 30%-first-year discount clause, with no escalation
+  encoded. This is the same trap ADR-013 documents for CUAD's bare `escalat*`, now
+  observed on EDGAR's own "gold" tier: **automated concrete-value scoring still needs a
+  human read before a contract enters a scenario.**
+- Built and wrote all three scenarios to `data/scenarios/{easy,realistic,edge}/`, each
+  with `contracts/` (copies of the real source files), `actuals.csv`, `ground_truth.json`,
+  `manifest.json`:
+
+  | Scenario | Clients | Leaking | Anomalies | Total gap | Types present |
+  |---|---:|---:|---:|---:|---|
+  | `easy` | 4 | 4 | 7 | $17,815.00 | all 4 |
+  | `realistic` | 4 | 3 | 5 | $22,500.00 | forgotten_raise, ghost_invoice, short_change |
+  | `edge` | 2 | 0 | 0 | $0.00 | — |
+
+  `realistic` adds what `easy` doesn't: date jitter (±1–6 days) on every transaction,
+  three rotating client-name variants per client (bank-statement-style vs. natural vs.
+  ACH-suffixed), one `short_change` delivered as two separate partial-payment
+  transactions summing to 80% of the expected amount (for Phase 8's future
+  `check_split_payments` tool), and three unrelated noise transactions (bank fees,
+  interest credit) tied to no client. `edge` proves discrimination — zero anomalies
+  from two contracts paid exactly as billed, escalation correctly applied on schedule.
+
+  **What is real vs. scenario-assigned, stated once, in
+  `data_sourcing/scenario_builder.py`'s module docstring and repeated here:** every
+  dollar amount, percentage, trigger duration and clause quote is verbatim from a real
+  EDGAR filing. `contract_start` dates are scenario-assigned so each contract's
+  genuinely annual escalation/discount cutover lands at a demoable month inside the
+  2025 observation window — this is arithmetic construction of a billing calendar
+  (ADR-007's "actuals are derived"), not invention of a contract term.
+
+### New interfaces added to interfaces.md
+- `core/ai/schemas.py` shared data shapes — flip to ✅ (schemas only; `extract_rules()`
+  itself stays ⬜ for Phase 5).
+- `data_sourcing/fetch_contracts.py: fetch_edgar_msa, fetch_cuad` — ✅
+- `data_sourcing/filter_contracts.py: filter_service_contracts, deduplicate,
+  fill_document` — ✅
+- `data_sourcing/scenario_builder.py: build_scenario` — ✅ (signature takes an
+  additional keyword-only `clients: list[ClientScenario] | None` beyond the plan's four
+  positional args — the richer per-client detail, real callers need to say which
+  months break, which type, and whether it's a split payment)
+
+### Decisions recorded
+- No new ADR. This phase executes ADR-007, ADR-013 and ADR-014 as written; it does not
+  revise them.
+
+### Known gaps / deliberately deferred
+- **18 of 43 corpus contracts sit in `data/corpus/contracts/review/`** — clause shape
+  right, no figure found. Nobody has read them; expect to lose roughly a quarter on a
+  hand pass, same as the spike predicted. None of the 7 scenario contracts come from
+  this bucket.
+- **Corpus variety is adequate, not good** — same gap the spike already flagged
+  (known_issues #27): broader, deeper EDGAR search (industry-specific queries, pages
+  2–10, cap per filer) is scheduled before Phase 10, not before Phase 3.
+- **EDGAR serves HTML, not PDF** (known_issues #28) — unchanged, unsolved here. The
+  7 scenario contracts are `.txt`, not `.pdf`; Phase 7's `page.search_for()` needs a
+  PDF, so either these get converted before Phase 7 or the clause viewer degrades to
+  page-level for every Phase-3-sourced document (ADR-005 already permits this).
+- **`fetch_cuad()` works but was not run at scale this phase** — CUAD stays demoted to
+  Phase 5 extraction-dev and Phase 10 training volume per ADR-013; the 260-document
+  EDGAR pull alone cleared the 30+ contract bar.
+- **`fetch_kaggle_transactions()` returns `None` in this environment** — no Kaggle
+  credentials configured. `scenario_builder.py`'s own noise generator (date jitter,
+  name variants, synthetic unrelated transactions) does not depend on it and is what
+  `realistic` actually uses.
+- **No `data/scenarios/*` loader exists yet.** `scripts/seed_demo.py`'s `scenario_dir`
+  parameter still raises `NotImplementedError` by design (Phase 2's own docstring says
+  so). Wiring a scenario on disk into the database is not in this phase's definition of
+  done and is left for whichever later phase needs it.
+- Contracts are still large/mid-cap SEC filings; FinSight's stated customer is a 3–20
+  person studio. Genuine legal prose, not the target domain — say so in any report,
+  per known_issues #30.
+
+### How to verify this phase works
+```bash
+python -m data_sourcing.filter_contracts --count 260   # -> data/corpus/contracts/MANIFEST.md (43 contracts)
+python -m data_sourcing.scenario_builder                # -> data/scenarios/{easy,realistic,edge}/
+```
+Then, for every scenario: `gap == expected_amount - actual_amount` on every timeline
+row, `ground_truth.json.total_gap == sum(client_gap) == sum(anomaly gaps)`, and
+`manifest.json.total_gap`/`n_anomalies` match `ground_truth.json` exactly — all
+asserted directly against the written files as part of this phase (not eyeballed).
+`edge` produces 0 anomalies from 2 real, correctly-paid contracts.
 
 ---
 

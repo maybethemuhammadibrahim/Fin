@@ -27,6 +27,8 @@ thefuzz[speedup]
 
 # ---- Data sourcing (Phase 3) ----
 datasets
+huggingface_hub
+kagglehub
 
 # ---- Testing ----
 pytest

@@ -1,8 +1,8 @@
 {
   "project": "FinSight",
-  "updated": "2026-08-10",
+  "updated": "2026-08-12",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
-  "current_phase": 2,
+  "current_phase": 3,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
   "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
   "phases": [
@@ -38,12 +38,12 @@
     {
       "n": 3,
       "name": "Online Data Sourcing",
-      "status": "not_started",
+      "status": "done",
       "work": {
-        "A": "fetch EDGAR (primary) + CUAD (secondary); filter on concrete values, not keywords",
-        "B": "scenario_builder"
+        "A": "fetch_contracts.py + filter_contracts.py (real, ported from the probe spike) + core/ai/schemas.py pulled forward",
+        "B": "fetch_invoices.py + scenario_builder.py"
       },
-      "note": "De-risked 2026-08-10 before any code. ADR-013: EDGAR primary, CUAD demoted. 44-contract corpus already exists at data/corpus/contracts_v0/ from spike scripts (scripts/cuad_probe.py, edgar_probe.py, fill_blanks.py, contract_scoring.py). data_sourcing/*.py are STILL one-line stubs — the spike de-risked Phase 3, it did not write it."
+      "note": "Completed 2026-08-12. The spike's data/corpus/contracts_v0/ (44 contracts) did NOT exist on disk at phase start -- data/ is gitignored (data/** in .gitignore), so it never persisted past the spike session. Re-ran the real pipeline as data_sourcing/*.py against live EDGAR: 43 distinct contracts into data/corpus/contracts/ (19 ready, 6 filled, 18 review) -- matches the spike's 19/6/19 almost exactly on an independent sample, a second confirmation of ADR-013. Built 3 scenarios (easy/realistic/edge) from 7 hand-verified real contracts under data/scenarios/. One automated 'gold' match (Cellteck) turned out to be a false positive on hand read (18% loan interest, not a fee escalation) -- same class of trap as CUAD's bare `escalat`, now observed on EDGAR too."
     },
     {
       "n": 4,
@@ -273,6 +273,21 @@
       "id": 32,
       "phase": 3,
       "text": "HF_TOKEN is NOT required to download CUAD — theatticusproject/cuad is public and downloads unauthenticated. Still unset in .env; wanted for rate limits and Phase 5/10 model pulls. CLI is `hf` (huggingface_hub 1.27); `huggingface-cli` is the deprecated alias, same situation as fitz/pymupdf in issue #12."
+    },
+    {
+      "id": 33,
+      "phase": 3,
+      "text": "RESOLVED 2026-08-12: data/corpus/contracts_v0/ (issue implied by the 2026-08-10 spike entry) did not exist on disk when Phase 3 started — data/** is gitignored and the spike's output never persisted. Re-ran the real pipeline (data_sourcing/fetch_contracts.py + filter_contracts.py) against live EDGAR instead of assuming the spike's files were still there. Lesson for future sessions: a progress.md entry describing files under data/ describes what existed in THAT session, not what exists now — always verify with a directory listing before building on it."
+    },
+    {
+      "id": 34,
+      "phase": 3,
+      "text": "Automated 'gold' (concrete-value) scoring still produces false positives that need a human read, even on EDGAR's higher-quality yield. Cellteck Inc.'s EX-99.1 scored concrete_escalation on an '18% per annum' clause that is loan interest, not a fee escalation — caught only when hand-verifying contracts for scenario_builder.py. Used the contract only for its genuine 30%-first-year discount clause. Same class of trap as ADR-013's bare `escalat` finding on CUAD (known_issue #24), now confirmed on EDGAR's automated gold tier too. Do not skip the hand-read step when scoring says 'gold'."
+    },
+    {
+      "id": 35,
+      "phase": 3,
+      "text": "data/scenarios/{easy,realistic,edge}/ are built and internally consistent (gap == expected-actual; total == sum of gaps, asserted directly against the written files) but nothing LOADS them into the database yet. scripts/seed_demo.py's scenario_dir parameter still raises NotImplementedError by its own Phase 2 design. Wiring a scenario on disk into a live run is not in Phase 3's definition of done; left for whichever later phase needs it (likely Phase 6, once timeline_generator/reconciliation are real)."
     }
   ],
   "adrs": [
@@ -342,5 +357,5 @@
     "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
     "serving_live_from_phase": 5
   },
-  "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct). See progress.md 'Pre-Phase-3 spike' + ADR-013/014. No phase status changed."
+  "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct) — SUPERSEDED, see known_issue #33: that directory was gitignored and gone by the time Phase 3 itself ran; Phase 3 rebuilt the real corpus at data/corpus/contracts/ (43 distinct) via data_sourcing/*.py. See progress.md 'Pre-Phase-3 spike' + Phase 3 entry + ADR-013/014."
 }

@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0, 1 and 2 complete and marked ✅; everything from Phase 3 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0, 1, 2 and 3 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below); everything from Phase 4 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -23,7 +23,11 @@
 
 ## Shared data shapes
 
-Defined in `core/ai/schemas.py` [A] and imported by everyone.
+Defined in `core/ai/schemas.py` [A] and imported by everyone. **✅ Written at Phase 3**
+(pulled forward from Phase 5 — `data_sourcing/scenario_builder.py` needed a typed
+`ContractRules` for its documented signature before Phase 5's own
+`contract_extractor.extract_rules()` exists). Only the shapes below are done; the LLM
+extraction function that produces a `ContractRules` from a real document is still ⬜.
 
 ```python
 # ---- Contract extraction output ----
@@ -328,7 +332,7 @@ but not locatable — valid finding, degraded highlight, ADR-005). `grounding_ra
 ## Phase 3 — Data sourcing
 
 ```python
-# data_sourcing/fetch_contracts.py                             [A]  ⬜
+# data_sourcing/fetch_contracts.py                             [A]  ✅
 #   ADR-013: EDGAR is PRIMARY, CUAD is secondary. Reverse of the plan's ordering.
 def fetch_edgar_msa(count: int, out_dir: str) -> list[Path]:
     """SEC full-text search, aimed at master/professional services agreements.
@@ -337,13 +341,15 @@ def fetch_edgar_msa(count: int, out_dir: str) -> list[Path]:
 def fetch_cuad(limit: int = 200, out_dir: str = "data/corpus/contracts") -> list[Path]:
     """Use HF `theatticusproject/cuad` — public, no token, real PDFs.
        NOT the plan's dvgodoy mirror. Demoted by ADR-013 to Phase 5
-       extraction dev and Phase 10 volume; yields ~1.6% usable scenarios."""
+       extraction dev and Phase 10 volume; yields ~1.6% usable scenarios.
+       Works; not run at scale in Phase 3 (EDGAR alone cleared the 30+ bar)."""
 
+# data_sourcing/filter_contracts.py                             [A]  ✅
 def filter_service_contracts(paths: list[Path]) -> list[Path]:
     """Keep on CONCRETE UNREDACTED VALUES, not keyword presence (ADR-013).
        The plan's ANY-keyword KEEP list gives 48.6% retention and 1.6% usable.
        NEVER include bare `escalat` — 68 of its 81 CUAD matches are the
-       dispute-escalation procedure. Port the patterns from
+       dispute-escalation procedure. Patterns ported from
        scripts/contract_scoring.py, which is measured."""
 
 def deduplicate(paths: list[Path]) -> list[Path]:
@@ -352,19 +358,33 @@ def deduplicate(paths: list[Path]) -> list[Path]:
        documents carry only 21 distinct clauses. Near-duplicates either side
        of a train/test split silently invalidate Phase 11."""
 
-# scripts/fill_blanks.py  (spike; fold into data_sourcing at Phase 3)  [A]  ✅
 def fill_document(text: str, row: dict, rng: Random) -> tuple[str, list[dict]]:
     """Substitute redacted values INTO the contract text, deterministically,
-       recording each as ground truth by construction (ADR-014). Returns None
-       for any blank whose type cannot be read — refusing beats guessing."""
+       recording each as ground truth by construction (ADR-014). Returns no
+       insertion for any blank whose type cannot be read — refusing beats
+       guessing. Folded in from the scripts/fill_blanks.py spike, as planned."""
 
-# data_sourcing/scenario_builder.py                            [B]  ⬜
+# data_sourcing/fetch_invoices.py                               [B]  ✅
+def fetch_invoice_images(limit: int, out_dir: str) -> list[Path]: ...
+def fetch_invoice_ocr_ground_truth(limit: int, out_dir: str) -> list[Path]: ...
+def fetch_kaggle_transactions(out_dir: str) -> Path | None:
+    """Returns None (never raises) without Kaggle credentials — a nice-to-have
+       for scenario realism, not a hard dependency. scenario_builder.py's own
+       noise generator covers the same need without it."""
+
+# data_sourcing/scenario_builder.py                            [B]  ✅
 def build_scenario(contract_paths: list[Path],
                    rules: list[ContractRules],
                    plant: list[str],
-                   out_dir: str) -> ScenarioManifest:
+                   out_dir: str,
+                   *, clients: list[ClientScenario] | None = None,
+                   noisy: bool = False,
+                   seed: int = 20260810) -> ScenarioManifest:
     """Derives actuals from TRUE rules, then plants the named anomaly types.
-       Writes actuals.csv + ground_truth.json + manifest.json."""
+       Writes contracts/ + actuals.csv + ground_truth.json + manifest.json.
+       `clients` (keyword-only, beyond the plan's four positional args) carries
+       per-client month/split-payment/name-variant detail; when given it takes
+       precedence over the flat `rules`/`plant` lists real callers don't need."""
 ```
 
 ---
