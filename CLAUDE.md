@@ -4,21 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-**Phases 0 and 1 of 12 are complete.** Phase 0 (skeleton, deps, `core/config.py`, config page, digest) was installed and run for real on 2026-08-08 — `.venv` on Python 3.12, all 16 deps import, `streamlit run app/main.py` renders with zero exceptions.
+**Phases 0–4 of 12 are complete; Phase 5's code is written but its definition of done is unmeasured.** Phase 0 (skeleton, deps, `core/config.py`, config page, digest) was installed and run for real on 2026-08-08 — all 16 deps import, `streamlit run app/main.py` renders with zero exceptions.
 
 **Phase 1 (database) is complete and live on Supabase.** All 12 tables in `core/db/models.py`, engine/session in `core/db/database.py`, 13 read helpers in `core/db/queries.py`, plus `scripts/init_db.py`, `scripts/reset_run.py` and `app/pages/9_db_health.py`. The same 47 assertions pass identically on SQLite and on Postgres; ADR-005 nullability and all six `CheckConstraint`s are confirmed in `information_schema`. **All 12 tables exist and are empty** — that is the correct state; Phase 2's `scripts/seed_demo.py` fills them.
 
 **Phase 2 (frontend shell) is complete.** The whole UI exists and reads real Supabase rows — landing page, Revenue Integrity dashboard, Decision Engine, DB Health, plus six components and `app/state.py`. `scripts/seed_demo.py` writes an internally consistent demo run ($26,908 across 7 findings, all four leak types, 3 of 5 clients) where `gap == expected - actual` and `total == sum(gaps)` hold *by construction*. **There is no hardcoded dict anywhere in `app/`** — that is what makes Phase 6 a data change rather than an integration project.
 
-Still stubs: everything under `core/ai/`, `core/engine/`, `core/agents/`, `core/extraction/`, `data_sourcing/`, `training/`, `tests/`, and `app/components/column_mapper.py`.
+**Phase 3 (data sourcing) is complete.** `data_sourcing/{fetch_contracts,filter_contracts,fetch_invoices,scenario_builder}.py` are real. `core/ai/schemas.py` was pulled forward here.
 
-What the UI deliberately does *not* do yet: parse uploads (Phase 4), read the Decision Engine's question box (Phase 9), or render a PDF page in the clause viewer (Phase 7). Each says so on screen rather than implying otherwise.
+**Phase 4 (text extraction) is complete.** Uploads route through `document_router.extract()` (PDFs/images) or a human-confirmed CSV column mapping (ADR-010) that writes `actual_transactions`. `csv_parser.sniff_columns()` is a `thefuzz` heuristic, not an LLM call.
+
+**Phase 5 (LLM extraction) is code-complete and unverified.** Written: `training/serve_model.py` (one file that serves Qwen 2.5 3B on **either Colab or Kaggle** — detects the host, reads `LLM_API_KEY` from its secret store, vLLM by default with a transformers fallback, Cloudflare tunnel, `--self-test`), `core/ai/{endpoints,llm_client,cache,prompts,contract_extractor,client_matcher}.py`, `core/extraction/clause_locator.py`, `app/pages/8_model_endpoint.py`. **No GPU session has ever run**, so the two numbers the phase is judged on (≥8/10 valid `ContractRules`, ≥80% clause grounding) are unmeasured — run `python scripts/eval_extraction.py --pdfs 5` against a live endpoint. Client-side behaviour *is* verified: `python scripts/verify_llm_stack.py` drives 21 assertions against a stub server with no GPU. Setup walkthrough: `docs/serving_setup.md`.
+
+**Colab and Kaggle are peers, not primary and backup (ADR-016).** Both URLs live in `.env` at once; the active one is `LLM_PROVIDER` or the in-app radio on the Model endpoint page. `core/ai/endpoints.py` resolves the URL at *call* time over a `data/endpoint_override.json` layer, so swapping hosts needs no restart — `settings` is `lru_cache`d and cannot express a URL that rotates. The disk cache is keyed on prompt + model and **not** on the endpoint, which is what makes the hosts interchangeable. `LLM_FAILOVER` defaults to true and the app always says which host answered.
+
+Still stubs: everything under `core/engine/`, `core/agents/`, `tests/`, `core/extraction/pdf_renderer.py`, `core/ai/decision_analyzer.py`, `training/{build_pairs,evaluate}.py`.
+
+What the UI deliberately does *not* do yet: run extraction on an upload (nothing writes `contract_rules` rows until Phase 6), read the Decision Engine's question box (Phase 9), or render a PDF page in the clause viewer (Phase 7). Each says so on screen rather than implying otherwise.
 
 **Supabase Storage is live** — private bucket `finsight-documents`, reached with `SUPABASE_SERVICE_KEY` (service_role) because the anon key gets a 403 from RLS on a private bucket. That key is safe here *only* because Streamlit renders server-side; it must go into Streamlit Secrets, never the repo. **Object keys are content-addressed** (`<run_id>/<sha256[:12]>_<name>`) because Supabase's CDN ignores `cache-control` and serves stale bytes after a re-upload — verified, and it survives deletion. Never build a bucket key by hand; use `files.save_upload` and the `documents.storage_url` it returns.
 
 **A pre-Phase-3 spike ran on 2026-08-10 and changed the data source (ADR-013 + ADR-014).** Before writing any Phase 3 code, the plan's untested assumption was tested: *do real CUAD contracts contain the billing rules FinSight looks for?* Mostly not. **8 of 510 (1.6%)** carry both a real recurring amount and a real escalation clause; **3** survive a hand read. EDGAR, aimed at service agreements, hits **17.7%**. So **EDGAR is now the primary source and CUAD is demoted** to extraction development and training volume.
 
-The spike left a working corpus at **`data/corpus/contracts_v0/` — 44 distinct contracts** (19 ready, 6 with values filled in deterministically, 19 awaiting a human look), built by `scripts/contract_scoring.py`, `cuad_probe.py`, `edgar_probe.py` and `fill_blanks.py`. **`data_sourcing/*.py` are still one-line stubs** — the spike de-risked Phase 3, it did not write it.
+**`data/` is gitignored, so no corpus survives a machine change — verify before building on it.** The spike's `contracts_v0/` was gone by the time Phase 3 ran, and Phase 3's `data/corpus/contracts/` was gone again by the time Phase 5 ran on a different OS. Both times the fix was one command: `python -m data_sourcing.filter_contracts --count 260`, which fetches ~253 EDGAR exhibits and writes **43 distinct contracts** (19 ready / 6 filled / 18 review). `data/scenarios/` is currently **empty** and needs `data_sourcing/scenario_builder.py` re-run when Phase 6 wants it.
 
 Three findings a fresh session must not rediscover the hard way:
 - **Never put bare `escalat` in a keep-list.** 81 CUAD contracts match it; **68 mean the *dispute* escalation procedure**, not a price rise. The plan's `KEEP` list contains it.
@@ -237,23 +245,30 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env             # fill in at least the active provider's key
 
-streamlit run app/main.py        # Phase 0: the config page
+streamlit run app/main.py        # the app
 python scripts/memory_digest.py  # compact orientation summary
+
+python scripts/init_db.py        # create all 12 tables
+python scripts/seed_demo.py      # a complete demo run in every table
+python scripts/reset_run.py      # wipe one run, keep others
+
+python -m data_sourcing.filter_contracts --count 260   # rebuild data/corpus/ (gitignored!)
+
+# ---- Phase 5 ----
+python scripts/verify_llm_stack.py           # 21 assertions, stub server, no GPU
+python scripts/eval_extraction.py --pdfs 5   # the Phase 5 definition of done; needs a live endpoint
+python training/serve_model.py --self-test   # runs IN a Colab or Kaggle notebook, not here
 ```
 
 Stubs — each lands in the phase noted:
 
 ```bash
-python scripts/init_db.py        # Phase 1 — create all 12 tables
-python scripts/seed_demo.py      # Phase 2 — scenario -> DB rows
-python scripts/reset_run.py      # Phase 2 — wipe one run, keep others
-
 pytest                                       # collects 0 tests until Phase 6
 pytest tests/test_timeline.py                # the most important test file
 pytest tests/test_timeline.py::test_name -v  # a single test
 ```
 
-The `.venv` is **Python 3.12.13**, built with `uv` for Streamlit Community Cloud parity (the system python is 3.14, which Cloud does not offer). All 16 dependencies install and import. To rebuild:
+The `.venv` should be **Python 3.12**, built with `uv` for Streamlit Community Cloud parity (Cloud does not offer 3.14). The Linux checkout is currently on **3.14.6**, so that parity does not hold there — see known issue #47. To rebuild:
 
 ```bash
 uv venv --python 3.12 && uv pip install -r requirements.txt
@@ -269,7 +284,8 @@ uv venv --python 3.12 && uv pip install -r requirements.txt
 - `settings.api_base` normalises whatever tunnel URL shape got pasted in (strips a trailing `/v1` or `/v1/chat/completions`); `llm_client` appends the path itself. **Read it at call time** — the URL rotates.
 - Unedited `.env.example` placeholders (`[PASSWORD]`, `[REF]`) are treated as unset, so a half-filled `.env` fails at startup rather than at the first connection.
 - `settings.checks()` returns every variable with `.status` (✅/❌/⚪) and `.display` (masked when secret) — it drives the config page and can fail scripts early.
-- Vars: `LLM_PROVIDER`, `COLAB_TUNNEL_URL`, `KAGGLE_TUNNEL_URL`, `CUSTOM_BASE_URL`, `LLM_API_KEY` (shared secret — the tunnel is a public URL), `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `DATABASE_URL` (falls back to `sqlite:///data/finsight.db`), `SUPABASE_URL`, `SUPABASE_KEY`, `HF_TOKEN`, `LLM_CACHE_ENABLED`, `LOG_LEVEL`.
+- Vars: `LLM_PROVIDER`, `COLAB_TUNNEL_URL`, `KAGGLE_TUNNEL_URL`, `CUSTOM_BASE_URL`, `LLM_API_KEY` (shared secret — the tunnel is a public URL), `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_FAILOVER`, `DATABASE_URL` (falls back to `sqlite:///data/finsight.db`), `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`, `HF_TOKEN` (not needed — Qwen 2.5 3B is public), `LLM_CACHE_ENABLED`, `LOG_LEVEL`.
+- **From Phase 5, `settings.api_base` is the `.env` default, not the live value.** `llm_client` asks `core/ai/endpoints.py`, which layers the in-app switcher's choice over it at call time (ADR-016). Read the endpoint from `endpoints.active()`, never from `settings`.
 
 `.gitignore` covers `data/`, `.env`, `__pycache__/`, `*.db`, `.streamlit/secrets.toml`, and `training/data/*.jsonl` **except** `eval_set.jsonl` — the held-out eval set is tracked on purpose and never trained on.
 

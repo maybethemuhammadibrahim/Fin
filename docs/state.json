@@ -1,8 +1,8 @@
 {
   "project": "FinSight",
-  "updated": "2026-08-12",
+  "updated": "2026-08-13",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
-  "current_phase": 4,
+  "current_phase": 5,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
   "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
   "phases": [
@@ -58,11 +58,12 @@
     {
       "n": 5,
       "name": "LLM Rule Extraction",
-      "status": "not_started",
+      "status": "in_progress",
       "work": {
-        "A": "schemas+extractor+clause_locator",
-        "B": "serve_model.py (base weights) FIRST, then llm_client+prompts+cache"
-      }
+        "A": "contract_extractor+clause_locator+client_matcher+schemas doc_type+eval_extraction",
+        "B": "serve_model(both hosts)+endpoints+llm_client+cache+prompts+endpoint page+client_confirm"
+      },
+      "note": "Code complete 2026-08-13; DEFINITION OF DONE NOT MEASURED. serve_model.py runs on Colab or Kaggle from one file and one bootstrap cell, but has never executed on a real GPU -- the vLLM install, the T4 dtype choice, the cloudflared parse and the transformers fallback are all unexercised. Client side is verified against a stub: scripts/verify_llm_stack.py, 21/21, no GPU. The two DoD numbers (>=8/10 valid ContractRules, >=80% clause grounding) need `python scripts/eval_extraction.py --pdfs 5` against a live endpoint. Colab and Kaggle are peers with runtime swapping and failover (ADR-016); grounding happens at text level always and PDF level when available (ADR-017)."
     },
     {
       "n": 6,
@@ -143,7 +144,7 @@
     {
       "id": 9,
       "phase": 0,
-      "text": "DECIDED 2026-08-08, no action: COLAB_TUNNEL_URL shows ❌ and validate() raises until Phase 5 stands up the tunnel (ADR-012). Phase 0's 'all keys ✅' definition of done is unreachable before then, by design. Accepted as honest rather than demoting the variable to optional, which would move the loud failure out of startup and into llm_client. Do not 'fix' this."
+      "text": "UPDATED 2026-08-13 (Phase 5): the tunnel now exists, so COLAB_TUNNEL_URL is no longer structurally unreachable -- but it still shows a red cross whenever no notebook session is running, which is most of the time, because the URL rotates on every restart. That is honest, not broken. settings.validate() still raises when it is unset. Paste a fresh URL on the Model endpoint page (app/pages/8_model_endpoint.py) rather than editing .env and restarting. Original Phase 0 note: accepted as honest rather than demoting the variable to optional, which would move the loud failure out of startup and into llm_client."
     },
     {
       "id": 10,
@@ -178,7 +179,7 @@
     {
       "id": 11,
       "phase": 0,
-      "text": "PARTLY RESOLVED 2026-08-08: Supabase created; DATABASE_URL / SUPABASE_URL / SUPABASE_KEY are set and working. LLM_API_KEY generated locally. Still unset: HF_TOKEN (needed Phase 3) and the tunnel URL (Phase 5, see #9). Colab/Kaggle/HuggingFace/Streamlit Cloud accounts unverified."
+      "text": "PARTLY RESOLVED 2026-08-08: Supabase created; DATABASE_URL / SUPABASE_URL / SUPABASE_KEY are set and working. LLM_API_KEY generated locally. Still unset: HF_TOKEN (needed Phase 3) and the tunnel URL (Phase 5, see #9). Colab/Kaggle/HuggingFace/Streamlit Cloud accounts unverified. UPDATE 2026-08-13: LLM_API_KEY generated and set in .env on this machine; it must also be stored as a Colab secret and a Kaggle secret under exactly that name (docs/serving_setup.md). HF_TOKEN confirmed NOT needed -- Qwen/Qwen2.5-3B-Instruct is public and ungated."
     },
     {
       "id": 6,
@@ -253,7 +254,7 @@
     {
       "id": 28,
       "phase": 7,
-      "text": "EDGAR serves HTML, not PDF. Phase 7's clause viewer uses PyMuPDF page.search_for(), which needs a PDF. Either convert on the way into data/corpus/contracts/, or accept page-level degradation (ADR-005 already permits a null bbox). UNSOLVED and UNCOSTED — the main debt ADR-013 creates."
+      "text": "EDGAR serves HTML, not PDF. Phase 7's clause viewer uses PyMuPDF page.search_for(), which needs a PDF. Either convert on the way into data/corpus/contracts/, or accept page-level degradation (ADR-005 already permits a null bbox). UNSOLVED and UNCOSTED — the main debt ADR-013 creates. PARTIALLY ADDRESSED 2026-08-13 by ADR-017: text-level grounding in contract_extractor now runs on EVERY document and drops hallucinated quotes, so correctness no longer depends on having a PDF. Only the page/bbox HIGHLIGHT still does. The HTML->PDF conversion remains unsolved and uncosted."
     },
     {
       "id": 29,
@@ -309,6 +310,46 @@
       "id": 39,
       "phase": 0,
       "text": "RESOLVED 2026-08-12: scripts/memory_digest.py read docs/state.json with the platform default encoding (json.loads(STATE_PATH.read_text())), which raised UnicodeDecodeError on Windows (cp1252) the moment state.json contained an em-dash. Fixed with an explicit encoding=\"utf-8\". Console output containing emoji (the checkmarks/crosses already in known_issues text) still needs PYTHONIOENCODING=utf-8 set to print on a default Windows terminal -- not fixed, workaround only, since changing the checkmark characters would touch unrelated content."
+    },
+    {
+      "id": 40,
+      "phase": 5,
+      "text": "Phase 5's DEFINITION OF DONE IS UNMEASURED. training/serve_model.py has never run on real Colab or Kaggle hardware: the vLLM pip install, the T4 fp16 dtype choice, the cloudflared URL parse and the whole transformers fallback backend are untested on a GPU. Client side is fully verified against a stub (scripts/verify_llm_stack.py, 21/21, no GPU needed). Run `python scripts/eval_extraction.py --pdfs 5` against a live endpoint to get the two numbers: >=8/10 valid ContractRules and >=80% clause grounding."
+    },
+    {
+      "id": 41,
+      "phase": 5,
+      "text": "Extraction is NOT wired into the Streamlit upload flow. Uploading a contract still stops at extracted text; nothing writes contract_rules rows, and app/components/client_confirm.py's new render_group_confirm() therefore has no caller. Deliberate: Phase 6 owns persistence, because the timeline is the first thing that needs those rows. contract_extractor is reachable from scripts/eval_extraction.py only."
+    },
+    {
+      "id": 42,
+      "phase": 5,
+      "text": "core/ai/llm_client.complete() returns str|None, not the str docs/interfaces.md originally declared. The project convention -- a function that can legitimately fail returns None -- wins over the stale signature. interfaces.md now says so; anything written against the old shape must handle None."
+    },
+    {
+      "id": 43,
+      "phase": 5,
+      "text": "ExtractedDoc.doc_type gained a fifth value, \"text\", for the sourced EDGAR corpus (HTML written to disk as .txt -- neither PDF nor CSV). Nothing persists doc_type, so no migration. Calling those documents text_pdf to satisfy the old Literal would have been a lie in the data."
+    },
+    {
+      "id": 44,
+      "phase": 5,
+      "text": "SECOND RECURRENCE of known issue #33: data/corpus/ and data/scenarios/ were empty again at the start of Phase 5, on a different machine (Linux, .venv on py3.14; Phase 4 ran on Windows). data/** is gitignored, so nothing under it survives a machine change. The contract corpus was rebuilt with `python -m data_sourcing.filter_contracts --count 260` (253 exhibits -> 43 distinct: 19 ready / 6 filled / 18 review). data/scenarios/ has NOT been rebuilt -- rerun data_sourcing/scenario_builder.py when Phase 6 needs it."
+    },
+    {
+      "id": 45,
+      "phase": 5,
+      "text": "prompts.py has had exactly one iteration and has never been tuned against real model output. The plan explicitly budgets real time here for a 3B model (few-shot examples, JSON skeleton, one instruction per line). Expect the first eval run to be the start of that work, not the end."
+    },
+    {
+      "id": 46,
+      "phase": 5,
+      "text": "Grammar-constrained decoding is used when the server accepts response_format=json_schema (vLLM does; the transformers fallback does not), and llm_client negotiates downwards automatically. But NO valid-JSON-rate comparison has been run with it on versus off, so that row of the Phase 11 eval table is empty. The client-side repair-retry is kept regardless (ADR-004)."
+    },
+    {
+      "id": 47,
+      "phase": 5,
+      "text": "The .venv on THIS machine (Linux) is Python 3.14.6, not the 3.12.13 known issue #10 records. Streamlit Community Cloud does not offer 3.14, so the deployment-parity guarantee #10 was created to give does not currently hold here. Everything installs and runs on 3.14; the risk is a wheel or behaviour difference discovered at deploy time. Rebuild with `uv venv --python 3.12` before Phase 11, or pin runtime.txt and find out early."
     }
   ],
   "adrs": [
@@ -369,6 +410,18 @@
     {
       "id": "ADR-014",
       "title": "Redacted values are filled deterministically, never by a model"
+    },
+    {
+      "id": "ADR-015",
+      "title": "The serving notebook runs vLLM's OpenAI server, with a hand-written fallback"
+    },
+    {
+      "id": "ADR-016",
+      "title": "Colab and Kaggle are peers, swappable at runtime; failover on by default"
+    },
+    {
+      "id": "ADR-017",
+      "title": "A quote is grounded against the text always, and against a PDF when there is one"
     }
   ],
   "inference": {

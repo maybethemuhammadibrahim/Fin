@@ -100,7 +100,11 @@ class DocBlock(BaseModel):
 
 
 class ExtractedDoc(BaseModel):
-    doc_type: Literal["text_pdf", "scanned", "image", "csv"]
+    #: "text" was added at Phase 5 for the sourced corpus: EDGAR serves HTML,
+    #: which data_sourcing writes to disk as .txt, so those documents are neither
+    #: a PDF nor a CSV (known issue #28). Nothing persists this value; it exists
+    #: so a consumer can tell what it is holding.
+    doc_type: Literal["text_pdf", "scanned", "image", "csv", "text"]
     blocks: list[DocBlock]
     full_text: str
     page_count: int

@@ -1100,6 +1100,136 @@ instance via browser automation, not just unit-style Python calls.
 
 ---
 
+## Phase 5 — LLM Contract Rule Extraction (The Brain)
+**Code complete:** 2026-08-13 · **Owners:** A / B · **Definition of done: NOT yet measured** — see "Known gaps"
+
+### Built by B — serving first (ADR-012)
+- `training/serve_model.py` — **one file that runs on both Colab and Kaggle.** Detects the
+  host (`google.colab` import vs `KAGGLE_KERNEL_RUN_TYPE`), reads `LLM_API_KEY` from that
+  platform's secret store (`google.colab.userdata` / `kaggle_secrets.UserSecretsClient`,
+  environment variable overriding both), serves Qwen 2.5 3B Instruct over an
+  OpenAI-compatible API, opens a Cloudflare quick tunnel and prints a paste-ready
+  `COLAB_TUNNEL_URL=` or `KAGGLE_TUNNEL_URL=` line naming the right variable for the host
+  it is on. `--self-test` makes one real chat completion *through the tunnel* and confirms
+  a **wrong** bearer token is rejected, before the URL is pasted anywhere. `--lora NAME=PATH`
+  is the entirety of Phase 10's serving change. Two backends: vLLM (default) and a
+  hand-written transformers + FastAPI server (ADR-015).
+- `docs/serving_setup.md` — the click-path: accounts, phone verification for Kaggle GPU,
+  where each host keeps secrets, the single bootstrap cell that is *identical* on both,
+  what the banner looks like, and a symptom→cause→fix table.
+- `core/ai/endpoints.py` — **the swap layer** (ADR-016). `settings` is `lru_cache`d at
+  import, which is right for a database URL and wrong for a tunnel URL. This module
+  resolves provider/URL/model at *call* time, layering `data/endpoint_override.json` over
+  `.env`, so switching Colab↔Kaggle needs no Streamlit restart. Also `probe()`, which
+  distinguishes the four failures that actually happen (no URL / unreachable / 401 /
+  serving a different model), and `record_answered()` so the UI can say which host really
+  answered.
+- `core/ai/llm_client.py` — `call()`, `complete()`, `complete_json()`, `health()`,
+  `last_error()`. Cache → active endpoint → (optional) the other configured endpoint.
+  JSON-mode negotiated downwards per base URL (`json_schema` → `json_object` → none) on a
+  400, so vLLM's grammar-constrained decoding is used where available and the fallback
+  backend still works. One cold-start retry on a timeout or refused connection. Never
+  raises (ADR-004).
+- `core/ai/cache.py` — sha256 over model + system + prompt + temperature + max_tokens +
+  schema name, sharded two deep, written atomically. **Deliberately not keyed on the
+  endpoint**, which is what makes the two hosts interchangeable rather than merely both
+  available: a response cached from Colab hits from Kaggle, and keeps working after either
+  session dies.
+- `core/ai/prompts.py` — `EXTRACTION_SYSTEM` (13 numbered rules, one per line), a JSON
+  skeleton, and a worked example whose contract deliberately contains a **dispute**
+  escalation clause the model must ignore (known issue #24, taught by example rather than
+  by prose). No mention of pages, coordinates or bboxes anywhere (ADR-005).
+- `app/pages/8_model_endpoint.py` — pick the live host, paste a fresh URL, test either
+  endpoint, see which one last answered, inspect/clear the cache, reset to `.env`.
+- `app/main.py` — the model status card now *probes* instead of checking whether a variable
+  is non-empty, because "configured" and "answering" are different questions.
+- `app/components/client_confirm.py` — Phase 5 half added: warns when two stored clients
+  fuzzy-match each other, and `render_group_confirm()` shows the extractor's proposed
+  grouping for correction (rename, or split a group that was wrongly merged).
+- `core/config.py` — `normalise_base_url()` extracted to module level (endpoints.py
+  normalises URLs that never passed through `settings`), plus `LLM_FAILOVER`.
+
+### Built by A
+- `core/ai/contract_extractor.py` — `extract_rules(doc) -> ContractRules | None` and
+  `extract_rules_verbose(doc) -> ExtractionReport`. Paragraph-packed chunks of ≤12k chars
+  (never a fixed stride — a clause sliced in half gets quoted as a fragment that grounds
+  against nothing), ranked by fee-language density, chunk 0 always kept because that is
+  where the parties and term are declared. Per-chunk extraction, then a merge where
+  scalars take the first chunk that stated them and lists de-duplicate.
+  **Then it grounds every quote against the document's own text and drops the ones that
+  are not there** (ADR-017).
+- `core/extraction/clause_locator.py` — `locate_clause()` exact → fuzzy → `None`, plus
+  `grounding_rate()`. `import pymupdf`, not `fitz` (known issue #12). Never raises: a
+  missing PDF is a `None`, same as an absent quote, because the caller handles both
+  identically.
+- `core/ai/client_matcher.py` — `normalise()` strips corporate suffixes and *all*
+  punctuation and spacing, which is what catches "StarterLabs" against "Starter Labs, Inc.";
+  `group_clients()` labels each group with its longest variant.
+- `core/ai/schemas.py` — `ExtractedDoc.doc_type` gained `"text"`. EDGAR serves HTML, which
+  `data_sourcing` writes as `.txt`; those documents are neither a PDF nor a CSV, and
+  calling them `text_pdf` to satisfy a Literal would be a lie in the data.
+- `scripts/eval_extraction.py` — the definition of done, measured, written to
+  `data/eval/phase5_extraction.json`.
+- `scripts/verify_llm_stack.py` — 21 assertions against a stub OpenAI server on localhost:
+  failover, cache-survives-host-swap, JSON-mode negotiation, repair retry, 401, never-raises.
+  **No GPU needed.** Redirects `cache.CACHE_DIR` and `endpoints.OVERRIDE_PATH` into a
+  temporary directory, so running it cannot delete a pre-warmed demo cache. Written in the
+  repo rather than as a throwaway, because known issue #15 is the record of what happens
+  otherwise.
+- **The corpus was rebuilt.** `data/corpus/` was empty again on this machine — `data/**` is
+  gitignored and Phase 3 ran on a different OS. Re-ran `python -m data_sourcing.filter_contracts
+  --count 260` against live EDGAR: 253 exhibits fetched, **43 distinct contracts**
+  (19 ready / 6 filled / 18 review) — the same shape Phase 3 got. This is the second
+  recurrence of known issue #33.
+
+### New interfaces added to interfaces.md
+- `endpoints.active() / get() / list_endpoints() / set_active() / set_url() / probe() / fallback() / record_answered()`
+- `llm_client.call() / complete() / complete_json() / health() / last_error()`
+- `cache.key() / get() / put() / stats() / clear()`
+- `contract_extractor.extract_rules() / extract_rules_verbose()`
+- `clause_locator.locate_clause() / grounding_rate()`
+- `client_matcher.group_clients() / similarity() / normalise() / canonical_for()`
+- `client_confirm.render_group_confirm()`
+
+### Decisions recorded
+- ADR-015: the serving notebook runs vLLM's OpenAI server, with a hand-written fallback
+- ADR-016: Colab and Kaggle are peers, swappable at runtime, with opt-out failover
+- ADR-017: quotes are grounded twice — against text always, against a PDF when there is one
+
+### Known gaps / deliberately deferred
+- **The definition of done is NOT met yet, because no GPU session has ever run.**
+  `serve_model.py` has never executed on real Colab or Kaggle hardware: the vLLM install
+  path, the T4 dtype choice, the cloudflared parse and the transformers fallback are all
+  unexercised on a GPU. Everything *client*-side is verified against a stub
+  (`scripts/verify_llm_stack.py`, 21/21). The two numbers Phase 5 is judged on — ≥8/10 valid
+  `ContractRules` and ≥80% clause grounding — are unmeasured until
+  `python scripts/eval_extraction.py --pdfs 5` runs against a live endpoint.
+- Base Qwen 2.5 3B will extract worse than a frontier model would. That is known issue #8
+  and it is what Phase 10 exists to close — do not read the first eval as a failure.
+- `complete()` returns `str | None`, not the `str` interfaces.md declared. The project's own
+  convention (a function that can legitimately fail returns `None`) beats the stale signature.
+- Extraction is not wired into the Streamlit upload flow. Uploading a contract still stops
+  at extracted text; nothing writes `contract_rules` rows yet. The extractor is reachable
+  from `scripts/eval_extraction.py` only. Phase 6 owns persistence, because a timeline is
+  the first thing that needs those rows.
+- `render_group_confirm()` has no caller for the same reason.
+- The prompt has had exactly one iteration and no tuning against real model output.
+  `prompts.py` is where the next real work is.
+- Outlines/xgrammar server-side is *available* through vLLM's `response_format` and is used
+  when the server accepts it, but no valid-JSON-rate comparison has been run with it on
+  versus off. That row of the Phase 11 eval table is still empty.
+
+### How to verify this phase works
+```bash
+python scripts/verify_llm_stack.py          # 21/21, no GPU, no network
+# then, with a session running and its URL pasted in:
+python scripts/eval_extraction.py --pdfs 5  # the two DoD numbers
+```
+In the browser: **Model endpoint** in the sidebar → paste the Colab URL → *Save* → status
+goes green → switch the radio to Kaggle → status follows, with no restart.
+
+---
+
 <!-- ================================================================= -->
 <!-- APPEND NEW PHASE ENTRIES ABOVE THIS LINE.                         -->
 <!-- ================================================================= -->
@@ -1345,3 +1475,65 @@ Two rules make it sound:
 *What it costs.* The filled documents are no longer verbatim public records. Any report or demo using them must say which values were inserted — `ground_truth_fills.json` records every one, with the seed, so the corpus is reproducible and the claim is auditable.
 
 *On the DeepSeek credits.* ADR-011 forbids vendor API calls in the runtime path. It does not obviously cover offline data preparation, and the plan already contemplates drafting training pairs with "the best available model" before human verification. That remains an **open decision** for Phase 10 — using DeepSeek to draft `ContractRules` JSON would be standard distillation and defensible if disclosed, but it dents the "everything runs on the model we host" story. It is not decided here, and it is not needed here.
+
+---
+
+## ADR-015 — The serving notebook runs vLLM's OpenAI server, with a hand-written fallback
+
+**Status:** Accepted (2026-08-13, Phase 5) · **Implements ADR-012**
+
+**Context.** ADR-012 requires an OpenAI-compatible `/v1/chat/completions` on a free notebook GPU from Phase 5. The plan says "FastAPI + Cloudflare tunnel", which reads as *write a FastAPI app around `transformers.generate`*. That is about 120 lines and entirely predictable — but it gives up two things we now own, because ADR-011 made us the operator of the server rather than a client of somebody else's.
+
+**Decision.** `training/serve_model.py` launches **vLLM's OpenAI server** as its default backend, and keeps a hand-written **transformers + FastAPI** server as `--backend transformers`.
+
+vLLM is chosen because it *is* a FastAPI app implementing the exact routes we need, it enforces the bearer token itself via `--api-key`, it is dramatically faster per token, and — the reason that actually matters — it supports **grammar-constrained decoding** through `response_format: {"type": "json_schema"}`. ADR-004 rejected Outlines because a hosted vendor API could not give us logit access. We now host it. Constrained decoding is the upgrade ADR-011 bought us, and it costs one flag rather than a rewrite.
+
+The fallback exists for a specific, foreseeable failure: vLLM requires compute capability **7.0 or higher**, and Kaggle sometimes allocates a **P100 (6.0)**. Without a second backend, "use Kaggle as the backup" would be a claim that fails exactly when it is needed. `--backend auto` tries vLLM and falls back with a loud log line if it cannot start.
+
+**Consequences.** Two code paths where the plan implied one, and the second is genuinely less capable: no grammar constraint, no continuous batching, slower generation. That asymmetry is acceptable because the client's repair-retry (ADR-004) was always going to be kept regardless, and it is exactly what covers the unconstrained path.
+
+The client had to learn to **negotiate downwards**. It sends a JSON schema, and on a 400 retries with `json_object`, then with neither, memoising the answer per base URL. That is three round trips once per endpoint, not per call — and it means the same client code drives both backends without knowing which one it reached.
+
+The real cost is install time: vLLM pulls its own torch and takes several minutes on a cold Colab runtime. Cold starts were already minutes, and the disk cache already existed to cover them, so this makes an accepted cost slightly worse rather than introducing a new one.
+
+---
+
+## ADR-016 — Colab and Kaggle are peers, swappable at runtime; failover is on by default
+
+**Status:** Accepted (2026-08-13, Phase 5) · **Amends ADR-002 · Mitigates known issue #6**
+
+**Context.** ADR-002's promise is that one variable swaps the endpoint. Phase 0 delivered that in `.env` — and then Phase 5 met the thing `.env` cannot express. `core/config.py` resolves every variable **once per process** behind `@lru_cache`, which is correct for a database URL and wrong for a tunnel URL that rotates every time a notebook restarts. Honouring ADR-002 literally meant editing `.env` and restarting Streamlit, mid-demo, while a session is dying. Meanwhile the docs described Colab as "primary" and Kaggle as "backup", which quietly encouraged only ever configuring one of them — so the backup would be discovered to be unconfigured at the moment it was needed.
+
+**Decision.** Three things, together:
+
+1. **`core/ai/endpoints.py` owns the mutable half of the LLM config**, resolving provider, URL and model at *call* time. It layers `data/endpoint_override.json` over `settings`. `config.py` remains the only module that reads `os.environ`.
+2. **Colab and Kaggle are peers.** Both URLs are configured simultaneously; `LLM_PROVIDER` (or the in-app radio) picks which is live. The disk cache is keyed on prompt and model and **not** on the endpoint, so a response cached from one host hits from the other. That is the difference between interchangeable and merely both-available.
+3. **`LLM_FAILOVER` defaults to true.** When the active endpoint is unreachable, one retry goes to the other configured one.
+
+The bearer secret is **not** overridable from the UI. A secret typed into a text box ends up in a screenshot.
+
+**Consequences.** Two sources of truth for the endpoint, which is a real cost. It is paid down by making precedence visible: the page states whether a URL came from `.env` or from the app, and a Reset button hands control back. A file rather than `st.session_state` because `scripts/eval_extraction.py` must see the same choice the UI made.
+
+Silent failover would be worse than no failover — a demo where Kaggle is quietly answering while the screen says Colab is a debugging trap. So the host that answered is recorded on every successful call, the switch is logged at WARNING, and the endpoint page shows a banner when the last answer came from a failover.
+
+What this does **not** fix: both sessions can be dead at once, cold starts are still minutes, and the URL still has to be pasted by hand after every restart. The cache remains the only mitigation that works when nothing is running, which is why it is described as demo insurance rather than an optimisation.
+
+---
+
+## ADR-017 — A quote is grounded against the text always, and against a PDF when there is one
+
+**Status:** Accepted (2026-08-13, Phase 5) · **Extends ADR-005 · Partially answers known issue #28**
+
+**Context.** ADR-005 says the model returns a verbatim `clause_text` and code finds the coordinates, and that a quote which cannot be located was hallucinated. `clause_locator` implements this with PyMuPDF — which needs a **PDF**. ADR-013 then made **EDGAR** the primary contract source, and EDGAR serves **HTML**. Taken together, the hallucination detector that ADR-005 describes as free would not run at all on the primary corpus.
+
+**Decision.** Grounding happens at two levels, and they are reported separately.
+
+**Text grounding** runs in `contract_extractor` on every document regardless of format: each `clause_text` is checked against the document's own extracted text (whitespace-insensitive substring, then `fuzz.partial_ratio ≥ 92`), and any rule whose quote is not there is **dropped before it can reach the caller**. Quotes under 20 characters are refused outright — a five-word quote matches by luck.
+
+**PDF grounding** stays exactly as ADR-005 specifies, runs where a PDF exists, and produces the page and rectangle. `scripts/eval_extraction.py` measures it on CUAD PDFs, which is precisely the extraction-development role ADR-013 demoted CUAD to.
+
+**Consequences.** The hallucination check — the part that protects the *numbers* — now covers 100% of documents instead of only the PDF ones. The highlight — the part that protects the *demo* — still needs a PDF, and EDGAR contracts will degrade to a page-level view, which ADR-005's nullable `source_page`/`source_bbox` already permit.
+
+This does not close known issue #28. Converting EDGAR HTML to PDF on the way into the corpus remains unsolved and uncosted, and it is still the main debt ADR-013 created. What changes is that the debt is now confined to *highlighting*, not to *correctness*.
+
+One reporting obligation follows: "clause grounding rate" is two different measurements, and a report that quotes a single number without saying which one it is would read well and mean nothing. The eval script prints both, labelled.

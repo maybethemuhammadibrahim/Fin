@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0, 1, 2, 3 and 4 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below); everything from Phase 5 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0, 1, 2, 3 and 4 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 5's code is written and marked ✅, but its definition of done is unmeasured**: `training/serve_model.py` has never run on a real Colab or Kaggle GPU, so extraction quality is unknown. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -454,40 +454,116 @@ def render_column_mapper(session, file_path: str, key_prefix: str) -> dict[str, 
 ## Phase 5 — LLM extraction
 
 ```python
-# training/serve_model.py   (runs IN Colab/Kaggle, not in the repo runtime) [B] ⬜
+# training/serve_model.py   (runs IN Colab/Kaggle, not in the repo runtime) [B] ✅ written, ⬜ never run on a GPU
 #   Stood up FIRST in Phase 5 with BASE Qwen 2.5 3B Instruct (ADR-012).
-#   FastAPI + Cloudflare tunnel exposing OpenAI-compatible
-#   /v1/chat/completions, bearer-authed against LLM_API_KEY.
-#   Phase 10 loads the QLoRA adapter and serves it under a second model name;
-#   llm_client.py needs zero changes for either.
+#   ONE FILE FOR BOTH HOSTS: detects colab|kaggle|other, reads LLM_API_KEY from
+#   that platform's secret store, serves an OpenAI-compatible
+#   /v1/chat/completions behind a Cloudflare quick tunnel, and prints a
+#   paste-ready COLAB_TUNNEL_URL= or KAGGLE_TUNNEL_URL= line.
+#   vLLM by default, transformers+FastAPI fallback for GPUs below SM 7.0 (ADR-015).
+#   Phase 10: --lora NAME=PATH. Nothing else changes.
+python training/serve_model.py [--self-test] [--backend auto|vllm|transformers]
+                               [--model NAME] [--lora NAME=PATH] [--port 8000]
 
-# core/ai/llm_client.py                                        [B]  ⬜
-def complete(prompt: str, system: str = "", **kw) -> str: ...
+# core/ai/endpoints.py                                         [B]  ✅  NEW in Phase 5 (ADR-016)
+#   The mutable half of the LLM config, resolved at CALL time. Layers
+#   data/endpoint_override.json (what the in-app switcher writes) over settings.
+#   config.py stays the only module that reads os.environ.
+@dataclass(frozen=True)
+class Endpoint:   provider, label, env_var, base_url, source; .configured, .chat_url, .models_url
+@dataclass(frozen=True)
+class Health:     ok, detail, latency_ms, models
+
+def active() -> Endpoint                    # who serves THIS call
+def get(provider: str) -> Endpoint
+def list_endpoints() -> list[Endpoint]
+def fallback() -> Endpoint | None           # the other configured host, when LLM_FAILOVER
+def set_active(provider: str) -> None
+def set_url(provider: str, url: str | None) -> None
+def set_model(name: str | None) -> None     # Phase 11's base-vs-tuned switch
+def probe(endpoint: Endpoint | None = None, timeout: int = 10) -> Health
+def record_answered(provider: str, *, was_failover: bool = False) -> None
+def last_answered() -> dict | None
+def api_key() -> str | None                 # from .env only; never UI-editable
+def model() -> str
+def clear_overrides() -> None
+def has_overrides() -> bool
+def describe() -> str
+
+# core/ai/cache.py                                             [B]  ✅
+#   sha256(model + system + prompt + temperature + max_tokens + schema name).
+#   NOT keyed on the endpoint — that is what makes Colab and Kaggle interchangeable.
+def key(prompt: str, model: str, system: str = "", **extra) -> str
+def get(cache_key: str) -> str | None
+def put(cache_key: str, response: str, *, model: str = "", preview: str = "") -> None
+def stats() -> CacheStats                   # entries, bytes, oldest, newest
+def clear() -> int
+def enabled() -> bool
+
+# core/ai/llm_client.py                                        [B]  ✅
+def complete(prompt: str, system: str = "", **kw) -> str | None:
+    """NOTE the deviation: `str | None`, not the `str` this file first declared.
+       The project convention (a function that can legitimately fail returns
+       None) beats a signature written before the failure modes were known."""
+
 def complete_json(prompt: str, schema: type[BaseModel],
-                  system: str = "", max_repairs: int = 1) -> BaseModel | None:
+                  system: str = "", max_repairs: int = 1, **kw) -> BaseModel | None:
     """JSON mode -> Pydantic validate -> one repair retry -> None on failure.
-       Endpoint chosen by LLM_PROVIDER; it is always OUR self-hosted model
-       (ADR-011). NEVER raises to the caller.
+       Endpoint chosen by LLM_PROVIDER (or the in-app switcher); it is always OUR
+       self-hosted model (ADR-011). NEVER raises to the caller.
 
-       Self-hosting obligations, all three required:
-       - read settings.api_base at CALL time (the tunnel URL rotates)
+       Self-hosting obligations, all three met:
+       - the base URL comes from endpoints.active() at CALL time, never captured
+         at import (the tunnel URL rotates)
        - settings.llm_timeout_seconds, plus ONE retry for cold starts
-       - return None on an unreachable endpoint, so the UI can say
-         'model endpoint is down' instead of rendering a blank result"""
+       - returns None on an unreachable endpoint, and last_error() says why, so
+         the UI can say 'model endpoint is down' instead of rendering a blank"""
 
-def health() -> bool:
-    """Is the endpoint answering? Used by the UI to distinguish 'no anomalies'
-       from 'the notebook died'."""
+def call(prompt: str, *, system="", schema=None, temperature=0.0,
+         max_tokens=1536, use_cache=True) -> Completion:
+    """The one path every LLM call takes. Completion carries .text, .error,
+       .provider, .from_cache, .was_failover — so a caller can tell WHICH host
+       answered, not just that something did."""
 
-# core/ai/contract_extractor.py                                [A]  ⬜
+def health() -> bool
+def last_error() -> str | None
+
+# core/ai/prompts.py                                           [B]  ✅
+PROMPT_VERSION: str
+EXTRACTION_SYSTEM: str                      # never mentions pages/coords (ADR-005)
+def extraction_user(contract_text: str, *, part: int = 1, of: int = 1) -> str
+
+# core/ai/contract_extractor.py                                [A]  ✅
 def extract_rules(doc: ExtractedDoc) -> ContractRules | None: ...
+def extract_rules_verbose(doc: ExtractedDoc, *, max_chunks: int = 3) -> ExtractionReport:
+    """.rules, .chunks_total/_sent/_parsed, .dropped (hallucinated quotes),
+       .grounded, .error. Every clause_text is checked against the document's
+       own text and dropped if absent (ADR-017)."""
+def split_chunks(text: str, limit: int = 12_000) -> list[str]
+def select_chunks(text: str, max_chunks: int = 3) -> list[str]
+def is_verbatim(clause_text: str, document_text: str) -> bool
+def merge(results: list[ContractRules]) -> ContractRules | None
 
-# core/extraction/clause_locator.py                            [A]  ⬜
-def locate_clause(pdf_path: str, clause_text: str) -> ClauseLocation | None:
-    """exact -> fuzzy -> None. None means the model likely hallucinated the quote."""
+# core/extraction/clause_locator.py                            [A]  ✅
+def locate_clause(pdf_path: str | Path, clause_text: str) -> ClauseLocation | None:
+    """exact -> fuzzy -> None. None means the model likely hallucinated the quote.
+       Needs a PDF, so it cannot run on the EDGAR corpus (known issue #28) —
+       text-level grounding in contract_extractor covers those (ADR-017)."""
+def grounding_rate(locations: list[ClauseLocation | None]) -> dict[str, float]
+    # {"exact": %, "fuzzy": %, "ungrounded": %, "grounded": %}
 
-# core/ai/client_matcher.py                                    [A]  ⬜
-def group_clients(names: list[str], threshold: int = 85) -> dict[str, list[str]]: ...
+# core/ai/client_matcher.py                                    [A]  ✅
+def group_clients(names: list[str], threshold: int = 85) -> dict[str, list[str]]:
+    """{canonical (the longest variant): [every variant seen]}"""
+def similarity(left: str, right: str) -> int          # 0-100, punctuation-blind
+def normalise(name: str) -> str                       # "Starter Labs, Inc." -> "starterlabs"
+def canonical_for(name: str, groups: dict[str, list[str]]) -> str
+
+# app/components/client_confirm.py                             [B]  ✅
+def render_group_confirm(names: list[str], *, key: str = "client_groups"
+                         ) -> dict[str, list[str]] | None:
+    """The extractor's proposed grouping, for a human to rename or split.
+       None until confirmed. No caller until Phase 6 writes contract_rules rows."""
 ```
 
 ---

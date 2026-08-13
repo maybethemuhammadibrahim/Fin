@@ -21,6 +21,7 @@ import streamlit as st  # noqa: E402
 
 from app import state  # noqa: E402
 from app.components.summary_cards import money  # noqa: E402
+from core.ai import endpoints  # noqa: E402
 from core.config import ConfigError, PROVIDER_ENDPOINT, settings  # noqa: E402
 from core.db import database  # noqa: E402
 from core.db.queries import get_summary_stats  # noqa: E402
@@ -38,7 +39,13 @@ st.caption(
 # ---------------------------------------------------------------------------
 
 db_ok, db_message = database.check_connection()
-endpoint_set = bool(settings.api_base)
+
+# Phase 5: the endpoint is a notebook session, so "configured" and "answering"
+# are different questions and only the second one matters. Probed once per
+# session — a live call on every rerun would cost seconds of page load.
+if "endpoint_health" not in st.session_state:
+    st.session_state.endpoint_health = endpoints.probe(timeout=6)
+model_health = st.session_state.endpoint_health
 
 status_db, status_model, status_storage = st.columns(3)
 with status_db:
@@ -47,12 +54,22 @@ with status_db:
     else:
         st.error("**Database** · unreachable", icon="🗄️")
 with status_model:
-    if endpoint_set:
-        st.success(f"**Model endpoint** · {settings.llm_provider}", icon="🧠")
+    if model_health.ok:
+        st.success(f"**Model endpoint** · {endpoints.describe()}", icon="🧠")
+    elif endpoints.active().configured:
+        st.error(f"**Model endpoint** · {endpoints.active().label} not answering", icon="🧠")
     else:
-        st.warning("**Model endpoint** · not configured (Phase 5)", icon="🧠")
+        st.warning("**Model endpoint** · no session running", icon="🧠")
 with status_storage:
     st.info(f"**Uploads** · {files.backend()}", icon="📦")
+
+if not model_health.ok:
+    st.caption(f"🧠 {model_health.detail}")
+    st.page_link(
+        "pages/8_model_endpoint.py",
+        label="Start a session or paste a new tunnel URL",
+        icon="🔌",
+    )
 
 if not db_ok:
     st.error(
@@ -150,8 +167,9 @@ with st.expander(
     if not config_ok:
         st.error(config_error, icon="🛑")
         st.caption(
-            "Expected before Phase 5: there is no tunnel URL because the serving "
-            "notebook does not exist yet (ADR-012). Nothing else should be ❌."
+            "From Phase 5 the tunnel URL is real, but it rotates on every notebook "
+            "restart — a ❌ here usually means the last session ended, not that "
+            "anything is broken. Paste the new URL on the **Model endpoint** page."
         )
 
     left, mid, right = st.columns(3)
