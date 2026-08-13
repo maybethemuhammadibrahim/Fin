@@ -47,6 +47,23 @@ class ConfigError(RuntimeError):
     """Raised at startup when a required variable is missing or invalid."""
 
 
+def normalise_base_url(url: str | None) -> str | None:
+    """Strip a trailing slash and any `/v1...` suffix off a pasted tunnel URL.
+
+    Module-level rather than a method because `core/ai/endpoints.py` normalises
+    URLs that never passed through `settings` — a URL typed into the app's
+    endpoint switcher, for instance. Both callers must agree on the shape, or
+    `llm_client` appends `/v1/chat/completions` to something that already has it.
+    """
+    if not url:
+        return None
+    url = url.strip().rstrip("/")
+    for suffix in ("/v1/chat/completions", "/v1"):
+        if url.endswith(suffix):
+            url = url[: -len(suffix)]
+    return url or None
+
+
 # --------------------------------------------------------------------------
 # Sources
 # --------------------------------------------------------------------------
@@ -177,6 +194,10 @@ class Settings:
     custom_base_url: str | None
     llm_api_key: str | None
     llm_timeout_seconds: int
+    #: When the active notebook session is unreachable, try the other configured
+    #: tunnel once before giving up. Mitigation for known issue #6 — a dead Colab
+    #: session otherwise takes the whole app down mid-demo.
+    llm_failover: bool
     hf_token: str | None
     llm_cache_enabled: bool
     log_level: str
@@ -228,15 +249,13 @@ class Settings:
 
         The tunnel URL is pasted in by hand after every notebook restart, so
         tolerate the shapes people actually paste.
+
+        This is the value **as `.env` last declared it**, resolved once per
+        process. `llm_client` does not read it directly: it asks
+        `core/ai/endpoints.py`, which layers the in-app switcher's choice on top
+        so that swapping Colab for Kaggle does not need a Streamlit restart.
         """
-        url = self.active_base_url
-        if not url:
-            return None
-        url = url.rstrip("/")
-        for suffix in ("/v1/chat/completions", "/v1"):
-            if url.endswith(suffix):
-                url = url[: -len(suffix)]
-        return url
+        return normalise_base_url(self.active_base_url)
 
     # ---- inspection ----
 
@@ -254,6 +273,8 @@ class Settings:
                     "Shared secret. The tunnel is a PUBLIC URL — never run it open"),
             Setting("LLM_TIMEOUT_SECONDS", str(self.llm_timeout_seconds), False, False,
                     "Cold starts load 3B of weights before the first answer"),
+            Setting("LLM_FAILOVER", str(self.llm_failover).lower(), False, False,
+                    "Fall through to the other configured tunnel when this one is dead"),
             Setting("DATABASE_URL", self.database_url, False, True, f"Falls back to {SQLITE_FALLBACK}"),
             Setting("SUPABASE_URL", self.supabase_url, False, False, "Needed from Phase 2 (file storage)"),
             Setting("SUPABASE_KEY", self.supabase_key, False, True, "anon key — safe to publish"),
@@ -335,6 +356,7 @@ def get_settings() -> Settings:
         custom_base_url=_read("CUSTOM_BASE_URL"),
         llm_api_key=_read("LLM_API_KEY"),
         llm_timeout_seconds=_read_int("LLM_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
+        llm_failover=_read_bool("LLM_FAILOVER", True),
         hf_token=_read("HF_TOKEN"),
         llm_cache_enabled=_read_bool("LLM_CACHE_ENABLED", True),
         log_level=(_read("LOG_LEVEL", "INFO") or "INFO").upper(),
