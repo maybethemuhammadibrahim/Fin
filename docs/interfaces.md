@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0, 1, 2, 3 and 4 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 5's code is written and marked ✅, but its definition of done is unmeasured**: `training/serve_model.py` has never run on a real Colab or Kaggle GPU, so extraction quality is unknown. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0, 1, 2, 3, 4 and 5 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -454,7 +454,7 @@ def render_column_mapper(session, file_path: str, key_prefix: str) -> dict[str, 
 ## Phase 5 — LLM extraction
 
 ```python
-# training/serve_model.py   (runs IN Colab/Kaggle, not in the repo runtime) [B] ✅ written, ⬜ never run on a GPU
+# training/serve_model.py   (runs IN Colab/Kaggle, not in the repo runtime) [B] ✅ run on a Colab T4 2026-08-14 (vLLM 0.27.1); ⬜ Kaggle and the transformers fallback still never run on a GPU
 #   Stood up FIRST in Phase 5 with BASE Qwen 2.5 3B Instruct (ADR-012).
 #   ONE FILE FOR BOTH HOSTS: detects colab|kaggle|other, reads LLM_API_KEY from
 #   that platform's secret store, serves an OpenAI-compatible

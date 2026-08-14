@@ -1230,6 +1230,79 @@ goes green → switch the radio to Kaggle → status follows, with no restart.
 
 ---
 
+## Phase 5 closed — measured on a live Colab T4 (2026-08-14)
+**Owners:** A / B · **Definition of done: MET.** This entry supersedes the "not yet
+measured" gap above. Nothing in the code changed; the numbers simply exist now.
+
+### What ran
+A Colab T4 served **base Qwen 2.5 3B Instruct** under **vLLM 0.27.1** behind a Cloudflare
+quick tunnel, and `scripts/eval_extraction.py --limit 10 --pdfs 5` ran against it from the
+Linux checkout. First time `serve_model.py` has ever executed on a GPU (known issue #40).
+
+### The three numbers
+
+| Measure | Result | Target | |
+|---|---|---|---|
+| valid `ContractRules` | **10/10** | ≥ 8/10 | PASS |
+| text grounding | **80.0%** — 12 grounded, 3 dropped, of 15 quotes | ≥ 80% | PASS |
+| PDF page/bbox grounding | **2/2 located** — 1 exact, 1 fuzzy | — | PASS |
+
+Written to `data/eval/phase5_extraction.json`. ~25–45s per contract uncached.
+
+### Read these before quoting those numbers
+- **Grounding passed exactly on the line.** 80.0%, not "above 80%". One more paraphrase
+  reads 73% and the phase fails. A 2-contract smoke run 40 minutes earlier read 66.7% —
+  the sample is small enough to swing that hard. Known issue #48.
+- **10/10 valid is softer than it reads.** Three contracts (Mammoth Energy, Regal
+  Entertainment, Vantiv) extracted **zero** clauses, and an empty `ContractRules` is
+  structurally valid, so it scores as a pass while proving nothing. The yield is lopsided:
+  **AMERI Holdings EX-99.1 alone produced 7 of the 12 grounded quotes.** Known issue #49.
+- **PDF grounding is a demonstration, not a rate.** 5 CUAD PDFs yielded 2 locatable quotes
+  between them; 3 extracted nothing. "100%" of n=2 is not a capability claim. It does prove
+  `locate_clause` returns real coordinates from a real PDF, exact and fuzzy paths both.
+- The 3 dropped quotes were **paraphrases** — the model was told "character for character"
+  and did not comply. `_ground()` caught all three, which is ADR-017 working as designed.
+
+### What running it on real hardware found (known issue #50)
+Two bugs that no stub could have surfaced. Both are documented in `README.md` →
+*Starting a session*; **neither is fixed in code.**
+- `google.colab.userdata.get()` reads secrets from the notebook **kernel**, so
+  `serve_model.py` cannot see `LLM_API_KEY` when launched as `!python …` — it dies with
+  `'NoneType' object has no attribute 'kernel'`. Read the secret in a cell and set
+  `os.environ` instead, which `serve_model.py` already prefers. **Kaggle is unaffected** —
+  `kaggle_secrets` works from a subprocess, so this is a Colab-only trap.
+- `pip install vllm` is unpinned and pulled a torch built for **CUDA 13.0**, leaving Colab's
+  preinstalled **torchaudio (CUDA 12.8)** stale. `transformers` imports `torchaudio`
+  unconditionally, so the server never started. `pip uninstall torchaudio` after installing
+  vLLM; we serve text and never need it. Consider pinning `vllm` before deployment.
+
+Also observed, not fixed (known issue #51): when the vLLM child dies at import time,
+`wait_until_ready()` polls a dead port for the full 900s because it never checks
+`Popen.poll()`. Fifteen minutes per failed start, for a one-line fix.
+
+### Still untested on a GPU
+- The entire `--backend transformers` fallback (ADR-015). Only vLLM has run.
+- **Kaggle.** Only Colab has been stood up. ADR-016 calls them peers; that claim is now
+  half-verified.
+
+### Known gaps / deliberately deferred
+- `prompts.py` is still unturned — but it is now a *measured* baseline (`PROMPT_VERSION`
+  `v1`, 10/10 valid, 80.0% grounding) rather than a guess. Known issue #45 updated, not
+  closed. Editing a template invalidates exactly its own cache entries, so re-measuring
+  after a prompt change is cheap.
+- Extraction is still not wired into the Streamlit upload flow; nothing writes
+  `contract_rules` rows. Unchanged, and still Phase 6's job (known issue #41).
+- EDGAR's HTML-vs-PDF debt (known issue #28) is untouched. Text grounding runs everywhere;
+  page/bbox still needs a PDF, which is why the CUAD pass exists at all.
+
+### How to verify
+```bash
+python scripts/eval_extraction.py --limit 10 --pdfs 5   # needs a live endpoint
+```
+Cached responses make a re-run near-instant; add `--no-cache` to force real calls.
+
+---
+
 <!-- ================================================================= -->
 <!-- APPEND NEW PHASE ENTRIES ABOVE THIS LINE.                         -->
 <!-- ================================================================= -->

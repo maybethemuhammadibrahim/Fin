@@ -1,8 +1,8 @@
 {
   "project": "FinSight",
-  "updated": "2026-08-13",
+  "updated": "2026-08-14",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
-  "current_phase": 5,
+  "current_phase": 6,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
   "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
   "phases": [
@@ -58,17 +58,17 @@
     {
       "n": 5,
       "name": "LLM Rule Extraction",
-      "status": "in_progress",
+      "status": "done",
       "work": {
         "A": "contract_extractor+clause_locator+client_matcher+schemas doc_type+eval_extraction",
         "B": "serve_model(both hosts)+endpoints+llm_client+cache+prompts+endpoint page+client_confirm"
       },
-      "note": "Code complete 2026-08-13; DEFINITION OF DONE NOT MEASURED. serve_model.py runs on Colab or Kaggle from one file and one bootstrap cell, but has never executed on a real GPU -- the vLLM install, the T4 dtype choice, the cloudflared parse and the transformers fallback are all unexercised. Client side is verified against a stub: scripts/verify_llm_stack.py, 21/21, no GPU. The two DoD numbers (>=8/10 valid ContractRules, >=80% clause grounding) need `python scripts/eval_extraction.py --pdfs 5` against a live endpoint. Colab and Kaggle are peers with runtime swapping and failover (ADR-016); grounding happens at text level always and PDF level when available (ADR-017)."
+      "note": "Completed 2026-08-14. Definition of done MEASURED on real hardware for the first time: a Colab T4 served base Qwen 2.5 3B via vLLM 0.27.1 behind a Cloudflare quick tunnel, and scripts/eval_extraction.py ran against it. valid ContractRules 10/10 (target >=8/10); text grounding 80.0% of 15 quotes (target >=80%); PDF page/bbox grounding 2/2 located on CUAD PDFs (1 exact, 1 fuzzy). All three pass, but read known issues #48 and #49 before trusting them -- grounding passed exactly on the line, and 3 of the 10 contracts extracted zero clauses yet still scored as valid. Two real serving bugs found only by running it (known issue #50): Colab secrets are unreachable from a `!python` subprocess, and pip install vllm upgrades torch past Colab's preinstalled torchaudio. Both documented in README.md."
     },
     {
       "n": 6,
       "name": "Timeline & Reconciliation",
-      "status": "not_started",
+      "status": "in_progress",
       "work": {
         "A": "timeline_generator",
         "B": "reconciliation+classifier"
@@ -314,7 +314,7 @@
     {
       "id": 40,
       "phase": 5,
-      "text": "Phase 5's DEFINITION OF DONE IS UNMEASURED. training/serve_model.py has never run on real Colab or Kaggle hardware: the vLLM pip install, the T4 fp16 dtype choice, the cloudflared URL parse and the whole transformers fallback backend are untested on a GPU. Client side is fully verified against a stub (scripts/verify_llm_stack.py, 21/21, no GPU needed). Run `python scripts/eval_extraction.py --pdfs 5` against a live endpoint to get the two numbers: >=8/10 valid ContractRules and >=80% clause grounding."
+      "text": "RESOLVED 2026-08-14: Phase 5's definition of done is now MEASURED on a real Colab T4, not a stub. 10/10 valid ContractRules, 80.0% text grounding of 15 quotes, 2/2 PDF locations (1 exact 1 fuzzy). vLLM 0.27.1 installed and served on the T4; the fp16 dtype choice, the cloudflared URL parse and the /v1/models readiness poll all work. STILL UNTESTED on a GPU: the whole --backend transformers fallback path, and Kaggle (only Colab has been run). Superseded in part by #48/#49 -- the numbers pass but are thin."
     },
     {
       "id": 41,
@@ -339,7 +339,7 @@
     {
       "id": 45,
       "phase": 5,
-      "text": "prompts.py has had exactly one iteration and has never been tuned against real model output. The plan explicitly budgets real time here for a 3B model (few-shot examples, JSON skeleton, one instruction per line). Expect the first eval run to be the start of that work, not the end."
+      "text": "prompts.py has had exactly one iteration and STILL has not been tuned, but it has now been measured once (2026-08-14): PROMPT_VERSION v1 scored 10/10 valid and 80.0% grounding on 10 EDGAR contracts. The 3 dropped quotes were paraphrases -- the model was told 'character for character' and did not comply. That is the tuning work the plan budgets for, and it is still open; v1 is a measured baseline now, not a guess. Any edit here invalidates exactly its own cache entries (cache.key hashes the rendered prompt), so re-running the eval after a prompt change is cheap."
     },
     {
       "id": 46,
@@ -350,6 +350,26 @@
       "id": 47,
       "phase": 5,
       "text": "The .venv on THIS machine (Linux) is Python 3.14.6, not the 3.12.13 known issue #10 records. Streamlit Community Cloud does not offer 3.14, so the deployment-parity guarantee #10 was created to give does not currently hold here. Everything installs and runs on 3.14; the risk is a wheel or behaviour difference discovered at deploy time. Rebuild with `uv venv --python 3.12` before Phase 11, or pin runtime.txt and find out early."
+    },
+    {
+      "id": 48,
+      "phase": 5,
+      "text": "Phase 5's grounding number PASSED EXACTLY ON THE LINE: 80.0%, being 12 grounded and 3 dropped of 15 quotes. One more paraphrase reads 73% and the phase fails. The sample is small enough to swing hard -- a 2-contract smoke run an hour earlier read 66.7%. Do not quote 80% as a stable capability of the model; it is one measurement at n=15. Re-run with --limit 20 before it is cited in the Phase 11 report."
+    },
+    {
+      "id": 49,
+      "phase": 5,
+      "text": "'valid ContractRules 10/10' is softer than it reads. 3 of the 10 contracts (Mammoth Energy, Regal Entertainment, Vantiv) extracted ZERO clauses -- 0 grounded, 0 dropped -- and an empty ContractRules is structurally valid, so it scores as a pass while proving nothing. The yield is also lopsided: AMERI Holdings EX-99.1 alone produced 7 of the 12 grounded quotes. Report the split, not just the headline. The same shape showed on the CUAD PDF pass: 5 contracts yielded 2 locatable quotes, 3 yielded none. Consider adding a 'contracts with >=1 grounded clause' metric in Phase 11."
+    },
+    {
+      "id": 50,
+      "phase": 5,
+      "text": "Two serving bugs that ONLY appear on real hardware, both fixed by notebook-cell workarounds recorded in README.md ('Starting a session'), neither fixed in code. (1) google.colab.userdata.get() reads secrets from the notebook KERNEL, so serve_model.py cannot see LLM_API_KEY when launched as `!python ...` -- it dies with \"'NoneType' object has no attribute 'kernel'\". Fix: read the secret in a cell, set os.environ, which serve_model.py already prefers. Kaggle's kaggle_secrets does NOT have this problem. (2) `pip install vllm` is unpinned and pulls a torch built for CUDA 13.0, leaving Colab's preinstalled torchaudio (CUDA 12.8) stale; transformers imports torchaudio unconditionally and the server never starts. Fix: pip uninstall torchaudio after installing vllm. Consider pinning vllm before deployment."
+    },
+    {
+      "id": 51,
+      "phase": 5,
+      "text": "When vLLM's child process dies at import time, serve_model.py does not notice: it prints 'waiting for the model to finish loading (up to 900s)' and polls a dead port for the full 15 minutes before falling back. wait_until_ready() polls /v1/models but never checks Popen.poll(). One-line fix available; not made because the phase was being measured, not edited. Costs 15 minutes per failed start."
     }
   ],
   "adrs": [
