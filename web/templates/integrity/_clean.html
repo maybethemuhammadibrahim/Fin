@@ -1,0 +1,24 @@
+{# A run that found nothing. Kept as a first-class screen because a tool that
+   never reports "clean" is a tool you cannot trust when it reports a leak. #}
+
+<section class="panels panels-4 rule-b">
+  {% for c in view.cards %}{{ macros.card(c) }}{% endfor %}
+</section>
+
+{% set clean = view.clean %}
+<section class="clean rule-b">
+  <div class="lede">
+    <p class="eyebrow">{{ macros.value(clean.run_label) }}</p>
+    <h1>{{ clean.headline }}</h1>
+    {% for para in clean.body %}<p>{{ para }}</p>{% endfor %}
+  </div>
+
+  <div class="clean-stats">
+    {% for s in clean.stats %}
+      <div class="clean-stat">
+        <div class="lbl">{{ s.label }}</div>
+        <div class="val">{{ macros.value(s.value) }}</div>
+      </div>
+    {% endfor %}
+  </div>
+</section>

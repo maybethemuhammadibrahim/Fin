@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Decision Engine · FinSight{% endblock %}
+
+{# Page 2: one question about a recurring cost, answered with the recovered
+   money factored in. In live mode there is no answer yet — the analyser is a
+   Phase 9 stub and no table holds expenses — so the verdict is left blank and
+   the working shows only the lines the database can actually support. #}
+{% block content %}
+
+<section class="ask rule-b">
+  <p class="eyebrow">Ask about a recurring cost</p>
+  <form class="askbar" method="get" action="{{ url_for('decision') }}">
+    {{ carry_fields | safe }}
+    <input class="q" type="text" name="q" autocomplete="off"
+           value="{{ view.question }}"
+           placeholder="Can I afford a senior designer at 5,000 a month from September?">
+    <button type="submit">Answer it</button>
+  </form>
+  <div class="suggestions">
+    {% for s in view.suggestions %}
+      <a href="{{ ask_url }}{{ s | urlencode }}">{{ s }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panels decision">
+  <div class="answer">
+
+    {% if view.answered %}
+      <div class="verdict">
+        <div class="word">{{ view.verdict_word }}</div>
+        <div class="qual">{{ macros.value(view.verdict_qual) }}</div>
+      </div>
+      <p class="lead">{{ view.lead_html | safe }}</p>
+      {% if view.after %}<p class="after">{{ view.after }}</p>{% endif %}
+    {% else %}
+      <div class="verdict">
+        <div class="word is-muted">—</div>
+        <div class="qual">No verdict yet</div>
+      </div>
+      <div style="max-width:60ch">{{ macros.skeleton([96, 88, 92, 54]) }}</div>
+      <div style="margin-top:20px">
+        {{ macros.absent('No answer computed', view.notices.get('decision')) }}
+      </div>
+    {% endif %}
+
+    {% if view.bars %}
+      <div class="chart">
+        <div class="chart-head">
+          <span class="kicker">Monthly surplus, next twelve months</span>
+          <div class="spacer"></div>
+          <span class="legend"><i></i>As things stand</span>
+          <span class="legend accent"><i></i>Once collected</span>
+        </div>
+        <div class="bars">
+          {% for b in view.bars %}
+            <div class="bargroup">
+              <div class="a" style="height:{{ b.a }}"></div>
+              <div class="b" style="height:{{ b.b }}"></div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="axis">
+          {% for label in view.axis %}<span>{{ label }}</span>{% endfor %}
+        </div>
+      </div>
+    {% else %}
+      {# No bars rather than twelve zero-height ones: an empty axis reads as
+         "the surplus is nil", which is a claim, not an absence. #}
+      <div class="chart">
+        <div class="chart-head">
+          <span class="kicker">Monthly surplus, next twelve months</span>
+        </div>
+        <div style="padding:18px 16px">
+          {{ macros.absent('Nothing to project', view.notices.get('expenses')) }}
+        </div>
+      </div>
+    {% endif %}
+
+    {% if view.caveat %}
+      <div class="caveat"><p>{{ view.caveat }}</p></div>
+    {% endif %}
+  </div>
+
+  <div class="panel-bg">
+    <div class="working-head"><span class="kicker">How this was worked out</span></div>
+    {% for w in view.working %}
+      <div class="workrow{% if loop.index0 % 2 %} is-alt{% endif %}{% if w.bold %} is-bold{% endif %}{% if w.final %} is-final{% endif %}">
+        <div class="lbl">
+          {{ w.label }}
+          {% if w.src %}<div class="src">{{ w.src }}</div>{% endif %}
+        </div>
+        <div class="amt{% if w.accent %} accent{% endif %}">{{ macros.value(w.amount) }}</div>
+      </div>
+    {% endfor %}
+    <p class="working-note">
+      Every figure above was computed in code from your own records. The model read your
+      question and wrote the sentences — it produced none of these numbers.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

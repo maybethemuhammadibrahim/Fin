@@ -64,9 +64,17 @@ Leave `DATABASE_URL` blank (or as the unedited placeholder) and FinSight falls b
 
 ### 4. Run
 
+There are **two frontends over one database**, and both work. Pick either.
+
 ```bash
-streamlit run app/main.py
+streamlit run app/main.py        # the original shell, with the config and DB-health pages
+python run_web.py                # the FastAPI + Jinja2 shell, on http://127.0.0.1:8000
 ```
+
+Neither replaces the other. They read the same rows through the same
+`core.db.queries` helpers, so you can keep one open to check the other — which
+is exactly what the FastAPI app was built for. See
+[The two frontends](#the-two-frontends) below.
 
 The config page lists every variable with **✅ set · ❌ required and missing · ⚪ optional, needed in a later phase**, with every secret masked to `AIza...4f2a`. If a required variable is missing, the page says so by name at the top instead of failing somewhere deep in the stack an hour later.
 
@@ -112,6 +120,97 @@ Three conveniences worth knowing:
 `LLM_API_KEY` is not issued by anyone — invent a long random string, put it in `.env`, and have the serving notebook reject requests without it.
 
 > Earlier drafts of this project used Google AI Studio and Groq API keys. **They are not used and not needed** — see [ADR-011](docs/progress.md#adr-011--self-hosted-open-source-inference-only-no-frontier-api-calls).
+
+## The two frontends
+
+FinSight has two user interfaces over one database. Neither is deprecated.
+
+| | `app/` — Streamlit | `web/` — FastAPI + Jinja2 |
+|---|---|---|
+| Start with | `streamlit run app/main.py` | `python run_web.py` |
+| Built for | operating the pipeline: config page, DB health, model endpoint switcher, uploads | showing the product: the delivered design, pixel for pixel |
+| Renders | widgets | server-rendered HTML from `web/templates/`, styled by `web/static/css/` |
+| Reads | `core.db.queries` | `core.db.queries` — the same helpers, no second data path |
+| Computes | nothing | nothing |
+
+Both obey hard rule 3: **the UI reads only the database.** Neither holds a
+hardcoded dict of findings, with the single, quarantined exception described
+below.
+
+### Demo mode and live mode
+
+The FastAPI app renders every screen from one of two sources, chosen by a
+toggle in the top-left of the black state bar.
+
+**Demo** renders the content baked into the delivered mockup — five findings,
+a worked Decision Engine answer, the processing queue with its failed scan.
+It lives in `web/presenters/demo.py` and it is the reference render: the thing
+to diff against when a template change is supposed to be invisible. It is also
+what you show someone before a database has anything in it.
+
+**Live** renders whatever the database holds. Where the database holds nothing,
+the page draws skeleton bars and a dashed box naming the phase that will fill
+it — `—` for a figure that does not exist, never a `0.00` standing in for one.
+It lives in `web/presenters/live.py`.
+
+**The two never talk.** There is no fallback path from live into demo. A live
+page with a gap shows the gap, because borrowing a demo figure to plug it would
+put an invented number in front of a user, which is the one thing this
+architecture exists to prevent. Both presenters return the same dataclasses
+from `web/viewmodels.py`, so the templates cannot tell which one produced the
+page — that is what makes "does live mode look right?" answerable by eye.
+
+Setting the mode, most specific first:
+
+```bash
+# 1. the on-page toggle — Demo / Live in the state bar, remembered in a cookie
+# 2. a pinned link, for a screenshot or a bug report
+#      http://127.0.0.1:8000/?mode=live
+# 3. the environment, which sets what the app boots into
+WEB_DATA_MODE=live python run_web.py
+python run_web.py --live            # same thing
+```
+
+In demo mode the other five state-bar buttons pick which screen to render
+(Empty · Processing & failures · Findings · Clean run · Model offline). In live
+mode the screen is derived from the run instead — no documents means *empty*,
+findings mean *review*, everything read and nothing found means *clean* — so
+those buttons are drawn inert, and a run picker appears beside them.
+
+### Layout of `web/`
+
+```
+web/
+  main.py           the FastAPI app; mounts static, includes the routers
+  settings.py       WEB_* variables and the cookie that overrides them
+  viewmodels.py     the dataclasses every template renders — the demo/live contract
+  format.py         money, dates and the em dash, formatted in exactly one place
+  chrome.py         header, state bar and offline banner, for either mode
+  deps.py           per-request mode, DB session, query-string carry-over
+  templating.py     the Jinja environment and the one `render()` every route ends in
+  presenters/
+    demo.py         the mockup's own content, transcribed
+    live.py         the same shapes, built from core.db.queries
+  routers/          one per page, plus the mode toggle
+  templates/        base + partials + one file per Integrity state
+  static/css/
+    tokens.css      the design system's file, copied verbatim — retune colour here
+    app.css         the mockup's inline styles, transcribed into named classes
+  static/js/app.js  ~40 lines: clickable table rows and a scroll-into-view
+```
+
+The delivered mockup was a single 636-line file with every style inline and its
+state machine in a `<script>`. Splitting it this way changed no values — the
+CSS is a transcription, not a redesign — but it means a finding row is defined
+once instead of six times, and each screen is a file you can open on its own.
+
+The page **fills the window**. The delivered mockup was a fixed 1440px art board
+centred on a grey ground; that framing is an artefact of how it was drawn, not
+part of the design, so it is not reproduced. `WEB_FLUID_WIDTH=false` (or
+`python run_web.py --fixed`) restores the exact art board for comparing against
+the original file.
+
+---
 
 ## Where the intelligence runs
 
@@ -292,7 +391,11 @@ The Model endpoint page in the app beats both — if you click a host there, tha
 ## Commands
 
 ```bash
-streamlit run app/main.py        # the app  (Phase 0: the config page)
+streamlit run app/main.py        # the Streamlit shell
+python run_web.py                # the FastAPI shell, http://127.0.0.1:8000
+python run_web.py --live         # ...booted straight into database-backed mode
+python run_web.py --reload       # ...restarting on edit, for template work
+python run_web.py --fixed        # ...pinned to the mockup's 1440px art board
 
 python scripts/memory_digest.py  # compact "where are we" summary for an AI session
 ```
@@ -322,6 +425,7 @@ The test files are docstring-only stubs until Phase 6, so `pytest` currently col
 
 ```
 app/            [B] Streamlit: pages/ and components/. Renders DB rows, computes nothing.
+web/            [B] FastAPI + Jinja2 frontend over the same DB. Also computes nothing.
 core/
   config.py     [B] The one settings object. Nothing else reads os.environ.
   extraction/   Files in, text out. Plus clause_locator — real bboxes, never model-invented.

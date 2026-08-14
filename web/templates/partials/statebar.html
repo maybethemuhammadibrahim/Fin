@@ -1,0 +1,56 @@
+{#
+  The top black bar. It carries the only control that matters for this build:
+  Demo vs Live.
+
+  In demo mode the five state buttons pick which of the mockup's screens to
+  render. In live mode the screen is derived from the database, so those
+  buttons would be lying — they stay in place (so the bar does not reflow when
+  you toggle) but are drawn inert and say so on hover. The run picker takes
+  their place as the thing you actually steer with.
+#}
+<div class="statebar">
+  <div class="statebar-label">Data</div>
+  <div class="statebar-group">
+    <a class="statebar-btn{% if chrome.data_mode == 'demo' %} is-active{% endif %}"
+       href="{{ url_for('set_mode', mode='demo') }}?next={{ current_path | urlencode }}"
+       title="Render the values baked into the mockup">Demo</a>
+    <a class="statebar-btn{% if chrome.data_mode == 'live' %} is-active{% endif %}"
+       href="{{ url_for('set_mode', mode='live') }}?next={{ current_path | urlencode }}"
+       title="Render whatever the database holds, gaps included">Live</a>
+  </div>
+
+  <div class="statebar-label" style="padding-left:20px">
+    {% if chrome.is_demo %}Mockup state{% else %}Derived state{% endif %}
+  </div>
+  <div class="statebar-group">
+    {% for key, label in [
+        ('empty', 'Empty'),
+        ('processing', 'Processing &amp; failures'),
+        ('review', 'Findings'),
+        ('clean', 'Clean run'),
+        ('offline', 'Model offline')
+    ] %}
+      {% if chrome.is_demo %}
+        <a class="statebar-btn{% if chrome.demo_state == key %} is-active{% endif %}"
+           href="{{ url_for('integrity') }}?state={{ key }}">{{ label | safe }}</a>
+      {% else %}
+        <span class="statebar-btn is-inert{% if chrome.demo_state == key %} is-active{% endif %}"
+              title="In live mode the screen follows the database, not this bar">{{ label | safe }}</span>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if not chrome.is_demo and chrome.runs %}
+    <form method="get" action="{{ request.url.path }}">
+      {{ carry_fields | safe }}
+      <select class="statebar-select" name="run" onchange="this.form.submit()">
+        {% for r in chrome.runs %}
+          <option value="{{ r.id }}"{% if r.selected %} selected{% endif %}>{{ r.label }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  {% endif %}
+
+  <div class="spacer"></div>
+  <div class="statebar-note">{{ chrome.state_note }}</div>
+</div>

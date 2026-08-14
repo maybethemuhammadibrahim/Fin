@@ -1,0 +1,74 @@
+{#
+  Shared building blocks. Anything that appears on more than one screen, or
+  that has to look identical whether it was filled from the demo or from the
+  database, is defined once here.
+
+  The three at the bottom — value, skeleton, absent — are the missing-data
+  vocabulary. Between them they cover every "no data" case: a figure we do not
+  have, a block we cannot draw yet, and the reason why.
+#}
+
+{# --- a tag: Confirmed / Waiting / Ruled out, or a grounding badge --------- #}
+{% macro tag(text, kind) -%}
+<span class="tag tag-{{ kind }}">{{ text }}</span>
+{%- endmacro %}
+
+
+{# --- one summary card ---------------------------------------------------- #}
+{% macro card(c) -%}
+<div class="card">
+  <div class="lbl">{{ c.label }}</div>
+  {% if c.value is none %}
+    <div class="val"><span class="skel skel-lg"></span></div>
+  {% else %}
+    <div class="val{% if c.accent %} accent{% endif %}">{{ c.value }}</div>
+  {% endif %}
+  {% if c.sub %}<div class="sub">{{ c.sub }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# --- the four pipeline stage blips ---------------------------------------
+   0 not started · 1 done · 2 in progress · 3 failed. The mockup encoded these
+   as colours inline; the class names say what the colour meant.            #}
+{% macro stages(values) -%}
+<div class="stages">
+  {%- for v in values -%}
+    <i class="{% if v == 1 %}s-done{% elif v == 2 %}s-active{% elif v == 3 %}s-error{% endif %}"></i>
+  {%- endfor -%}
+</div>
+{%- endmacro %}
+
+
+{# --- a value that may not exist ------------------------------------------
+   Renders an em dash in a muted colour when the figure is absent, so a blank
+   reads as "we do not have this" rather than as a rendering fault.        #}
+{% macro value(v, cls='') -%}
+{%- if v is none or v == '' -%}
+<span class="nil {{ cls }}">—</span>
+{%- else -%}
+<span class="{{ cls }}">{{ v }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+
+{# --- placeholder bars for a block with no data yet ------------------------
+   `widths` are percentages, chosen to look like text rather than a progress
+   bar. Reuses the page-body bar so real and placeholder share a texture.  #}
+{% macro skeleton(widths=[94, 78, 90, 52]) -%}
+<div class="skeleton" aria-hidden="true">
+  {%- for w in widths -%}
+    <span class="skel" style="width: {{ w }}%"></span>
+  {%- endfor -%}
+</div>
+{%- endmacro %}
+
+
+{# --- why a block is empty -------------------------------------------------
+   Always paired with skeleton(). Missing data is a fact about the build, and
+   naming the phase that fills it is more use than an apology.             #}
+{% macro absent(title, body) -%}
+{% if body %}
+<div class="absent"><b>{{ title }}</b>{{ body }}</div>
+{% endif %}
+{%- endmacro %}

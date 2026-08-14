@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-9e4d17bd-2cd1-4d8e-a963-49817126a9ab/styles.css">
+<script src="_ds/modernist-9e4d17bd-2cd1-4d8e-a963-49817126a9ab/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#cfcdcb;font-family:"Archivo",system-ui,sans-serif}
+a{color:var(--color-accent);text-decoration:none}
+a:hover{color:var(--color-accent-700)}
+</style>
+</helmet>
+
+<div style="width:1440px;margin:0 auto;background:var(--color-bg);color:var(--color-text);font-size:14px;line-height:1.5">
+
+<div style="display:flex;align-items:stretch;gap:0;background:var(--color-neutral-900);color:var(--color-neutral-100);padding:0 24px;height:44px">
+  <div style="display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:var(--color-neutral-400);padding-right:20px">Mockup state</div>
+  <div style="display:flex;align-items:stretch;gap:0">
+    <button style="border:0;background:transparent;color:inherit;font:600 13px/1 Archivo,sans-serif;padding:0 16px;cursor:pointer;border-left:1px solid var(--color-neutral-700);letter-spacing:-.01em;opacity:.55" style-hover="opacity:1" onClick="{{ goEmpty }}">Empty</button>
+    <button style="border:0;background:transparent;color:inherit;font:600 13px/1 Archivo,sans-serif;padding:0 16px;cursor:pointer;border-left:1px solid var(--color-neutral-700);letter-spacing:-.01em;opacity:.55" style-hover="opacity:1" onClick="{{ goProcessing }}">Processing &amp; failures</button>
+    <button style="border:0;background:transparent;color:inherit;font:600 13px/1 Archivo,sans-serif;padding:0 16px;cursor:pointer;border-left:1px solid var(--color-neutral-700);letter-spacing:-.01em;opacity:.55" style-hover="opacity:1" onClick="{{ goReview }}">Findings</button>
+    <button style="border:0;background:transparent;color:inherit;font:600 13px/1 Archivo,sans-serif;padding:0 16px;cursor:pointer;border-left:1px solid var(--color-neutral-700);letter-spacing:-.01em;opacity:.55" style-hover="opacity:1" onClick="{{ goClean }}">Clean run</button>
+    <button style="border:0;background:transparent;color:inherit;font:600 13px/1 Archivo,sans-serif;padding:0 16px;cursor:pointer;border-left:1px solid var(--color-neutral-700);border-right:1px solid var(--color-neutral-700);letter-spacing:-.01em;opacity:.55" style-hover="opacity:1" onClick="{{ goOffline }}">Model offline</button>
+  </div>
+  <div style="flex:1"></div>
+  <div style="display:flex;align-items:center;font-size:12px;color:var(--color-neutral-400)">{{ stateNote }}</div>
+</div>
+
+<header style="display:flex;align-items:stretch;background:var(--color-neutral-100);border-bottom:2px solid var(--color-divider);height:60px">
+  <div style="display:flex;align-items:center;gap:10px;padding:0 24px;border-right:1px solid var(--color-neutral-300)">
+    <span style="display:flex;flex-direction:column;gap:3px;width:18px"><i style="display:block;height:3px;background:var(--color-accent)"></i><i style="display:block;height:3px;background:var(--color-text)"></i><i style="display:block;height:2px;background:var(--color-text)"></i></span>
+    <b style="font:800 19px/1 Archivo,sans-serif;letter-spacing:-.03em">FinSight</b>
+  </div>
+  <nav style="display:flex;align-items:stretch">
+    <button style="border:0;border-bottom:3px solid transparent;background:transparent;cursor:pointer;padding:0 22px;font:700 14px/1 Archivo,sans-serif;letter-spacing:-.01em;text-align:left;border-right:1px solid var(--color-neutral-300)" style-hover="background:var(--color-neutral-200)" onClick="{{ goIntegrity }}"><span style="{{ tabIntegrity }}">Integrity Engine</span></button>
+    <button style="border:0;border-bottom:3px solid transparent;background:transparent;cursor:pointer;padding:0 22px;font:700 14px/1 Archivo,sans-serif;letter-spacing:-.01em;text-align:left;border-right:1px solid var(--color-neutral-300)" style-hover="background:var(--color-neutral-200)" onClick="{{ goDecision }}"><span style="{{ tabDecision }}">Decision Engine</span></button>
+  </nav>
+  <div style="flex:1"></div>
+  <div style="display:flex;align-items:center;gap:12px;padding:0 24px;border-left:1px solid var(--color-neutral-300)">
+    <span style="font-size:12px;color:var(--color-neutral-700)">Run</span>
+    <span style="font:600 12px/1 Archivo,sans-serif;border:1px solid var(--color-divider);padding:6px 9px;letter-spacing:.02em">demo_v1 · qwen2.5-3b base</span>
+    <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-neutral-700)"><i style="{{ dotStyle }}"></i>{{ endpointLabel }}</span>
+  </div>
+</header>
+
+<sc-if value="{{ isOffline }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;align-items:flex-start;gap:16px;background:var(--color-accent-200);border-bottom:2px solid var(--color-accent);padding:16px 24px">
+    <span style="font:800 12px/1 Archivo,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-800);background:var(--color-neutral-100);border:1px solid var(--color-accent-700);padding:6px 8px">Model endpoint unreachable</span>
+    <div style="flex:1;max-width:88ch;font-size:13.5px;color:var(--color-accent-900)">Nothing new can be read from a contract until the endpoint answers again. Everything below was read earlier and is stored — figures, clauses and verdicts are unaffected, because they were computed in code and saved. Uploads are accepted and queued.</div>
+    <button style="border:1px solid var(--color-accent-800);background:transparent;color:var(--color-accent-900);font:700 13px/1 Archivo,sans-serif;padding:9px 14px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-300)">Change endpoint</button>
+  </div>
+</sc-if>
+
+<!-- ══ INTEGRITY ENGINE ══ -->
+<sc-if value="{{ onIntegrity }}" hint-placeholder-val="{{ true }}">
+<main>
+
+  <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+    <section style="padding:64px 24px 72px;border-bottom:2px solid var(--color-divider)">
+      <div style="max-width:1000px">
+        <p style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 18px">Nothing uploaded yet</p>
+        <h1 style="font:800 46px/1.05 Archivo,sans-serif;letter-spacing:-.03em;margin:0 0 18px;max-width:22ch">Give it your contracts and your bank statements.</h1>
+        <p style="font-size:16px;color:var(--color-neutral-700);max-width:62ch;margin:0">FinSight reads what each contract says you should have billed, then compares it against what actually arrived. You need at least one contract and one statement before there is anything to compare.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--color-divider);margin-top:44px;max-width:1000px">
+        <div style="background:var(--color-neutral-100);padding:36px 28px;display:flex;flex-direction:column;gap:8px;border:2px dashed var(--color-neutral-400)">
+          <b style="font:800 18px/1.2 Archivo,sans-serif;letter-spacing:-.02em">Contracts</b>
+          <span style="font-size:13px;color:var(--color-neutral-700)">PDF · typed or scanned · drop several at once</span>
+          <button style="align-self:flex-start;margin-top:14px;background:var(--color-accent);color:var(--color-bg);border:0;font:800 14px/1 Archivo,sans-serif;padding:11px 16px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-600)">Choose contracts</button>
+        </div>
+        <div style="background:var(--color-neutral-100);padding:36px 28px;display:flex;flex-direction:column;gap:8px;border:2px dashed var(--color-neutral-400)">
+          <b style="font:800 18px/1.2 Archivo,sans-serif;letter-spacing:-.02em">Invoices and statements</b>
+          <span style="font-size:13px;color:var(--color-neutral-700)">CSV export from your bank, or PDF invoices</span>
+          <button style="align-self:flex-start;margin-top:14px;background:transparent;color:var(--color-text);border:1px solid var(--color-divider);font:800 14px/1 Archivo,sans-serif;padding:11px 16px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Choose files</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);margin-top:2px;max-width:1000px">
+        <div style="background:var(--color-bg);padding:22px 24px"><b style="display:block;font:800 13px/1 Archivo,sans-serif;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">1 · Read</b><span style="font-size:13px;color:var(--color-neutral-700)">Each contract's fees, rises and discounts are pulled out with the sentence they came from.</span></div>
+          <div style="background:var(--color-bg);padding:22px 24px"><b style="display:block;font:800 13px/1 Archivo,sans-serif;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">2 · Compare</b><span style="font-size:13px;color:var(--color-neutral-700)">What should have been billed each month is worked out in code, then matched against what arrived.</span></div>
+        <div style="background:var(--color-bg);padding:22px 24px"><b style="display:block;font:800 13px/1 Archivo,sans-serif;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">3 · Confront</b><span style="font-size:13px;color:var(--color-neutral-700)">Every shortfall is shown next to the clause that proves it.</span></div>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isProcessing }}" hint-placeholder-val="{{ false }}">
+    <section style="display:flex;align-items:baseline;gap:20px;padding:26px 24px 22px;border-bottom:2px solid var(--color-divider)">
+      <h1 style="font:800 30px/1.1 Archivo,sans-serif;letter-spacing:-.03em;margin:0">Reading nine documents</h1>
+      <p style="margin:0;font-size:14px;color:var(--color-neutral-700)">Six done · two in progress · one needs you</p>
+      <div style="flex:1"></div>
+      <span style="font-size:12.5px;color:var(--color-neutral-700)">uploaded → text read → rules extracted → reconciled</span>
+    </section>
+    <section style="border-bottom:2px solid var(--color-divider)">
+      <sc-for list="{{ pipeline }}" as="doc" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:24px;padding:16px 24px;border-bottom:1px solid var(--color-neutral-300);background:{{ doc.bg }}">
+          <div style="flex:1;min-width:0">
+            <b style="font:700 14.5px/1.3 Archivo,sans-serif;letter-spacing:-.01em">{{ doc.name }}</b>
+            <div style="font-size:13px;color:{{ doc.noteColor }};margin-top:4px;max-width:90ch">{{ doc.note }}</div>
+          </div>
+          <div style="display:flex;gap:3px">
+            <i style="{{ doc.s1 }}"></i><i style="{{ doc.s2 }}"></i><i style="{{ doc.s3 }}"></i><i style="{{ doc.s4 }}"></i>
+          </div>
+          <span style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:6px 7px;border:1px solid {{ doc.tagBorder }};color:{{ doc.tagColor }};background:{{ doc.tagBg }};min-width:96px;text-align:left">{{ doc.status }}</span>
+          <button style="border:1px solid var(--color-divider);background:var(--color-neutral-100);font:700 13px/1 Archivo,sans-serif;padding:9px 13px;cursor:pointer;text-align:left;min-width:150px" style-hover="background:var(--color-neutral-200)">{{ doc.action }}</button>
+        </div>
+      </sc-for>
+    </section>
+    <section style="display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--color-divider);border-bottom:2px solid var(--color-divider)">
+      <div style="background:var(--color-neutral-100);padding:24px">
+        <h3 style="font:800 13px/1 Archivo,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700);margin:0 0 16px">Confirm the columns · statement_q1.csv</h3>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:12px"><span style="flex:0 0 150px;font:600 12.5px/1 Archivo,sans-serif;border:1px solid var(--color-neutral-300);background:var(--color-bg);padding:9px 10px">Txn Date</span><span style="color:var(--color-neutral-500)">→</span><span style="flex:1;border:1px solid var(--color-divider);padding:9px 10px;font-size:13.5px;background:var(--color-neutral-100)">Date of payment</span></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="flex:0 0 150px;font:600 12.5px/1 Archivo,sans-serif;border:1px solid var(--color-neutral-300);background:var(--color-bg);padding:9px 10px">Amt (GBP)</span><span style="color:var(--color-neutral-500)">→</span><span style="flex:1;border:1px solid var(--color-divider);padding:9px 10px;font-size:13.5px;background:var(--color-neutral-100)">Amount</span></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="flex:0 0 150px;font:600 12.5px/1 Archivo,sans-serif;border:1px solid var(--color-neutral-300);background:var(--color-bg);padding:9px 10px">Narrative</span><span style="color:var(--color-neutral-500)">→</span><span style="flex:1;border:1px solid var(--color-divider);padding:9px 10px;font-size:13.5px;background:var(--color-neutral-100)">Description</span></div>
+          <div style="display:flex;align-items:center;gap:12px"><span style="flex:0 0 150px;font:600 12.5px/1 Archivo,sans-serif;border:1px solid var(--color-neutral-300);background:var(--color-bg);padding:9px 10px">Balance</span><span style="color:var(--color-neutral-500)">→</span><span style="flex:1;border:1px solid var(--color-divider);padding:9px 10px;font-size:13.5px;color:var(--color-neutral-600);background:var(--color-neutral-100)">Ignore this column</span></div>
+        </div>
+        <p style="font-size:12.5px;color:var(--color-neutral-700);margin:16px 0 0;max-width:64ch">These headers match a mapping you confirmed on 2 July, so it has been filled in for you. Nothing is parsed until you accept it.</p>
+        <button style="margin-top:14px;background:var(--color-accent);color:var(--color-bg);border:0;font:800 14px/1 Archivo,sans-serif;padding:11px 16px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-600)">Use this mapping</button>
+      </div>
+      <div style="background:var(--color-neutral-100);padding:24px">
+        <h3 style="font:800 13px/1 Archivo,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700);margin:0 0 16px">Confirm the clients · 3 found in 5 contracts</h3>
+        <div style="display:flex;flex-direction:column;gap:0">
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300)"><div style="flex:1"><b style="font:700 14px/1.3 Archivo,sans-serif">Starter Labs</b><div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:3px">2 contracts · statements also say STARTER LABS LTD, StarterLabs</div></div><button style="border:1px solid var(--color-divider);background:transparent;font:700 12.5px/1 Archivo,sans-serif;padding:8px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Keep separate</button></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300)"><div style="flex:1"><b style="font:700 14px/1.3 Archivo,sans-serif">Nexus Digital</b><div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:3px">1 contract · 17 payments matched</div></div><button style="border:1px solid var(--color-divider);background:transparent;font:700 12.5px/1 Archivo,sans-serif;padding:8px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Keep separate</button></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--color-neutral-300)"><div style="flex:1"><b style="font:700 14px/1.3 Archivo,sans-serif">Bloom Agency</b><div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:3px">2 contracts · 14 payments matched</div></div><button style="border:1px solid var(--color-divider);background:transparent;font:700 12.5px/1 Archivo,sans-serif;padding:8px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Keep separate</button></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 0"><div style="flex:1"><b style="font:700 14px/1.3 Archivo,sans-serif;color:var(--color-accent-700)">5 payments name nobody</b><div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:3px">They stay unassigned, and out of every figure, until you place them</div></div><button style="border:1px solid var(--color-accent-700);background:transparent;color:var(--color-accent-800);font:700 12.5px/1 Archivo,sans-serif;padding:8px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-200)">Place them</button></div>
+        </div>
+        <button style="margin-top:18px;background:var(--color-accent);color:var(--color-bg);border:0;font:800 14px/1 Archivo,sans-serif;padding:11px 16px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-600)">Confirm and reconcile</button>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isClean }}" hint-placeholder-val="{{ false }}">
+    <section style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;background:var(--color-divider);border-bottom:2px solid var(--color-divider)">
+      <div style="background:var(--color-neutral-100);padding:22px 24px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Not collected</div><div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">0.00</div></div>
+      <div style="background:var(--color-neutral-100);padding:22px 24px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Findings</div><div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">0</div></div>
+      <div style="background:var(--color-neutral-100);padding:22px 24px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Months checked</div><div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">18</div></div>
+      <div style="background:var(--color-neutral-100);padding:22px 24px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Billings reconciled</div><div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">60 of 60</div></div>
+    </section>
+    <section style="padding:60px 24px 72px;border-bottom:2px solid var(--color-divider)">
+      <div style="max-width:70ch">
+        <p style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700);margin:0 0 18px">Clean run · fitzgerald_ltd</p>
+        <h1 style="font:800 42px/1.06 Archivo,sans-serif;letter-spacing:-.03em;margin:0 0 20px">Every billing matched. Nothing to collect.</h1>
+        <p style="font-size:16px;color:var(--color-neutral-700);margin:0 0 14px">Eighteen months of retainers, two milestone payments and one price rise, all present at the right amount in the right month. Two payments arrived late and were matched inside the fifteen-day tolerance rather than flagged.</p>
+        <p style="font-size:16px;color:var(--color-neutral-700);margin:0">A run that finds nothing is a result, not a failure. If this tool flagged something here, you would have no reason to trust it when it flags something real.</p>
+      </div>
+      <div style="display:flex;gap:2px;background:var(--color-divider);margin-top:36px;max-width:1000px">
+        <div style="flex:1;background:var(--color-neutral-100);padding:20px 22px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:10px">Clauses located</div><div style="font-size:14px">14 exactly · 2 approximately · 0 not found</div></div>
+        <div style="flex:1;background:var(--color-neutral-100);padding:20px 22px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:10px">Matched inside tolerance</div><div style="font-size:14px">2 payments, 3 and 5 days late</div></div>
+        <div style="flex:1;background:var(--color-neutral-100);padding:20px 22px"><div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:10px">Unassigned payments</div><div style="font-size:14px">None</div></div>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isReview }}" hint-placeholder-val="{{ true }}">
+    <section style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;background:var(--color-divider);border-bottom:2px solid var(--color-divider)">
+      <div style="background:var(--color-neutral-100);padding:22px 24px">
+        <div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Not collected</div>
+        <div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--color-accent-700)">16,980.00</div>
+        <div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:8px">Confirmed findings only</div>
+      </div>
+      <div style="background:var(--color-neutral-100);padding:22px 24px">
+        <div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Findings</div>
+        <div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">5</div>
+        <div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:8px">3 confirmed · 1 waiting · 1 ruled out</div>
+      </div>
+      <div style="background:var(--color-neutral-100);padding:22px 24px">
+        <div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Clients affected</div>
+        <div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">3 of 5</div>
+        <div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:8px">Across 5 contracts on file</div>
+      </div>
+      <div style="background:var(--color-neutral-100);padding:22px 24px">
+        <div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Clauses located</div>
+        <div style="font:800 34px/1 Archivo,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums">11 of 13</div>
+        <div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:8px">9 exactly · 2 approximately</div>
+      </div>
+    </section>
+
+    <section style="border-bottom:2px solid var(--color-divider)">
+      <div style="display:flex;align-items:baseline;gap:16px;padding:22px 24px 16px">
+        <h2 style="font:800 24px/1.1 Archivo,sans-serif;letter-spacing:-.03em;margin:0">Findings</h2>
+        <p style="margin:0;font-size:13.5px;color:var(--color-neutral-700)">Select a row to see the clause it came from and how it was checked</p>
+        <div style="flex:1"></div>
+        <span style="font-size:12.5px;color:var(--color-neutral-700)">Sorted by amount</span>
+      </div>
+      <div style="display:grid;grid-template-columns:170px 1fr 150px 150px 140px 150px;gap:0;padding:0 24px 0;border-bottom:1px solid var(--color-neutral-400);background:var(--color-bg)">
+        <div style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);padding:10px 12px 10px 0">Client</div>
+        <div style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);padding:10px 12px">What happened</div>
+        <div style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);padding:10px 12px;text-align:right">Due</div>
+        <div style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);padding:10px 12px;text-align:right">Received</div>
+        <div style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);padding:10px 12px;text-align:right">Not collected</div>
+        <div style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);padding:10px 0 10px 12px">Checked</div>
+      </div>
+      <sc-for list="{{ findings }}" as="f" hint-placeholder-count="5">
+        <div style="{{ f.rowStyle }}" onClick="{{ f.pick }}">
+          <div style="padding:14px 12px 14px 0;font:700 14px/1.3 Archivo,sans-serif;letter-spacing:-.01em">{{ f.client }}</div>
+          <div style="padding:14px 12px">
+            <b style="font:600 14px/1.3 Archivo,sans-serif">{{ f.title }}</b>
+            <div style="font-size:12.5px;color:var(--color-neutral-700);margin-top:3px">{{ f.sub }}</div>
+          </div>
+          <div style="padding:14px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px">{{ f.due }}</div>
+          <div style="padding:14px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:14px">{{ f.received }}</div>
+          <div style="padding:14px 12px;text-align:right;font-variant-numeric:tabular-nums;font:700 15px/1.3 Archivo,sans-serif;color:{{ f.gapColor }}">{{ f.gap }}</div>
+          <div style="padding:14px 0 14px 12px"><span style="{{ f.tagStyle }}">{{ f.verdict }}</span></div>
+        </div>
+      </sc-for>
+    </section>
+
+    <section style="display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--color-divider);border-bottom:2px solid var(--color-divider)">
+      <div style="background:var(--color-neutral-100);padding:26px 24px">
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px">
+          <span style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent-700)">{{ sel.type }}</span>
+          <span style="font-size:12.5px;color:var(--color-neutral-700)">{{ sel.period }}</span>
+        </div>
+        <h2 style="font:800 26px/1.15 Archivo,sans-serif;letter-spacing:-.03em;margin:0 0 8px;max-width:34ch">{{ sel.headline }}</h2>
+        <p style="font-size:13.5px;color:var(--color-neutral-700);margin:0">{{ sel.provenance }}</p>
+      </div>
+      <div style="background:var(--color-neutral-100);padding:26px 24px;display:flex;align-items:flex-end;gap:12px;justify-content:flex-end">
+        <div style="flex:1;font-size:14px;color:var(--color-neutral-800);font-variant-numeric:tabular-nums">{{ sel.calc }}</div>
+        <button style="border:1px solid var(--color-divider);background:transparent;font:700 14px/1 Archivo,sans-serif;padding:12px 16px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Not an issue</button>
+        <button style="border:0;background:var(--color-accent);color:var(--color-bg);font:800 14px/1 Archivo,sans-serif;padding:12px 18px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-600)">Add to recoverable</button>
+      </div>
+    </section>
+
+    <section style="display:grid;grid-template-columns:1fr 1fr 380px;gap:2px;background:var(--color-divider);border-bottom:2px solid var(--color-divider)">
+
+      <div style="background:var(--color-neutral-100);display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--color-neutral-300)">
+          <span style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700)">What the contract says</span>
+          <div style="flex:1"></div>
+          <span style="{{ sel.groundTagStyle }}">{{ sel.groundTag }}</span>
+        </div>
+        <div style="padding:22px 20px 20px">
+          <div style="background:var(--color-bg);border:1px solid var(--color-neutral-300);padding:22px 24px 24px 40px;position:relative">
+            <i style="position:absolute;left:26px;top:0;bottom:0;width:1px;background:var(--color-neutral-400)"></i>
+            <div style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:18px">{{ sel.docMeta }}</div>
+            <div style="height:8px;background:var(--color-neutral-200);margin-bottom:10px;width:94%"></div>
+            <div style="height:8px;background:var(--color-neutral-200);margin-bottom:10px;width:78%"></div>
+            <sc-if value="{{ sel.highlighted }}" hint-placeholder-val="{{ true }}">
+              <p style="font-size:16px;line-height:1.55;margin:16px 0;background:var(--color-accent-200);box-shadow:0 0 0 4px var(--color-accent-200);border-left:3px solid var(--color-accent)">{{ sel.clause }}</p>
+            </sc-if>
+            <sc-if value="{{ sel.ungrounded }}" hint-placeholder-val="{{ false }}">
+              <p style="font-size:16px;line-height:1.55;margin:16px 0;padding-left:14px;border-left:3px solid var(--color-neutral-400);color:var(--color-neutral-800)">{{ sel.clause }}</p>
+            </sc-if>
+            <div style="height:8px;background:var(--color-neutral-200);margin-bottom:10px;width:90%"></div>
+            <div style="height:8px;background:var(--color-neutral-200);margin-bottom:10px;width:52%"></div>
+            <div style="height:8px;background:var(--color-neutral-200);margin-bottom:10px;width:86%"></div>
+            <div style="height:8px;background:var(--color-neutral-200);width:68%"></div>
+          </div>
+          <p style="font-size:12.5px;color:var(--color-neutral-700);margin:16px 0 0;max-width:64ch">{{ sel.groundNote }}</p>
+        </div>
+      </div>
+
+      <div style="background:var(--color-neutral-100);display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--color-neutral-300)">
+          <span style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700)">What arrived</span>
+          <div style="flex:1"></div>
+          <span style="font-size:12.5px;color:var(--color-neutral-700)">{{ sel.period }}</span>
+        </div>
+        <div>
+          <sc-for list="{{ sel.txns }}" as="t" hint-placeholder-count="2">
+            <div style="display:flex;align-items:baseline;gap:16px;padding:13px 20px;border-bottom:1px solid var(--color-neutral-300)">
+              <div style="flex:1"><div style="font-size:13.5px;color:{{ t.color }}">{{ t.label }}</div><div style="font-size:12px;color:var(--color-neutral-600);margin-top:3px">{{ t.meta }}</div></div>
+              <div style="font-variant-numeric:tabular-nums;font-size:14px">{{ t.amount }}</div>
+            </div>
+          </sc-for>
+          <div style="display:flex;align-items:baseline;gap:16px;padding:13px 20px;border-top:2px solid var(--color-divider);background:var(--color-bg)"><div style="flex:1;font-size:13.5px">Received</div><div style="font-variant-numeric:tabular-nums;font-size:14px">{{ sel.receivedTotal }}</div></div>
+          <div style="display:flex;align-items:baseline;gap:16px;padding:13px 20px;background:var(--color-bg)"><div style="flex:1;font-size:13.5px">Due under {{ sel.clauseRef }}</div><div style="font-variant-numeric:tabular-nums;font-size:14px">{{ sel.dueTotal }}</div></div>
+          <div style="display:flex;align-items:baseline;gap:16px;padding:15px 20px;border-top:2px solid var(--color-text);background:var(--color-bg)"><div style="flex:1;font:800 15px/1 Archivo,sans-serif">Not collected</div><div style="font-variant-numeric:tabular-nums;font:800 18px/1 Archivo,sans-serif;color:var(--color-accent-700)">{{ sel.gapTotal }}</div></div>
+          <p style="padding:16px 20px 20px;margin:0;font-size:12.5px;color:var(--color-neutral-700);max-width:64ch">Payments are matched to a client and a calendar month, with fifteen days of tolerance at each boundary. A payment that arrived on 2 February still counts toward January.</p>
+        </div>
+      </div>
+
+      <div style="background:var(--color-bg);display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--color-neutral-300)">
+          <span style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700)">How it was checked</span>
+          <div style="flex:1"></div>
+          <span style="{{ sel.tagStyle }}">{{ sel.verdict }}</span>
+        </div>
+        <div style="padding:18px 20px;border-bottom:1px solid var(--color-neutral-300)">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ sel.tools }}" as="tool" hint-placeholder-count="3">
+              <div style="background:var(--color-neutral-100);border:1px solid var(--color-neutral-300);border-left:3px solid var(--color-text);padding:10px 12px;font-size:12.5px">
+                <b style="font-weight:600">{{ tool.call }}</b>
+                <div style="color:var(--color-neutral-700);margin-top:5px">{{ tool.result }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <p style="font-size:13.5px;color:var(--color-neutral-800);margin:14px 0 0">{{ sel.agentProse }}</p>
+          <sc-if value="{{ sel.needsReview }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;display:flex;gap:10px">
+              <button style="border:0;background:var(--color-accent);color:var(--color-bg);font:800 13px/1 Archivo,sans-serif;padding:10px 14px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-600)">Confirm it myself</button>
+              <button style="border:1px solid var(--color-divider);background:transparent;font:700 13px/1 Archivo,sans-serif;padding:10px 14px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Rule it out</button>
+            </div>
+          </sc-if>
+        </div>
+        <div style="padding:18px 20px;border-bottom:1px solid var(--color-neutral-300)">
+          <h3 style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);margin:0 0 12px">{{ sel.client }}</h3>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px"><span style="color:var(--color-neutral-800)">Contracts on file</span><b style="font-variant-numeric:tabular-nums">{{ sel.cContracts }}</b></div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px"><span style="color:var(--color-neutral-800)">Received this year</span><b style="font-variant-numeric:tabular-nums">{{ sel.cReceived }}</b></div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px"><span style="color:var(--color-neutral-800)">Share of revenue</span><b style="font-variant-numeric:tabular-nums">{{ sel.cShare }}</b></div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px"><span style="color:var(--color-neutral-800)">Not collected</span><b style="font-variant-numeric:tabular-nums;color:var(--color-accent-700)">{{ sel.cGap }}</b></div>
+        </div>
+        <div style="padding:18px 20px">
+          <h3 style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700);margin:0 0 12px">Where the numbers come from</h3>
+          <p style="font-size:12.5px;color:var(--color-neutral-700);margin:0">The clause was read by qwen2.5-3b and quoted verbatim. Every amount on this page was computed in code from your own records — the model produced none of them.</p>
+        </div>
+      </div>
+    </section>
+  </sc-if>
+
+</main>
+</sc-if>
+
+<!-- ══ DECISION ENGINE ══ -->
+<sc-if value="{{ onDecision }}" hint-placeholder-val="{{ false }}">
+<main>
+  <section style="padding:30px 24px 26px;border-bottom:2px solid var(--color-divider)">
+    <p style="font:600 11px/1 Archivo,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700);margin:0 0 14px">Ask about a recurring cost</p>
+    <div style="display:flex;gap:2px;background:var(--color-divider);max-width:1180px">
+      <div style="flex:1;background:var(--color-neutral-100);padding:18px 20px;font:600 22px/1.3 Archivo,sans-serif;letter-spacing:-.02em">Can I afford a senior designer at 5,000 a month from September?</div>
+      <button style="border:0;background:var(--color-accent);color:var(--color-bg);font:800 15px/1 Archivo,sans-serif;padding:0 26px;cursor:pointer;text-align:left" style-hover="background:var(--color-accent-600)">Answer it</button>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+      <button style="border:1px solid var(--color-divider);background:transparent;font:400 13px/1 Archivo,sans-serif;padding:9px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Can I afford 3,000 a month more rent from July?</button>
+      <button style="border:1px solid var(--color-divider);background:transparent;font:400 13px/1 Archivo,sans-serif;padding:9px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">Two contractors at 4,200 each?</button>
+      <button style="border:1px solid var(--color-divider);background:transparent;font:400 13px/1 Archivo,sans-serif;padding:9px 12px;cursor:pointer;text-align:left" style-hover="background:var(--color-neutral-200)">A 1,800 a month tool subscription?</button>
+    </div>
+  </section>
+
+  <section style="display:grid;grid-template-columns:1fr 460px;gap:2px;background:var(--color-divider)">
+    <div style="background:var(--color-neutral-100);padding:32px 28px 40px">
+      <div style="display:flex;align-items:flex-end;gap:24px;border-bottom:2px solid var(--color-text);padding-bottom:20px;margin-bottom:26px">
+        <div style="font:800 72px/.9 Archivo,sans-serif;letter-spacing:-.05em;color:var(--color-accent)">Yes</div>
+        <div style="font-size:15px;color:var(--color-neutral-800);padding-bottom:6px">18,915 a month left over — 17,500 if you recover nothing</div>
+      </div>
+      <p style="font-size:16.5px;line-height:1.62;max-width:60ch;margin:0 0 16px">Your last six months averaged <b style="font-weight:700;border-bottom:2px solid var(--color-accent);font-variant-numeric:tabular-nums">22,500</b> a month after expenses. The three confirmed findings come to <b style="font-weight:700;border-bottom:2px solid var(--color-accent);font-variant-numeric:tabular-nums">16,980</b> a year, which is <b style="font-weight:700;border-bottom:2px solid var(--color-accent);font-variant-numeric:tabular-nums">1,415</b> a month once collected. A <b style="font-weight:700;border-bottom:2px solid var(--color-accent);font-variant-numeric:tabular-nums">5,000</b> hire leaves <b style="font-weight:700;border-bottom:2px solid var(--color-accent);font-variant-numeric:tabular-nums">18,915</b> against <b style="font-weight:700;border-bottom:2px solid var(--color-accent);font-variant-numeric:tabular-nums">17,500</b> today.</p>
+      <p style="font-size:15px;line-height:1.6;max-width:60ch;color:var(--color-neutral-700);margin:0">Of the five findings, one is still waiting on a check and one was ruled out, so neither counts here. Confirming the waiting one would add another 50 a month.</p>
+
+      <div style="margin-top:34px;max-width:760px;border:1px solid var(--color-neutral-300);background:var(--color-bg)">
+        <div style="display:flex;align-items:center;gap:20px;padding:12px 16px;border-bottom:1px solid var(--color-neutral-300);background:var(--color-neutral-100)">
+          <span style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700)">Monthly surplus, next twelve months</span>
+          <div style="flex:1"></div>
+          <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-neutral-700)"><i style="width:14px;height:10px;background:var(--color-neutral-400);display:block"></i>As things stand</span>
+          <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-neutral-700)"><i style="width:14px;height:10px;background:var(--color-accent);display:block"></i>Once collected</span>
+        </div>
+        <div style="height:190px;display:flex;align-items:flex-end;gap:10px;padding:18px 16px">
+          <sc-for list="{{ bars }}" as="b" hint-placeholder-count="12">
+            <div style="flex:1;display:flex;align-items:flex-end;gap:2px;height:100%">
+              <div style="flex:1;background:var(--color-neutral-400);height:{{ b.a }}"></div>
+              <div style="flex:1;background:var(--color-accent);height:{{ b.b }}"></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:0 16px 14px;font-size:11.5px;color:var(--color-neutral-600)"><span>Sep</span><span>Dec</span><span>Mar</span><span>Jun</span><span>Aug</span></div>
+      </div>
+
+      <div style="margin-top:30px;max-width:760px;background:var(--color-bg);border-left:3px solid var(--color-neutral-400);padding:18px 20px">
+        <p style="font-size:13.5px;color:var(--color-neutral-800);margin:0">This answers questions about affording a recurring cost. It cannot yet answer questions about one client, a past period, or a change to your prices.</p>
+      </div>
+    </div>
+
+    <div style="background:var(--color-bg)">
+      <div style="padding:14px 20px;border-bottom:2px solid var(--color-divider)"><span style="font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.11em;text-transform:uppercase;color:var(--color-neutral-700)">How this was worked out</span></div>
+      <sc-for list="{{ working }}" as="w" hint-placeholder-count="8">
+        <div style="display:flex;align-items:baseline;gap:16px;padding:13px 20px;border-bottom:1px solid var(--color-neutral-300);background:{{ w.bg }}">
+          <div style="flex:1"><div style="font-size:13.5px;font-weight:{{ w.weight }}">{{ w.label }}</div><div style="font-size:12px;color:var(--color-accent-700);margin-top:3px">{{ w.src }}</div></div>
+          <div style="font-variant-numeric:tabular-nums;font-size:{{ w.size }};font-weight:{{ w.weight }};color:{{ w.color }}">{{ w.amount }}</div>
+        </div>
+      </sc-for>
+      <p style="padding:18px 20px;margin:0;font-size:12.5px;color:var(--color-neutral-700)">Every figure above was computed in code from your own records. The model read your question and wrote the sentences — it produced none of these numbers.</p>
+    </div>
+  </section>
+</main>
+</sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000}}">
+const A = 'var(--color-accent-700)';
+const INK = 'var(--color-text)';
+const MUTE = 'var(--color-neutral-700)';
+
+function tag(kind) {
+  const base = 'font:700 10.5px/1 Archivo,sans-serif;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;padding:6px 8px;border:1px solid ';
+  if (kind === 'confirmed') return base + 'var(--color-text);color:var(--color-text);background:transparent';
+  if (kind === 'waiting') return base + 'var(--color-accent-700);color:var(--color-accent-800);background:var(--color-accent-200)';
+  return base + 'var(--color-neutral-400);color:var(--color-neutral-600);background:transparent';
+}
+
+const FINDINGS = [
+  {
+    client: 'Nexus Digital', type: 'Never billed', period: 'March 2026',
+    title: 'Milestone 2 was delivered and never invoiced',
+    sub: 'Website launch · due on delivery · clause 4.1',
+    due: '15,000.00', received: '0.00', gap: '(15,000.00)',
+    verdict: 'Confirmed', kind: 'confirmed',
+    headline: 'The contract billed 15,000 on delivery. Nothing was invoiced.',
+    provenance: 'Statement of work signed 3 February 2026 · reconciled against statement_q1.csv',
+    calc: 'due 15,000.00 · received 0.00 · not collected 15,000.00',
+    clause: 'A milestone payment of $15,000 is due upon delivery of the final website.',
+    clauseRef: 'clause 4.1', docMeta: 'nexus_sow.pdf — page 2 — clause 4.1',
+    ground: 'exact',
+    txns: [{ label: 'No payment matched to this client in March', meta: 'statement_q1.csv · 41 rows scanned', amount: '0.00', muted: true }],
+    receivedTotal: '0.00', dueTotal: '15,000.00', gapTotal: '(15,000.00)',
+    tools: [
+      { call: 'read_contract_clause(ref=11)', result: '→ milestone 15,000 on delivery of final website' },
+      { call: 'search_bank_transactions(14000–16000, Feb–Apr)', result: '→ no payment in that range' },
+      { call: 'check_split_payments(client=2, target=15000)', result: '→ no combination sums to 15,000' }
+    ],
+    agentProse: 'Delivery is recorded, no payment of that size arrived in the window, and no set of smaller payments adds up to it. The invoice was never raised.',
+    cContracts: '1', cReceived: '31,000.00', cShare: '24%', cGap: '(15,000.00)'
+  },
+  {
+    client: 'Bloom Agency', type: 'Paid short', period: 'April 2026',
+    title: 'Paid 8,500 against a 10,000 project fee',
+    sub: 'Stage 1 · clause 3 · gap never chased',
+    due: '10,000.00', received: '8,500.00', gap: '(1,500.00)',
+    verdict: 'Confirmed', kind: 'confirmed',
+    headline: 'A 10,000 stage fee was settled at 8,500 and the balance was never chased.',
+    provenance: 'Master services agreement signed 9 March 2026 · reconciled against statement_q2.csv',
+    calc: 'due 10,000.00 · received 8,500.00 · not collected 1,500.00',
+    clause: 'Stage one shall be invoiced at ten thousand pounds (£10,000) on acceptance of the design pack.',
+    clauseRef: 'clause 3', docMeta: 'bloom_msa.pdf — page 4 — clause 3',
+    ground: 'none',
+    txns: [
+      { label: 'Bank credit — BLOOM AGENCY LTD', meta: '14 Apr · statement_q2.csv · row 18', amount: '8,500.00' },
+      { label: 'No further payments matched to this client in April', meta: '', amount: '', muted: true }
+    ],
+    receivedTotal: '8,500.00', dueTotal: '10,000.00', gapTotal: '(1,500.00)',
+    tools: [
+      { call: 'search_invoices(client=3, Apr 2026)', result: '→ one invoice, 10,000.00' },
+      { call: 'check_split_payments(client=3, target=10000)', result: '→ no second payment found' },
+      { call: 'search_bank_transactions(1400–1600, Apr–Jun)', result: '→ nothing matching the balance' }
+    ],
+    agentProse: 'The invoice was for the full amount and only one payment arrived. The 1,500 was neither paid later nor credited back.',
+    cContracts: '2', cReceived: '20,500.00', cShare: '16%', cGap: '(1,500.00)'
+  },
+  {
+    client: 'Starter Labs', type: 'Discount outlived its term', period: 'May 2026',
+    title: 'A three-month intro discount is still being applied',
+    sub: 'Expired in April · clause 6.2 · recurring monthly',
+    due: '6,480.00', received: '5,880.00', gap: '(600.00)',
+    verdict: 'Waiting', kind: 'waiting',
+    headline: 'The intro discount ended in April. May was still billed at the discounted rate.',
+    provenance: 'Retainer agreement signed 12 January 2025 · reconciled against statement_q2.csv',
+    calc: '6,480.00 less 10% = 5,832.00 billed · due 6,480.00 · not collected 600.00',
+    clause: 'A 10% introductory discount applies for the first three months of the Term.',
+    clauseRef: 'clause 6.2', docMeta: 'starter_labs_2025.pdf — page 5 — clause 6.2',
+    ground: 'fuzzy',
+    txns: [
+      { label: 'Bank credit — STARTER LABS LTD', meta: '09 May · statement_q2.csv · row 63', amount: '5,880.00' },
+      { label: 'No further payments matched to this client in May', meta: '', amount: '', muted: true }
+    ],
+    receivedTotal: '5,880.00', dueTotal: '6,480.00', gapTotal: '(600.00)',
+    tools: [
+      { call: 'read_contract_clause(ref=7)', result: '→ 10% for the first three months of the Term' },
+      { call: 'search_invoices(client=1, May 2026)', result: '→ invoice not found in the uploaded set' },
+      { call: 'check_prior_month(client=1, 2026-04)', result: '→ 5,880.00, the same discounted amount' }
+    ],
+    agentProse: 'The clause is clear but the Term start date appears twice in this contract with different dates, so the check could not settle whether the discount expired in April or July. It has been left for you rather than guessed.',
+    cContracts: '2', cReceived: '39,600.00', cShare: '31%', cGap: '(2,160.00)'
+  },
+  {
+    client: 'Starter Labs', type: 'Rise not applied', period: 'January 2026',
+    title: 'The 8% anniversary rise was never billed',
+    sub: 'Anniversary 12 January · clause 5.1 · recurring monthly',
+    due: '6,480.00', received: '6,000.00', gap: '(480.00)',
+    verdict: 'Confirmed', kind: 'confirmed',
+    headline: 'The contract raised this fee to 6,480 on 12 January. You billed 6,000.',
+    provenance: 'Retainer agreement signed 12 January 2025 · reconciled against statement_q1.csv',
+    calc: '6,000.00 × 1.08 = 6,480.00 · received 6,000.00 · not collected 480.00',
+    clause: 'Fees shall increase by 8% on each anniversary of the Effective Date.',
+    clauseRef: 'clause 5.1', docMeta: 'starter_labs_2025.pdf — page 3 — clause 5.1',
+    ground: 'exact',
+    txns: [
+      { label: 'Bank credit — STARTER LABS LTD', meta: '08 Jan · statement_q1.csv · row 41', amount: '6,000.00' },
+      { label: 'No further payments matched to this client in January', meta: '', amount: '', muted: true }
+    ],
+    receivedTotal: '6,000.00', dueTotal: '6,480.00', gapTotal: '(480.00)',
+    tools: [
+      { call: 'read_contract_clause(ref=3)', result: '→ 8% after 12 months, from 12 Jan 2025' },
+      { call: 'check_split_payments(client=1, 2026-01)', result: '→ one payment only, no split found' },
+      { call: 'check_prior_month(client=1, 2025-12)', result: '→ 6,000.00, the pre-rise rate' }
+    ],
+    agentProse: 'The rise was due, December was billed at the old rate, and no second payment covers the difference. The shortfall is real rather than a payment split across two months.',
+    cContracts: '2', cReceived: '39,600.00', cShare: '31%', cGap: '(2,160.00)'
+  },
+  {
+    client: 'Bloom Agency', type: 'Never billed', period: 'June 2026',
+    title: 'June retainer looked missing — the payment was under another name',
+    sub: 'Found as BLOOM AGY LTD on 2 July · ruled out',
+    due: '2,000.00', received: '2,000.00', gap: '—',
+    verdict: 'Ruled out', kind: 'out',
+    headline: 'This one was a false alarm. The June retainer did arrive.',
+    provenance: 'Master services agreement signed 9 March 2026 · reconciled against statement_q2.csv',
+    calc: 'due 2,000.00 · received 2,000.00 · nothing outstanding',
+    clause: 'The monthly retainer of two thousand pounds (£2,000) is payable on the first business day of each month.',
+    clauseRef: 'clause 3.2', docMeta: 'bloom_msa.pdf — page 4 — clause 3.2',
+    ground: 'exact',
+    txns: [
+      { label: 'Bank credit — BLOOM AGY LTD', meta: '02 Jul · statement_q2.csv · row 91 · matched inside tolerance', amount: '2,000.00' }
+    ],
+    receivedTotal: '2,000.00', dueTotal: '2,000.00', gapTotal: '0.00',
+    tools: [
+      { call: 'search_bank_transactions(1900–2100, Jun–Jul)', result: '→ 2,000.00 on 2 July, "BLOOM AGY LTD"' },
+      { call: 'check_client_aliases(client=3)', result: '→ BLOOM AGY LTD is 0.91 similar to Bloom Agency' }
+    ],
+    agentProse: 'The payment arrived two days into July under an abbreviated name, which is why the month match missed it. Ruled out, and the alias has been remembered for next time.',
+    cContracts: '2', cReceived: '20,500.00', cShare: '16%', cGap: '(1,500.00)'
+  }
+];
+
+const PIPELINE = [
+  { name: 'starter_labs_2025.pdf', note: 'Two clauses located exactly, one approximately. Rules on file.', status: 'Reconciled', action: 'Open', s: [1, 1, 1, 1] },
+  { name: 'bloom_msa.pdf', note: 'Read, but no billing frequency found. Set it and this contract joins the comparison.', status: 'Needs you', action: 'Set frequency', s: [1, 1, 3, 0] },
+  { name: 'nexus_sow.pdf', note: 'No text layer — this is a scan. Queued for the next character-recognition batch.', status: 'Reading', action: 'Check status', s: [1, 2, 0, 0] },
+  { name: 'scan_0417.pdf', note: 'Character recognition returned nothing legible. Upload a clearer scan or type the figures in.', status: 'Failed', action: 'Replace file', s: [1, 3, 0, 0] },
+  { name: 'statement_q1.csv', note: '55 rows read. 50 matched to a client, 5 name nobody we know.', status: 'Needs you', action: 'Place 5 payments', s: [1, 1, 1, 2] },
+  { name: 'statement_q2.csv', note: '48 rows read and all matched.', status: 'Reconciled', action: 'Open', s: [1, 1, 1, 1] }
+];
+
+class Component extends DCLogic {
+  state = { page: 'integrity', mode: 'review', sel: 3 };
+
+  seg(v) {
+    const c = v === 1 ? 'var(--color-text)' : v === 2 ? 'var(--color-accent)' : v === 3 ? 'var(--color-accent-700)' : 'var(--color-neutral-300)';
+    return 'display:block;width:34px;height:6px;background:' + c;
+  }
+
+  renderVals() {
+    const { page, mode, sel } = this.state;
+    const f = FINDINGS[sel];
+    const notes = {
+      empty: 'First run · nothing uploaded',
+      processing: 'Six documents read, one scan failed, two things need a person',
+      review: 'Seven findings · one waiting on a check · one ruled out',
+      clean: 'A run that found nothing — the case that proves it discriminates',
+      offline: 'The model endpoint is down; stored results still stand'
+    };
+    const tabOn = 'display:block;padding:20px 0 17px;border-bottom:3px solid var(--color-accent)';
+    const tabOff = 'display:block;padding:20px 0 17px;border-bottom:3px solid transparent;color:var(--color-neutral-600)';
+
+    const ground = {
+      exact: { tag: 'Located exactly', note: 'The model returned this sentence word for word; the highlight comes from searching the PDF for that text, so the box is measured rather than guessed.' },
+      fuzzy: { tag: 'Located approximately', note: 'The sentence was found with small differences — a line break inside a word. The highlight is close but may sit a line off.' },
+      none: { tag: 'Not located', note: 'This sentence could not be found anywhere in the PDF, so no highlight is drawn. The page is shown as it is and the quote is printed plainly. A highlight in the wrong place would be worse than none.' }
+    }[f.ground];
+
+    return {
+      onIntegrity: page === 'integrity', onDecision: page === 'decision',
+      tabIntegrity: page === 'integrity' ? tabOn : tabOff,
+      tabDecision: page === 'decision' ? tabOn : tabOff,
+      goIntegrity: () => this.setState({ page: 'integrity' }),
+      goDecision: () => this.setState({ page: 'decision' }),
+      isEmpty: mode === 'empty', isProcessing: mode === 'processing',
+      isReview: mode === 'review' || mode === 'offline', isClean: mode === 'clean',
+      isOffline: mode === 'offline',
+      stateNote: notes[mode],
+      goEmpty: () => this.setState({ page: 'integrity', mode: 'empty' }),
+      goProcessing: () => this.setState({ page: 'integrity', mode: 'processing' }),
+      goReview: () => this.setState({ page: 'integrity', mode: 'review' }),
+      goClean: () => this.setState({ page: 'integrity', mode: 'clean' }),
+      goOffline: () => this.setState({ page: 'integrity', mode: 'offline' }),
+      endpointLabel: mode === 'offline' ? 'Endpoint unreachable' : 'Endpoint live',
+      dotStyle: 'display:block;width:8px;height:8px;background:' + (mode === 'offline' ? 'var(--color-accent)' : 'var(--color-neutral-700)'),
+
+      pipeline: PIPELINE.map((d, i) => ({
+        name: d.name, note: d.note, status: d.status, action: d.action,
+        bg: i % 2 ? 'var(--color-bg)' : 'var(--color-neutral-100)',
+        noteColor: d.s.includes(3) ? A : MUTE,
+        s1: this.seg(d.s[0]), s2: this.seg(d.s[1]), s3: this.seg(d.s[2]), s4: this.seg(d.s[3]),
+        tagBorder: d.status === 'Failed' || d.status === 'Needs you' ? 'var(--color-accent-700)' : 'var(--color-neutral-400)',
+        tagColor: d.status === 'Failed' || d.status === 'Needs you' ? 'var(--color-accent-800)' : 'var(--color-neutral-700)',
+        tagBg: d.status === 'Failed' ? 'var(--color-accent-200)' : 'transparent'
+      })),
+
+      findings: FINDINGS.map((x, i) => ({
+        client: x.client, title: x.title, sub: x.sub, due: x.due, received: x.received,
+        gap: x.gap, verdict: x.verdict,
+        gapColor: x.kind === 'out' ? 'var(--color-neutral-500)' : A,
+        tagStyle: tag(x.kind),
+        rowStyle: 'display:grid;grid-template-columns:170px 1fr 150px 150px 140px 150px;padding:0 24px;cursor:pointer;align-items:baseline;border-bottom:1px solid var(--color-neutral-300);background:'
+          + (i === sel ? 'var(--color-accent-200)' : i % 2 ? 'var(--color-bg)' : 'var(--color-neutral-100)')
+          + (i === sel ? ';box-shadow:inset 4px 0 0 var(--color-accent)' : ''),
+        pick: () => this.setState({ sel: i })
+      })),
+
+      sel: {
+        client: f.client, type: f.type, period: f.period, headline: f.headline,
+        provenance: f.provenance, calc: f.calc, clause: f.clause, clauseRef: f.clauseRef,
+        docMeta: f.docMeta, verdict: f.verdict, tagStyle: tag(f.kind),
+        highlighted: f.ground !== 'none', ungrounded: f.ground === 'none',
+        groundTag: ground.tag, groundNote: ground.note,
+        groundTagStyle: tag(f.ground === 'none' ? 'waiting' : f.ground === 'fuzzy' ? 'out' : 'confirmed'),
+        needsReview: f.kind === 'waiting',
+        txns: f.txns.map(t => ({ label: t.label, meta: t.meta, amount: t.amount, color: t.muted ? 'var(--color-neutral-600)' : INK })),
+        receivedTotal: f.receivedTotal, dueTotal: f.dueTotal, gapTotal: f.gapTotal,
+        tools: f.tools, agentProse: f.agentProse,
+        cContracts: f.cContracts, cReceived: f.cReceived, cShare: f.cShare, cGap: f.cGap
+      },
+
+      bars: [58, 57, 59, 56, 60, 58, 61, 59, 57, 60, 62, 59].map(v => ({ a: v + '%', b: (v + 5) + '%' })),
+
+      working: [
+        { label: 'Average monthly revenue', src: '55 payments across six months', amount: '41,300.00' },
+        { label: 'Average monthly expenses', src: 'same period', amount: '(18,800.00)', color: A },
+        { label: 'Surplus today', src: '', amount: '22,500.00', bold: true },
+        { label: 'Confirmed findings', src: '3 of 5 · see Findings', amount: '16,980.00' },
+        { label: 'Spread across the year', src: 'divided by 12', amount: '1,415.00' },
+        { label: 'Surplus once collected', src: '', amount: '23,915.00', bold: true },
+        { label: 'Cost of the hire', src: 'taken from your question', amount: '(5,000.00)', color: A },
+        { label: 'Left over each month', src: '', amount: '18,915.00', fin: true }
+      ].map((w, i) => ({
+        label: w.label, src: w.src, amount: w.amount,
+        weight: w.bold || w.fin ? '700' : '400',
+        size: w.fin ? '20px' : '14px',
+        color: w.color || INK,
+        bg: w.bold || w.fin ? 'var(--color-neutral-100)' : i % 2 ? 'var(--color-bg)' : 'var(--color-neutral-100)'
+      }))
+    };
+  }
+}
+
+</script>
+</body>
+</html>

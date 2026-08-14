@@ -2,8 +2,17 @@
 # Nothing here needs a GPU (ADR-001). Everything installs on CPU, free.
 
 # ---- Frontend ----
+# Two of them, over one database. Streamlit is the original shell; the FastAPI
+# app in web/ renders the same rows through Jinja templates. Neither replaces
+# the other — keep both installed so one can be used to check the other.
 streamlit>=1.40
 plotly
+fastapi>=0.115
+uvicorn[standard]>=0.30
+jinja2>=3.1
+# Starlette needs this to read a form POST; the web app is GET-only today, but
+# the upload routes land here in a later phase.
+python-multipart
 
 # ---- Database & storage ----
 sqlalchemy>=2.0

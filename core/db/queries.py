@@ -176,6 +176,42 @@ class RunRow:
     created_at: datetime | None
 
 
+@dataclass(frozen=True)
+class TransactionRow:
+    """One bank line, flattened for display.
+
+    Distinct from `list_transactions` below, which hands back live ORM objects
+    for the Phase-8 agent to work with inside its own session. This is the
+    UI-safe shape: plain data, money already rounded, the joined filename
+    resolved while the session is still open.
+    """
+
+    id: int
+    client_id: int | None
+    client_name: str | None
+    transaction_date: date
+    amount: float
+    description: str | None
+    source_type: str | None
+    document_filename: str | None
+
+
+@dataclass(frozen=True)
+class ClientTotals:
+    """What one client is worth, and what is outstanding against them."""
+
+    client_id: int
+    name: str
+    contract_count: int
+    #: Every matched payment for this client in the run.
+    received_total: float
+    #: Sum of this client's anomaly gaps.
+    gap_total: float
+    #: 0.0-1.0 share of the run's total receipts. None when the run received
+    #: nothing at all — a share of zero is undefined, not 0%.
+    revenue_share: float | None
+
+
 # ---------------------------------------------------------------------------
 # Runs
 # ---------------------------------------------------------------------------
@@ -477,6 +513,105 @@ def table_counts(session: Session, run_id: int | None = None) -> dict[str, int]:
 
 #: Tables that cannot be scoped to a run, for the health page to label honestly.
 GLOBAL_TABLES = frozenset({"column_mappings"})
+
+
+def list_transaction_rows(
+    session: Session,
+    run_id: int,
+    client_id: int | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> list[TransactionRow]:
+    """Transactions for a run as display rows, oldest first.
+
+    `start` / `end` are inclusive and optional. The drill-down passes the
+    billing month widened by the ADR-006 tolerance, so a payment that landed on
+    2 February still shows under January — the same window reconciliation used,
+    which is the point: the ledger the user reads must be the ledger the
+    classifier read.
+    """
+    stmt = (
+        select(ActualTransaction, Client.name, Document.filename)
+        .outerjoin(Client, ActualTransaction.client_id == Client.id)
+        .outerjoin(Document, ActualTransaction.document_id == Document.id)
+        .where(ActualTransaction.run_id == run_id)
+        .order_by(ActualTransaction.transaction_date, ActualTransaction.id)
+    )
+    if client_id is not None:
+        stmt = stmt.where(ActualTransaction.client_id == client_id)
+    if start is not None:
+        stmt = stmt.where(ActualTransaction.transaction_date >= start)
+    if end is not None:
+        stmt = stmt.where(ActualTransaction.transaction_date <= end)
+
+    return [
+        TransactionRow(
+            id=t.id,
+            client_id=t.client_id,
+            client_name=client_name,
+            transaction_date=t.transaction_date,
+            amount=_money(t.amount),
+            description=t.description,
+            source_type=t.source_type,
+            document_filename=filename,
+        )
+        for t, client_name, filename in session.execute(stmt)
+    ]
+
+
+def get_client_totals(session: Session, run_id: int, client_id: int) -> ClientTotals | None:
+    """Receipts, contracts and outstanding gap for one client. None if unknown."""
+    client = session.get(Client, client_id)
+    if client is None or client.run_id != run_id:
+        return None
+
+    contracts = session.scalar(
+        select(func.count(ContractRule.id)).where(ContractRule.client_id == client_id)
+    )
+    received = session.scalar(
+        select(func.coalesce(func.sum(ActualTransaction.amount), 0.0)).where(
+            ActualTransaction.run_id == run_id, ActualTransaction.client_id == client_id
+        )
+    )
+    gap_total = session.scalar(
+        select(func.coalesce(func.sum(Anomaly.gap), 0.0)).where(
+            Anomaly.run_id == run_id, Anomaly.client_id == client_id
+        )
+    )
+    run_total = session.scalar(
+        select(func.coalesce(func.sum(ActualTransaction.amount), 0.0)).where(
+            ActualTransaction.run_id == run_id
+        )
+    )
+
+    return ClientTotals(
+        client_id=client_id,
+        name=client.name,
+        contract_count=contracts or 0,
+        received_total=_money(received),
+        gap_total=_money(gap_total),
+        # A share of nothing is undefined. Reporting 0% would read as "this
+        # client brings in nothing", which is a different claim.
+        revenue_share=round((received or 0.0) / run_total, 4) if run_total else None,
+    )
+
+
+def revenue_by_month(session: Session, run_id: int) -> dict[str, float]:
+    """{"2026-01": 41300.0, ...} — every matched receipt, summed per month.
+
+    Ordered oldest first. Unassigned payments (no client) are included: they
+    are money that arrived, whatever we failed to attribute it to.
+    """
+    rows = session.execute(
+        select(ActualTransaction.transaction_date, ActualTransaction.amount).where(
+            ActualTransaction.run_id == run_id
+        )
+    )
+    totals: dict[str, float] = {}
+    for txn_date, amount in rows:
+        key = f"{txn_date:%Y-%m}"
+        totals[key] = totals.get(key, 0.0) + float(amount or 0.0)
+    return {k: _money(v) for k, v in sorted(totals.items())}
 
 
 def list_transactions(session: Session, run_id: int, client_id: int | None = None) -> list[ActualTransaction]:

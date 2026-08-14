@@ -1,0 +1,34 @@
+{#
+  The application header: mark, the two page tabs, and the run/endpoint strip.
+
+  The endpoint dot is not decoration. Rule 7 in CLAUDE.md — the endpoint is a
+  notebook session, not a service, and its URL rotates on every restart — so
+  the header always states which host answered and whether it is reachable.
+#}
+<header class="topbar">
+  <div class="topbar-mark">
+    <span class="topbar-glyph"><i></i><i></i><i></i></span>
+    <b class="topbar-name">FinSight</b>
+  </div>
+
+  <nav class="topnav">
+    <a href="{{ url_for('integrity') }}{{ keep_query }}"
+       class="{% if chrome.page == 'integrity' %}is-active{% endif %}">
+      <span class="tab">Integrity Engine</span>
+    </a>
+    <a href="{{ url_for('decision') }}{{ keep_query }}"
+       class="{% if chrome.page == 'decision' %}is-active{% endif %}">
+      <span class="tab">Decision Engine</span>
+    </a>
+  </nav>
+
+  <div class="spacer"></div>
+
+  <div class="topbar-util">
+    <span class="lbl">Run</span>
+    <span class="runchip">{{ macros.value(chrome.run_label) }}</span>
+    <span class="endpoint{% if not chrome.endpoint_online %} is-down{% endif %}">
+      <i></i>{{ chrome.endpoint_label }}
+    </span>
+  </div>
+</header>

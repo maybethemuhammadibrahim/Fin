@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model endpoint · FinSight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', path='css/tokens.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
+</head>
+<body>
+<div class="shell{% if not fluid_width %} shell-fixed{% endif %}">
+
+  <header class="topbar">
+    <div class="topbar-mark">
+      <span class="topbar-glyph"><i></i><i></i><i></i></span>
+      <b class="topbar-name">FinSight</b>
+    </div>
+    <nav class="topnav"><a href="{{ url_for('integrity') }}"><span class="tab">← Back</span></a></nav>
+    <div class="spacer"></div>
+    <div class="topbar-util">
+      <span class="endpoint{% if not endpoint_online %} is-down{% endif %}"><i></i>{{ endpoint_label }}</span>
+    </div>
+  </header>
+
+  <section class="blank-slate rule-b">
+    <p class="eyebrow">Model endpoint</p>
+    <h1>Where the model is served from right now.</h1>
+    <p>
+      The endpoint is a notebook session, not a service. Its URL changes every time
+      Colab or Kaggle restarts, which is why nothing in the app captures it at import —
+      it is read fresh on every call.
+    </p>
+
+    <div class="panels panels-3" style="margin-top:32px;max-width:1100px">
+      {% for label, url, source in rows %}
+        <div class="card">
+          <div class="lbl">{{ label }}</div>
+          <div class="sub" style="margin-top:0;word-break:break-all;font-size:13px">{{ url }}</div>
+          <div class="sub">{{ source }}</div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="absent" style="margin-top:32px">
+      <b>Read only</b>
+      Setting a URL, switching hosts and probing for life all live on the Streamlit
+      Model endpoint page — <code>streamlit run app/main.py</code>, then
+      <em>Model endpoint</em>. Two places to write one value would leave no way to tell
+      which had won.
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

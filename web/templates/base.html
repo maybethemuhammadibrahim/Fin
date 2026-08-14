@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}FinSight{% endblock %}</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+{# tokens.css is the design system's own file, copied unchanged from
+   temp/_ds/modernist-*/. app.css holds the FinSight classes transcribed out
+   of the mockup's inline styles. Retune colour in the first, layout in the
+   second — never the other way round. #}
+<link rel="stylesheet" href="{{ url_for('static', path='css/tokens.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
+</head>
+<body>
+
+{# `macros` is a Jinja global registered in web/templating.py, not an import —
+   see the note there about blocks and parent-template imports. #}
+
+{# The shell fills the window. WEB_FLUID_WIDTH=false pins it back to the
+   mockup's 1440px art board, for comparing against the delivered file. #}
+<div class="shell{% if not fluid_width %} shell-fixed{% endif %}">
+
+  {% include "partials/statebar.html" %}
+  {% include "partials/header.html" %}
+
+  {% if chrome.is_offline %}
+    {% include "partials/offline_banner.html" %}
+  {% endif %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+
+<script src="{{ url_for('static', path='js/app.js') }}"></script>
+</body>
+</html>

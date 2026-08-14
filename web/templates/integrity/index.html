@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Integrity Engine · FinSight{% endblock %}
+
+{# One of four screens, picked by `view.state`. In demo mode the state bar
+   chooses it; in live mode `presenters.live.derive_state` works it out from
+   what the run holds. Each partial owns exactly one state — none of them
+   branch on the others. #}
+{% block content %}
+  {% if view.state == 'empty' %}
+    {% include "integrity/_empty.html" %}
+  {% elif view.state == 'processing' %}
+    {% include "integrity/_processing.html" %}
+  {% elif view.state == 'clean' %}
+    {% include "integrity/_clean.html" %}
+  {% else %}
+    {% include "integrity/_review.html" %}
+  {% endif %}
+{% endblock %}

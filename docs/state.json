@@ -370,6 +370,11 @@
       "id": 51,
       "phase": 5,
       "text": "When vLLM's child process dies at import time, serve_model.py does not notice: it prints 'waiting for the model to finish loading (up to 900s)' and polls a dead port for the full 15 minutes before falling back. wait_until_ready() polls /v1/models but never checks Popen.poll(). One-line fix available; not made because the phase was being measured, not edited. Costs 15 minutes per failed start."
+    },
+    {
+      "id": 52,
+      "phase": 6,
+      "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema."
     }
   ],
   "adrs": [
@@ -442,6 +447,10 @@
     {
       "id": "ADR-017",
       "title": "A quote is grounded against the text always, and against a PDF when there is one"
+    },
+    {
+      "id": "ADR-018",
+      "title": "Two frontends over one database, and a demo/live toggle that never falls back"
     }
   ],
   "inference": {

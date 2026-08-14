@@ -226,6 +226,15 @@ def list_documents(session, run_id: int) -> list[DocumentRow]: ...
 def table_counts(session, run_id: int | None = None) -> dict[str, int]: ...
 def list_transactions(session, run_id: int,
                       client_id: int | None = None) -> list[ActualTransaction]: ...
+
+# Added 2026-08-14 for the FastAPI frontend (ADR-018). Additive; nothing above
+# changed. `list_transaction_rows` is the UI-safe twin of `list_transactions`
+# — plain data, money rounded, filename joined while the session is open.
+def list_transaction_rows(session, run_id: int, client_id: int | None = None,
+                          start: date | None = None,
+                          end: date | None = None) -> list[TransactionRow]: ...
+def get_client_totals(session, run_id: int, client_id: int) -> ClientTotals | None: ...
+def revenue_by_month(session, run_id: int) -> dict[str, float]: ...   # "2026-01" -> total
 ```
 
 **Row shapes** — frozen dataclasses defined in `queries.py`, not ORM objects.
@@ -243,6 +252,10 @@ AnomalyRow(id, run_id, client_id, client_name, anomaly_type, expected_amount,
            agent_reasoning, verified_at).has_clause
 ClauseRefRow(id, contract_rule_id, document_id, clause_type, clause_text,
              source_page, source_bbox, locate_method, document_filename)
+TransactionRow(id, client_id, client_name, transaction_date, amount,
+               description, source_type, document_filename)
+ClientTotals(client_id, name, contract_count, received_total, gap_total,
+             revenue_share)   # revenue_share is None when the run received nothing
              .is_grounded          # False is NORMAL (ADR-005), not an error
 ClientRow(id, run_id, name, normalized_name, contract_count)
 DocumentRow(id, run_id, filename, file_type, category, storage_url,

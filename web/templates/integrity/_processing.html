@@ -1,0 +1,76 @@
+{# Documents in flight, plus the two things that need a human before
+   reconciliation can run: the CSV column mapping (ADR-010) and the client
+   name matches. Both are confirm-before-parse by design. #}
+
+<section class="proc-head rule-b">
+  <h1>{{ macros.value(view.pipeline_headline) }}</h1>
+  <p>{{ macros.value(view.pipeline_sub) }}</p>
+  <div class="spacer"></div>
+  <span class="flow">uploaded → text read → rules extracted → reconciled</span>
+</section>
+
+<section class="rule-b">
+  {% if view.pipeline %}
+    {% for doc in view.pipeline %}
+      <div class="docrow{% if loop.index0 % 2 %} is-alt{% endif %}{% if doc.needs_attention %} is-attention{% endif %}">
+        <div class="who">
+          <b>{{ doc.name }}</b>
+          <div class="note">{{ macros.value(doc.note) }}</div>
+        </div>
+        {{ macros.stages(doc.stages) }}
+        <span class="tag {% if doc.needs_attention %}tag-waiting{% else %}tag-out{% endif %}">{{ doc.status }}</span>
+        <button class="btn-quiet" type="button" disabled>{{ doc.action }}</button>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="pad-24">
+      {{ macros.skeleton([70, 55, 62]) }}
+      {{ macros.absent('No documents', 'This run has nothing uploaded against it.') }}
+    </div>
+  {% endif %}
+</section>
+
+<section class="panels panels-2 rule-b">
+  <div class="panel pad-24">
+    <h3 class="kicker-lg">
+      Confirm the columns{% if view.column_map_file %} · {{ view.column_map_file }}{% endif %}
+    </h3>
+    {% if view.column_map %}
+      <div style="display:flex;flex-direction:column;gap:8px">
+        {% for m in view.column_map %}
+          <div class="maprow">
+            <span class="src">{{ m.source }}</span>
+            <span class="arrow">→</span>
+            <span class="dst{% if m.ignored %} ignored{% endif %}">{{ macros.value(m.target) }}</span>
+          </div>
+        {% endfor %}
+      </div>
+      {% if view.column_map_note %}<p class="note-sm">{{ view.column_map_note }}</p>{% endif %}
+      <button class="btn-solid" type="button" style="margin-top:14px" disabled>Use this mapping</button>
+    {% else %}
+      {{ macros.skeleton([100, 100, 100, 100]) }}
+      {{ macros.absent('Nothing to confirm', view.notices.get('column_map')) }}
+    {% endif %}
+  </div>
+
+  <div class="panel pad-24">
+    <h3 class="kicker-lg">{{ view.clients_headline or 'Confirm the clients' }}</h3>
+    {% if view.clients %}
+      <div>
+        {% for c in view.clients %}
+          <div class="confirmrow{% if c.accent %} accent{% endif %}">
+            <div style="flex:1">
+              <b>{{ c.name }}</b>
+              <div class="meta">{{ macros.value(c.meta) }}</div>
+            </div>
+            <button class="btn-small{% if c.accent %} accent{% endif %}" type="button" disabled>{{ c.action }}</button>
+          </div>
+        {% endfor %}
+      </div>
+      <button class="btn-solid" type="button" style="margin-top:18px" disabled>Confirm and reconcile</button>
+    {% else %}
+      {{ macros.skeleton([88, 74, 80]) }}
+      {{ macros.absent('Nothing to confirm', view.notices.get('clients')) }}
+    {% endif %}
+  </div>
+</section>

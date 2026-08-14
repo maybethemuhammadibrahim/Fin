@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinSight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* ground & surfaces */
+  --stone:#E7E8E2;         /* recessed app ground */
+  --paper:#FCFCFA;         /* content surfaces */
+  --paper-warm:#FBFAF4;    /* the contract side — document stock */
+  --ledger:#EDF1E9;        /* green-bar tint */
+  --ledger-alt:#F6F8F3;
+
+  /* ink */
+  --ink:#12161C;
+  --ink-2:#39414E;
+  --mute:#767F8C;
+  --rule:#DBDCD5;
+  --rule-hard:#BFC1B8;
+  --rule-ink:#12161C;
+
+  /* meaning */
+  --blue:#1F3A5F;          /* selection, source links */
+  --blue-tint:#DDE4EE;
+  --red:#9E2B25;           /* money not collected */
+  --red-tint:#F2DFDD;
+  --green:#3D5C3A;         /* reconciled */
+  --green-tint:#DFE8DB;
+  --ochre:#8A6B14;
+  --ochre-tint:#F0E6C8;
+
+  /* anomaly hues */
+  --t-ghost:#9E2B25;
+  --t-raise:#8A6B14;
+  --t-zombie:#9C5522;
+  --t-short:#5F4573;
+
+  --ui:'Archivo',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --doc:'Newsreader',Georgia,serif;
+  --fig:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font:400 13px/1.45 var(--ui);
+  color:var(--ink); background:var(--stone);
+  display:flex; flex-direction:column; overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+
+/* figures — one rule, everywhere money appears */
+.fig{font:500 12px/1.4 var(--fig);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.fig.neg{color:var(--red)}
+.quote{font:400 15px/1.55 var(--doc)}
+
+/* ─────────── top bar ─────────── */
+.topbar{
+  flex:0 0 46px;display:flex;align-items:stretch;background:var(--paper);
+  border-bottom:1px solid var(--rule-hard);
+}
+.mark{display:flex;align-items:center;gap:9px;padding:0 18px;border-right:1px solid var(--rule)}
+.mark .glyph{display:flex;flex-direction:column;gap:2px;width:15px}
+.mark .glyph i{display:block;height:2px;background:var(--ink)}
+.mark .glyph i:last-child{height:1px}
+.mark b{font-weight:600;font-size:14px;letter-spacing:-.025em}
+.modes{display:flex}
+.modes button{
+  display:flex;align-items:center;gap:7px;padding:0 17px;color:var(--mute);
+  border-right:1px solid var(--rule);border-bottom:2px solid transparent;
+  font-size:12.5px;transition:background .09s,color .09s;
+}
+.modes button:hover{background:var(--stone);color:var(--ink-2)}
+.modes button[aria-current="true"]{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+.modes .ct{font:500 10.5px/1 var(--fig);color:var(--mute);border:1px solid var(--rule-hard);padding:2px 4px}
+.modes button[aria-current="true"] .ct{color:var(--paper);background:var(--ink);border-color:var(--ink)}
+.topbar .spacer{flex:1}
+.util{display:flex;align-items:center;gap:10px;padding:0 16px;border-left:1px solid var(--rule);color:var(--mute);font-size:12px}
+.runchip{display:flex;align-items:center;gap:7px;font:500 11px/1 var(--fig);color:var(--ink-2);
+  background:var(--stone);border:1px solid var(--rule-hard);padding:4px 8px}
+.runchip s{width:5px;height:5px;background:var(--green);text-decoration:none}
+kbd{font:500 10.5px/1 var(--fig);border:1px solid var(--rule-hard);padding:3px 5px;background:var(--stone);color:var(--mute)}
+
+.tbtn{border:1px solid var(--rule-hard);padding:4px 9px;font-size:11.5px;color:var(--ink-2);background:var(--paper);border-radius:2px}
+.tbtn:hover{background:var(--stone)}
+
+/* ─────────── shell ─────────── */
+.body{flex:1;display:flex;min-height:0;position:relative}
+.screen{flex:1;display:none;min-height:0}
+.screen.on{display:flex}
+.pane{display:flex;flex-direction:column;min-height:0;background:var(--paper)}
+.pane + .pane{border-left:1px solid var(--rule-hard)}
+.queue{flex:0 0 318px}
+.work{flex:1;min-width:0}
+.context{flex:0 0 344px;background:var(--stone)}
+
+.paneHead{
+  flex:0 0 32px;display:flex;align-items:center;gap:10px;padding:0 14px;
+  border-bottom:1px solid var(--rule);background:var(--paper);
+  font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--mute);
+}
+.paneHead .spacer{flex:1}
+.scroll{flex:1;overflow:auto;min-height:0}
+.scroll::-webkit-scrollbar{width:9px;height:9px}
+.scroll::-webkit-scrollbar-thumb{background:var(--rule-hard)}
+.scroll::-webkit-scrollbar-track{background:transparent}
+
+/* ─────────── findings queue ─────────── */
+.grp{
+  display:flex;align-items:center;gap:8px;padding:11px 14px 6px;
+  background:var(--stone);border-bottom:1px solid var(--rule);
+  font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-2);
+}
+.grp .sw{width:8px;height:8px}
+.grp .spacer{flex:1}
+.grp .fig{font-size:11px;color:var(--ink-2)}
+
+.row{
+  display:flex;gap:10px;padding:10px 14px 10px 11px;border-bottom:1px solid var(--rule);
+  cursor:pointer;border-left:3px solid transparent;transition:background .09s;
+}
+.row:hover{background:var(--ledger-alt)}
+.row.sel{background:var(--blue-tint);border-left-color:var(--blue)}
+.rowBody{flex:1;min-width:0}
+.rowTop{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.rowTop b{font-weight:600;font-size:13px;letter-spacing:-.005em}
+.rowSub{color:var(--mute);font-size:12px;margin-top:3px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+
+.badge{
+  font:600 9.5px/1 var(--ui);letter-spacing:.09em;text-transform:uppercase;
+  padding:3px 5px;border:1px solid var(--rule-hard);color:var(--mute);border-radius:2px;white-space:nowrap;
+}
+.badge.ok{background:var(--green-tint);border-color:#B7C6B2;color:var(--green)}
+.badge.wait{background:var(--ochre-tint);border-color:#D5C48D;color:var(--ochre)}
+.badge.no{background:var(--red-tint);border-color:#DCB6B3;color:var(--red)}
+
+/* ─────────── work: the confrontation ─────────── */
+.caseHead{padding:17px 22px 15px;border-bottom:1px solid var(--rule);background:var(--paper)}
+.caseHead .eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.caseHead .eyebrow .sw{width:8px;height:8px}
+.caseHead .eyebrow span{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--ink-2)}
+.caseHead h1{font-size:19px;font-weight:600;letter-spacing:-.022em;line-height:1.28;max-width:64ch}
+.caseHead p{color:var(--mute);margin-top:6px;font-size:12.5px}
+
+.confront{display:flex;flex:1;min-height:0}
+.side{flex:1;display:flex;flex-direction:column;min-width:0}
+.side + .side{border-left:1px solid var(--rule-hard)}
+.sideHead{
+  display:flex;align-items:center;gap:9px;padding:8px 16px;border-bottom:1px solid var(--rule);
+  background:var(--paper);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--mute);
+}
+.sideHead .spacer{flex:1}
+
+/* left: the promise — document stock, legal margin rule, serif */
+.docSide{background:var(--paper-warm)}
+.docWrap{flex:1;overflow:auto;padding:20px 22px}
+.page{
+  background:#fff;border:1px solid var(--rule);padding:22px 24px 22px 40px;position:relative;
+  box-shadow:0 1px 0 rgba(18,22,28,.04);
+}
+.page::before{content:"";position:absolute;left:26px;top:0;bottom:0;width:1px;background:#D8C4C0}
+.pageMeta{font:500 10.5px/1 var(--fig);color:var(--mute);letter-spacing:.02em;margin-bottom:14px;text-transform:uppercase}
+.ln{height:7px;background:#F0F0EC;margin-bottom:9px;border-radius:1px}
+.ln.s{width:52%} .ln.m{width:79%} .ln.l{width:93%}
+.clause{
+  font:400 15px/1.6 var(--doc);color:var(--ink);
+  background:linear-gradient(transparent 6%,var(--ochre-tint) 6%,var(--ochre-tint) 92%,transparent 92%);
+  padding:3px 0;margin:14px 0;box-decoration-break:clone;
+}
+.clause.flat{background:none;border-left:2px solid var(--rule-hard);padding-left:12px}
+.groundNote{display:flex;gap:8px;padding:12px 0 0;color:var(--mute);font-size:11.5px;line-height:1.5}
+.groundNote i{flex:0 0 3px;background:var(--rule-hard);margin:3px 0}
+
+/* right: the record — green-bar ledger */
+.ledgerSide{background:var(--paper)}
+.txn{display:flex;gap:12px;align-items:baseline;padding:9px 16px;border-bottom:1px solid var(--rule)}
+.txn:nth-child(odd){background:var(--ledger-alt)}
+.txn .t{flex:1;min-width:0;font-size:12.5px}
+.txn .d{color:var(--mute);font-size:11.5px;margin-top:2px;font-family:var(--fig);letter-spacing:-.01em}
+.txn.void{color:var(--mute);font-style:italic;font-size:12px}
+.sum{display:flex;gap:12px;align-items:baseline;padding:9px 16px;background:var(--ledger)}
+.sum .t{flex:1;font-size:12.5px}
+.sum.subtotal{border-top:1px solid var(--rule-ink)}
+.sum.total{border-top:1px solid var(--rule-ink);border-bottom:3px double var(--rule-ink);font-weight:600}
+.methodNote{padding:13px 16px;color:var(--mute);font-size:11.5px;line-height:1.5}
+
+/* verdict bar — the conclusion, on ink */
+.verdict{
+  flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:13px 22px;
+  background:var(--ink);color:#E9EBEE;border-top:1px solid var(--ink);
+}
+.verdict .calc{flex:1;font:500 12.5px/1.4 var(--fig);letter-spacing:-.01em;color:#AEB6C2}
+.verdict .calc b{color:#fff;font-weight:600}
+.verdict .calc .r{color:#E3928C}
+.verdict .agent{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#AEB6C2;
+  border:1px solid #2E3742;padding:5px 9px;border-radius:2px}
+.verdict .agent s{width:5px;height:5px;background:#7FA37B;text-decoration:none}
+.btn{border:1px solid #39424F;padding:7px 14px;color:#E9EBEE;font-size:12.5px;border-radius:2px;transition:background .1s}
+.btn:hover{background:#1E242D}
+.btn.primary{background:#F5F3EE;color:var(--ink);border-color:#F5F3EE;font-weight:600}
+.btn.primary:hover{background:#fff}
+
+/* ─────────── context rail ─────────── */
+.ctx{padding:15px 16px;border-bottom:1px solid var(--rule)}
+.ctx h3{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--mute);margin-bottom:11px}
+.kv{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0}
+.kv span{color:var(--ink-2);font-size:12.5px}
+.tool{
+  background:var(--paper);border:1px solid var(--rule);border-left:2px solid var(--blue);
+  padding:8px 10px;margin-bottom:7px;font:400 11px/1.5 var(--fig);color:var(--ink-2);
+}
+.tool r{display:block;color:var(--mute);margin-top:4px}
+.ctx .prose{color:var(--ink-2);font-size:12.5px;line-height:1.55;margin-top:10px}
+.mini{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--rule)}
+.mini:first-of-type{border-top:none;padding-top:0}
+.mini .t{flex:1;font-size:12.5px}
+.mini .d{color:var(--mute);font-size:11.5px;margin-top:2px}
+
+/* ─────────── ledger screen ─────────── */
+.facets{flex:0 0 226px;background:var(--stone)}
+.facet{padding:13px 15px;border-bottom:1px solid var(--rule)}
+.facet h4{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--mute);margin-bottom:9px}
+.facet label{display:flex;align-items:center;gap:8px;padding:4px 0;color:var(--ink-2);font-size:12.5px;cursor:pointer}
+.facet label b{margin-left:auto;font:400 11px/1 var(--fig);color:var(--mute);font-weight:400}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;z-index:1;background:var(--stone);text-align:left;
+  font:600 10.5px/1 var(--ui);text-transform:uppercase;letter-spacing:.1em;color:var(--mute);
+  padding:10px 14px;border-bottom:1px solid var(--rule-hard)}
+td{padding:9px 14px;border-bottom:1px solid var(--rule);white-space:nowrap;font-size:12.5px}
+tbody tr:nth-child(even){background:var(--ledger-alt)}
+tbody tr:hover{background:var(--blue-tint)}
+td.n{text-align:right}
+.tag{font:600 9.5px/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--rule-hard);padding:3px 6px;color:var(--mute);border-radius:2px}
+.tag.ok{background:var(--green-tint);border-color:#B7C6B2;color:var(--green)}
+.tag.gap{background:var(--ochre-tint);border-color:#D5C48D;color:var(--ochre)}
+.tag.bad{background:var(--red-tint);border-color:#DCB6B3;color:var(--red)}
+
+/* ─────────── schedule ─────────── */
+.hz{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--paper)}
+.hzBar{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--rule)}
+.hzBar .spacer{flex:1}
+.seg{display:flex;border:1px solid var(--rule-hard);border-radius:2px;overflow:hidden}
+.seg button{padding:5px 12px;color:var(--mute);border-right:1px solid var(--rule);font-size:12px}
+.seg button:last-child{border-right:none}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);font-weight:500}
+.key{display:flex;gap:14px;color:var(--mute);font-size:11.5px;align-items:center}
+.key i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px}
+.grid{flex:1;overflow:auto;min-height:0}
+.gRow{display:flex;border-bottom:1px solid var(--rule);min-height:44px}
+.gRow:nth-child(even){background:var(--ledger-alt)}
+.gLabel{flex:0 0 262px;padding:10px 14px;border-right:1px solid var(--rule-hard);position:sticky;left:0;
+  background:inherit;font-size:12.5px}
+.gLabel b{font-weight:600}
+.gLabel .sub{color:var(--mute);font-size:11.5px;margin-top:2px}
+.gCells{flex:1;display:flex;min-width:700px}
+.cell{flex:1;border-right:1px solid var(--rule);padding:6px;display:flex;align-items:center}
+.blk{width:100%;padding:5px 6px;text-align:right;border:1px solid transparent;border-radius:2px;
+  font:500 11.5px/1.3 var(--fig);font-variant-numeric:tabular-nums}
+.blk.done{background:var(--green-tint);border-color:#B7C6B2;color:var(--green)}
+.blk.short{background:var(--ochre-tint);border-color:#D5C48D;color:var(--ochre)}
+.blk.none{background:var(--red-tint);border-color:#DCB6B3;color:var(--red)}
+.blk.soon{background:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(18,22,28,.05) 4px,rgba(18,22,28,.05) 8px);
+  border:1px dashed var(--rule-hard);color:var(--mute)}
+.gHead{position:sticky;top:0;z-index:2;background:var(--stone);border-bottom:1px solid var(--rule-hard)}
+.gHead .gLabel{background:var(--stone);font:600 10.5px/1 var(--ui);text-transform:uppercase;letter-spacing:.1em;color:var(--mute);padding:10px 14px}
+.gHead .cell{font:600 10.5px/1 var(--ui);text-transform:uppercase;letter-spacing:.1em;color:var(--mute);justify-content:center;padding:10px 6px}
+.totStrip{flex:0 0 auto;display:flex;background:var(--ledger);border-top:1px solid var(--rule-ink);
+  border-bottom:3px double var(--rule-ink)}
+.totStrip .gLabel{border-right:1px solid var(--rule-hard);font-weight:600;padding:13px 14px;background:var(--ledger)}
+.totStrip .cell{justify-content:flex-end;padding:13px 8px}
+.note{padding:12px 18px;color:var(--mute);font-size:11.5px;line-height:1.55;max-width:96ch}
+
+/* ─────────── sources ─────────── */
+.drop{flex:0 0 348px;background:var(--stone)}
+.zone{margin:14px 16px 0;padding:20px 14px;border:1.5px dashed var(--rule-hard);background:var(--paper);
+  display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;border-radius:2px}
+.zone b{font-size:13px;font-weight:600}
+.zone span{color:var(--mute);font-size:11.5px}
+.toggle{display:flex;margin-top:8px;border:1px solid var(--rule-hard);border-radius:2px;overflow:hidden}
+.toggle button{padding:4px 11px;font-size:11.5px;color:var(--mute);border-right:1px solid var(--rule)}
+.toggle button:last-child{border-right:none}
+.toggle button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.step{padding:16px;border-bottom:1px solid var(--rule)}
+.step:first-of-type{border-top:1px solid var(--rule);margin-top:16px}
+.step h3{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--mute);margin-bottom:11px}
+.mapRow{display:flex;gap:9px;align-items:center;padding:4px 0}
+.mapRow .from{flex:0 0 118px;font:500 11px/1 var(--fig);color:var(--ink-2);background:var(--paper);
+  border:1px solid var(--rule);padding:5px 7px;border-radius:2px;overflow:hidden;text-overflow:ellipsis}
+.mapRow .arrow{color:var(--rule-hard);font-family:var(--fig)}
+.mapRow select{flex:1;font:400 12px var(--ui);border:1px solid var(--rule-hard);padding:5px 6px;
+  background:var(--paper);border-radius:2px;color:var(--ink)}
+.hint{color:var(--mute);font-size:11.5px;margin-top:10px;line-height:1.5}
+.cli{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--rule)}
+.cli .t{flex:1;font-size:12.5px;font-weight:500}
+.cli .d{color:var(--mute);font-size:11.5px;font-weight:400;margin-top:2px}
+.pipe{display:flex;align-items:center;gap:14px;padding:13px 18px;border-bottom:1px solid var(--rule)}
+.pipe:nth-child(even){background:var(--ledger-alt)}
+.pipe .t{flex:1;min-width:0}
+.pipe .t b{font:500 12.5px/1.4 var(--fig);letter-spacing:-.01em}
+.pipe .d{color:var(--mute);font-size:12px;margin-top:3px}
+.stages{display:flex;gap:3px}
+.stg{width:32px;height:5px;background:var(--rule)}
+.stg.done{background:var(--ink)}
+.stg.now{background:var(--ochre)}
+.stg.err{background:var(--red)}
+
+/* ─────────── ask rail ─────────── */
+.askRail{flex:0 0 44px;display:flex;align-items:center;gap:11px;padding:0 16px;
+  background:var(--paper);border-top:1px solid var(--rule-hard)}
+.askRail .chev{font:600 12px/1 var(--fig);color:var(--red)}
+.askRail .field{flex:1;text-align:left;color:var(--mute);font-size:13px}
+.askRail .field em{font-style:normal;color:var(--ink-2)}
+.askRail .lbl{color:var(--mute);font-size:11.5px}
+
+/* ─────────── answer sheet ─────────── */
+.sheet{position:absolute;inset:0;background:var(--paper);display:none;flex-direction:column;z-index:5}
+.sheet.on{display:flex;animation:rise .22s cubic-bezier(.2,.7,.3,1)}
+@keyframes rise{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+.sheetHead{display:flex;align-items:flex-start;gap:16px;padding:20px 26px;border-bottom:1px solid var(--rule);background:var(--paper)}
+.sheetHead .q{flex:1}
+.sheetHead .q .lbl{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.11em;color:var(--mute);margin-bottom:6px}
+.sheetHead .q .txt{font-size:17px;font-weight:500;letter-spacing:-.018em;line-height:1.35}
+.sheetBody{flex:1;display:flex;min-height:0}
+.answer{flex:1;padding:26px 30px;overflow:auto;min-width:0}
+.verdictLine{display:flex;align-items:baseline;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--rule-ink);margin-bottom:22px}
+.verdictLine .v{font-size:34px;font-weight:700;letter-spacing:-.035em;line-height:1}
+.verdictLine .s{color:var(--mute);font-size:13px}
+.lede{font-size:15px;line-height:1.62;max-width:62ch;color:var(--ink-2)}
+.lede .n{font:600 14px var(--fig);color:var(--ink);font-variant-numeric:tabular-nums;
+  border-bottom:1.5px solid var(--blue);padding-bottom:1px;cursor:help}
+.chart{margin-top:26px;max-width:62ch;border:1px solid var(--rule);background:var(--ledger-alt)}
+.chart .ch{padding:9px 12px;border-bottom:1px solid var(--rule);font-size:10.5px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.11em;color:var(--mute);background:var(--paper)}
+.chart .cb{height:150px;display:flex;align-items:flex-end;gap:5px;padding:14px 12px}
+.chart .cb i{flex:1;display:block;background:var(--blue);opacity:.28}
+.chart .cb i.up{opacity:.62}
+.scope{margin-top:26px;max-width:62ch;padding:14px 16px;background:var(--stone);border-left:2px solid var(--rule-hard)}
+.scope p{color:var(--ink-2);font-size:12.5px;line-height:1.55}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.chip{border:1px solid var(--rule-hard);background:var(--paper);padding:5px 10px;font-size:12px;color:var(--ink-2);border-radius:2px}
+.chip:hover{background:#fff;border-color:var(--ink-2)}
+
+/* the working — green-bar ledger, computes in sequence */
+.working{flex:0 0 420px;border-left:1px solid var(--rule-hard);background:var(--ledger-alt);overflow:auto}
+.wRow{display:flex;gap:14px;align-items:baseline;padding:10px 18px;border-bottom:1px solid var(--rule)}
+.wRow:nth-child(odd){background:var(--ledger)}
+.wRow .t{flex:1;min-width:0;font-size:12.5px}
+.wRow .src{display:block;color:var(--blue);font-size:11.5px;margin-top:3px;
+  border-bottom:1px solid var(--blue-tint);width:fit-content;cursor:pointer}
+.wRow .src:hover{border-bottom-color:var(--blue)}
+.wRow.sub{border-top:1px solid var(--rule-ink);font-weight:600;background:var(--paper)}
+.wRow.fin{border-top:1px solid var(--rule-ink);border-bottom:3px double var(--rule-ink);
+  font-weight:600;background:var(--paper)}
+.wRow.fin .fig{font-size:14px;font-weight:600}
+.wFoot{padding:14px 18px;color:var(--mute);font-size:11.5px;line-height:1.55;background:var(--ledger-alt)}
+.sheet.on .wRow{animation:tick .26s both}
+.sheet.on .wRow:nth-child(1){animation-delay:.06s}
+.sheet.on .wRow:nth-child(2){animation-delay:.12s}
+.sheet.on .wRow:nth-child(3){animation-delay:.18s}
+.sheet.on .wRow:nth-child(4){animation-delay:.24s}
+.sheet.on .wRow:nth-child(5){animation-delay:.30s}
+.sheet.on .wRow:nth-child(6){animation-delay:.36s}
+.sheet.on .wRow:nth-child(7){animation-delay:.42s}
+.sheet.on .wRow:nth-child(8){animation-delay:.48s}
+.sheet.on .wRow:nth-child(9){animation-delay:.54s}
+@keyframes tick{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;transition-duration:.001ms !important}
+}
+@media (max-width:1180px){.context,.working{display:none}}
+@media (max-width:800px){
+  .body{overflow:auto}
+  .screen.on{flex-direction:column}
+  .queue,.facets,.drop{flex:0 0 auto;max-height:46vh}
+  .pane + .pane{border-left:none;border-top:1px solid var(--rule-hard)}
+  .confront{flex-direction:column}
+  .side + .side{border-left:none;border-top:1px solid var(--rule-hard)}
+  .verdict{flex-wrap:wrap}
+  .modes button{padding:0 12px}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="mark"><span class="glyph"><i></i><i></i></span><b>FinSight</b></div>
+  <nav class="modes">
+    <button data-go="desk" aria-current="true">Findings <span class="ct">7</span></button>
+    <button data-go="ledger">Ledger</button>
+    <button data-go="schedule">Schedule</button>
+    <button data-go="sources">Sources</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="util"><span class="runchip"><s></s>demo_v1 · qwen2.5-3b base</span><button class="tbtn">Compare run</button></div>
+  <div class="util"><kbd>⌘K</kbd></div>
+</header>
+
+<div class="body">
+
+<!-- ══════════ FINDINGS ══════════ -->
+<section class="screen on" id="desk">
+  <div class="pane queue">
+    <div class="paneHead">Not collected <div class="spacer"></div> <span class="fig neg">14,280.00</span></div>
+    <div class="scroll">
+
+      <div class="grp"><i class="sw" style="background:var(--t-ghost)"></i>Never billed <div class="spacer"></div><span class="fig">17,000.00</span></div>
+      <div class="row">
+        <div class="rowBody">
+          <div class="rowTop"><b>Nexus Digital</b><span class="fig neg">(15,000.00)</span></div>
+          <div class="rowSub">Milestone 2 · March <span class="badge ok">confirmed</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rowBody">
+          <div class="rowTop"><b>Bloom Agency</b><span class="fig" style="color:var(--mute)">(2,000.00)</span></div>
+          <div class="rowSub">June retainer <span class="badge no">ruled out</span></div>
+        </div>
+      </div>
+
+      <div class="grp"><i class="sw" style="background:var(--t-raise)"></i>Rise not applied <div class="spacer"></div><span class="fig">960.00</span></div>
+      <div class="row sel">
+        <div class="rowBody">
+          <div class="rowTop"><b>Starter Labs</b><span class="fig neg">(480.00)</span></div>
+          <div class="rowSub">January · 8% anniversary rise <span class="badge ok">confirmed</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rowBody">
+          <div class="rowTop"><b>Starter Labs</b><span class="fig neg">(480.00)</span></div>
+          <div class="rowSub">February · same clause <span class="badge wait">unverified</span></div>
+        </div>
+      </div>
+
+      <div class="grp"><i class="sw" style="background:var(--t-zombie)"></i>Discount outlived its term <div class="spacer"></div><span class="fig">1,200.00</span></div>
+      <div class="row">
+        <div class="rowBody">
+          <div class="rowTop"><b>Starter Labs</b><span class="fig neg">(600.00)</span></div>
+          <div class="rowSub">May · 10% intro rate expired in April <span class="badge ok">confirmed</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rowBody">
+          <div class="rowTop"><b>Starter Labs</b><span class="fig neg">(600.00)</span></div>
+          <div class="rowSub">June · same clause <span class="badge wait">unverified</span></div>
+        </div>
+      </div>
+
+      <div class="grp"><i class="sw" style="background:var(--t-short)"></i>Paid short <div class="spacer"></div><span class="fig">1,500.00</span></div>
+      <div class="row">
+        <div class="rowBody">
+          <div class="rowTop"><b>Bloom Agency</b><span class="fig neg">(1,500.00)</span></div>
+          <div class="rowSub">April · 8,500 of 10,000 <span class="badge ok">confirmed</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane work">
+    <div class="caseHead">
+      <div class="eyebrow"><i class="sw" style="background:var(--t-raise)"></i><span>Rise not applied · Starter Labs · January 2026</span></div>
+      <h1>The contract raised this fee to 6,480 on 12 January. You billed 6,000.</h1>
+      <p>Retainer agreement signed 12 January 2025 · reconciled against statement_q1.csv</p>
+    </div>
+
+    <div class="confront">
+      <div class="side docSide">
+        <div class="sideHead">What the contract says <div class="spacer"></div><span class="tag ok">Located exactly</span></div>
+        <div class="docWrap">
+          <div class="page">
+            <div class="pageMeta">starter_labs_2025.pdf — page 3 — clause 5.1</div>
+            <div class="ln l"></div><div class="ln m"></div>
+            <p class="clause">Fees shall increase by 8% on each anniversary of the Effective Date.</p>
+            <div class="ln l"></div><div class="ln s"></div>
+            <div class="ln m"></div><div class="ln l"></div><div class="ln s"></div>
+          </div>
+          <div class="groundNote"><i></i><span>The model returned this sentence verbatim; the highlight comes from searching the PDF for that text, so the box is measured rather than guessed.</span></div>
+        </div>
+      </div>
+
+      <div class="side ledgerSide">
+        <div class="sideHead">What arrived <div class="spacer"></div>January 2026</div>
+        <div class="scroll">
+          <div class="txn">
+            <div class="t">Bank credit — STARTER LABS LTD<div class="d">08 Jan · statement_q1.csv · row 41</div></div>
+            <div class="fig">6,000.00</div>
+          </div>
+          <div class="txn void"><div class="t">No further payments matched to this client in January</div></div>
+          <div class="sum subtotal"><div class="t">Received</div><div class="fig">6,000.00</div></div>
+          <div class="sum"><div class="t">Due under clause 5.1</div><div class="fig">6,480.00</div></div>
+          <div class="sum total"><div class="t">Not collected</div><div class="fig neg">(480.00)</div></div>
+          <div class="methodNote">Payments are matched to a client and a calendar month, with fifteen days of tolerance at each boundary. A payment that arrived on 2 February would still count toward January.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <div class="calc">6,000.00 × <b>1.08</b> = <b>6,480.00</b> &nbsp;·&nbsp; received 6,000.00 &nbsp;·&nbsp; short <b class="r">480.00</b></div>
+      <span class="agent"><s></s>Agent confirmed · 0.92</span>
+      <button class="btn">Not an issue</button>
+      <button class="btn primary">Add to recoverable</button>
+    </div>
+  </div>
+
+  <div class="pane context">
+    <div class="ctx">
+      <h3>How the agent checked</h3>
+      <div class="tool">check_escalation_clause(rule=3)<r>→ 8% after 12 months, from 12 Jan 2025</r></div>
+      <div class="tool">check_split_payments(client=1, month="2026-01")<r>→ one payment only, no split found</r></div>
+      <div class="tool">check_prior_month(client=1, month="2025-12")<r>→ 6,000.00, matching the pre-rise rate</r></div>
+      <p class="prose">The rise was due, December was billed at the old rate, and no second payment covers the difference. The shortfall is real rather than a payment split across two months.</p>
+    </div>
+    <div class="ctx">
+      <h3>Starter Labs</h3>
+      <div class="kv"><span>Contracts on file</span><b class="fig">2</b></div>
+      <div class="kv"><span>Received this year</span><b class="fig">39,600.00</b></div>
+      <div class="kv"><span>Share of revenue</span><b class="fig">31%</b></div>
+      <div class="kv"><span>Not collected</span><b class="fig neg">(2,160.00)</b></div>
+    </div>
+    <div class="ctx">
+      <h3>Same clause, other months</h3>
+      <div class="mini"><div class="t">February<div class="d">480.00 · waiting on the agent</div></div></div>
+      <div class="mini"><div class="t">March onward<div class="d">No statement uploaded yet</div></div></div>
+    </div>
+    <div class="ctx">
+      <h3>Provenance</h3>
+      <div class="mini"><div class="t">Clause read by qwen2.5-3b, base weights<div class="d">run demo_v1 · 04 Aug</div></div></div>
+      <div class="mini"><div class="t">Every amount computed in Python<div class="d">timeline_generator · reconciliation</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ LEDGER ══════════ -->
+<section class="screen" id="ledger">
+  <div class="pane facets">
+    <div class="paneHead">Narrow to</div>
+    <div class="scroll">
+      <div class="facet"><h4>Record</h4>
+        <label><input type="checkbox" checked>Contracts <b>5</b></label>
+        <label><input type="checkbox" checked>Payments received <b>55</b></label>
+        <label><input type="checkbox">Expected billings <b>60</b></label>
+        <label><input type="checkbox">Documents <b>9</b></label>
+      </div>
+      <div class="facet"><h4>Client</h4>
+        <label><input type="checkbox">Starter Labs <b>24</b></label>
+        <label><input type="checkbox">Nexus Digital <b>17</b></label>
+        <label><input type="checkbox">Bloom Agency <b>14</b></label>
+        <label><input type="checkbox">Not yet assigned <b>5</b></label>
+      </div>
+      <div class="facet"><h4>State</h4>
+        <label><input type="checkbox">Reconciled <b>48</b></label>
+        <label><input type="checkbox" checked>Short <b>7</b></label>
+        <label><input type="checkbox" checked>No client matched <b>5</b></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane work">
+    <div class="paneHead">124 records <div class="spacer"></div> Group by client · Export CSV</div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Date</th><th>Client</th><th>Record</th><th>Source</th>
+          <th style="text-align:right">Due</th><th style="text-align:right">Received</th><th>State</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>15 Jan</td><td>Starter Labs</td><td>Monthly retainer</td><td>starter_labs_2025.pdf</td><td class="n fig">6,480.00</td><td class="n fig">6,000.00</td><td><span class="tag gap">Short 480</span></td></tr>
+          <tr><td>15 Feb</td><td>Starter Labs</td><td>Monthly retainer</td><td>starter_labs_2025.pdf</td><td class="n fig">6,480.00</td><td class="n fig">6,000.00</td><td><span class="tag gap">Short 480</span></td></tr>
+          <tr><td>15 Mar</td><td>Starter Labs</td><td>Monthly retainer</td><td>starter_labs_2025.pdf</td><td class="n fig">6,480.00</td><td class="n fig">6,480.00</td><td><span class="tag ok">Reconciled</span></td></tr>
+          <tr><td>01 Mar</td><td>Nexus Digital</td><td>Milestone 2</td><td>nexus_sow.pdf</td><td class="n fig">15,000.00</td><td class="n fig">0.00</td><td><span class="tag bad">Never billed</span></td></tr>
+          <tr><td>10 Apr</td><td>Bloom Agency</td><td>Project fee</td><td>bloom_msa.pdf</td><td class="n fig">10,000.00</td><td class="n fig">8,500.00</td><td><span class="tag gap">Short 1,500</span></td></tr>
+          <tr><td>12 May</td><td>Starter Labs</td><td>Monthly retainer</td><td>starter_labs_2025.pdf</td><td class="n fig">6,480.00</td><td class="n fig">5,880.00</td><td><span class="tag gap">Short 600</span></td></tr>
+          <tr><td>03 Jun</td><td>—</td><td>Bank credit</td><td>statement_q2.csv</td><td class="n fig">—</td><td class="n fig">1,750.00</td><td><span class="tag">No client</span></td></tr>
+          <tr><td>18 Jun</td><td>Bloom Agency</td><td>Monthly retainer</td><td>bloom_msa.pdf</td><td class="n fig">2,000.00</td><td class="n fig">2,000.00</td><td><span class="tag ok">Reconciled</span></td></tr>
+          <tr><td>—</td><td>Bloom Agency</td><td>Contract</td><td>bloom_msa.pdf</td><td class="n fig">10,000.00</td><td class="n fig">—</td><td><span class="tag ok">Rules read</span></td></tr>
+          <tr><td>—</td><td>Starter Labs</td><td>Contract</td><td>starter_labs_2025.pdf</td><td class="n fig">6,000.00</td><td class="n fig">—</td><td><span class="tag ok">Rules read</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ SCHEDULE ══════════ -->
+<section class="screen" id="schedule">
+  <div class="hz">
+    <div class="hzBar">
+      <div class="seg">
+        <button aria-pressed="true">Due against received</button>
+        <button>Due only</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="key">
+        <span><i style="background:var(--green-tint);border:1px solid #B7C6B2"></i>Reconciled</span>
+        <span><i style="background:var(--ochre-tint);border:1px solid #D5C48D"></i>Short</span>
+        <span><i style="background:var(--red-tint);border:1px solid #DCB6B3"></i>Never billed</span>
+        <span><i style="background:repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(18,22,28,.09) 3px,rgba(18,22,28,.09) 6px);border:1px dashed var(--rule-hard)"></i>Not yet due</span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="gRow gHead">
+        <div class="gLabel">Contract</div>
+        <div class="gCells">
+          <div class="cell">Jan</div><div class="cell">Feb</div><div class="cell">Mar</div>
+          <div class="cell">Apr</div><div class="cell">May</div><div class="cell">Jun</div>
+        </div>
+      </div>
+
+      <div class="gRow">
+        <div class="gLabel"><b>Starter Labs</b> — retainer<div class="sub">Monthly · 8% rise cl. 5.1 · 10% intro to April</div></div>
+        <div class="gCells">
+          <div class="cell"><div class="blk short">(480)</div></div>
+          <div class="cell"><div class="blk short">(480)</div></div>
+          <div class="cell"><div class="blk done">6,480</div></div>
+          <div class="cell"><div class="blk done">5,832</div></div>
+          <div class="cell"><div class="blk short">(600)</div></div>
+          <div class="cell"><div class="blk short">(600)</div></div>
+        </div>
+      </div>
+      <div class="gRow">
+        <div class="gLabel"><b>Starter Labs</b> — onboarding<div class="sub">One-off · cl. 2</div></div>
+        <div class="gCells">
+          <div class="cell"><div class="blk done">2,500</div></div>
+          <div class="cell"></div><div class="cell"></div>
+          <div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        </div>
+      </div>
+      <div class="gRow">
+        <div class="gLabel"><b>Nexus Digital</b> — statement of work<div class="sub">Three milestones · cl. 4.1</div></div>
+        <div class="gCells">
+          <div class="cell"><div class="blk done">15,000</div></div>
+          <div class="cell"></div>
+          <div class="cell"><div class="blk none">(15,000)</div></div>
+          <div class="cell"></div>
+          <div class="cell"><div class="blk soon">15,000</div></div>
+          <div class="cell"></div>
+        </div>
+      </div>
+      <div class="gRow">
+        <div class="gLabel"><b>Bloom Agency</b> — project<div class="sub">Two stages · cl. 3</div></div>
+        <div class="gCells">
+          <div class="cell"></div><div class="cell"></div><div class="cell"></div>
+          <div class="cell"><div class="blk short">(1,500)</div></div>
+          <div class="cell"></div>
+          <div class="cell"><div class="blk soon">10,000</div></div>
+        </div>
+      </div>
+      <div class="gRow">
+        <div class="gLabel"><b>Bloom Agency</b> — retainer<div class="sub">Monthly · term ends June</div></div>
+        <div class="gCells">
+          <div class="cell"><div class="blk done">2,000</div></div>
+          <div class="cell"><div class="blk done">2,000</div></div>
+          <div class="cell"><div class="blk done">2,000</div></div>
+          <div class="cell"><div class="blk done">2,000</div></div>
+          <div class="cell"><div class="blk done">2,000</div></div>
+          <div class="cell"><div class="blk soon">2,000</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="totStrip">
+      <div class="gLabel">Not collected</div>
+      <div class="gCells">
+        <div class="cell"><span class="fig neg">(480)</span></div>
+        <div class="cell"><span class="fig neg">(480)</span></div>
+        <div class="cell"><span class="fig neg">(15,000)</span></div>
+        <div class="cell"><span class="fig neg">(1,500)</span></div>
+        <div class="cell"><span class="fig neg">(600)</span></div>
+        <div class="cell"><span class="fig neg">(600)</span></div>
+      </div>
+    </div>
+    <div class="note">This is a billing schedule built from contract clauses, not a cash forecast. Hatched cells are contracted but not yet due, so nothing is expected from them yet and no shortfall is counted against them.</div>
+  </div>
+</section>
+
+<!-- ══════════ SOURCES ══════════ -->
+<section class="screen" id="sources">
+  <div class="pane drop">
+    <div class="paneHead">Add documents</div>
+    <div class="scroll">
+      <div class="zone"><b>Contracts</b><span>PDF, typed or scanned</span></div>
+      <div class="zone"><b>Invoices and statements</b><span>PDF or CSV</span>
+        <div class="toggle"><button aria-pressed="true">PDF</button><button>Scanned</button><button>CSV</button></div>
+      </div>
+
+      <div class="step">
+        <h3>Confirm the columns</h3>
+        <div class="mapRow"><span class="from">Txn Date</span><span class="arrow">→</span>
+          <select><option>Date of payment</option><option>Ignore this column</option></select></div>
+        <div class="mapRow"><span class="from">Amt (GBP)</span><span class="arrow">→</span>
+          <select><option>Amount</option><option>Ignore this column</option></select></div>
+        <div class="mapRow"><span class="from">Narrative</span><span class="arrow">→</span>
+          <select><option>Description</option><option>Ignore this column</option></select></div>
+        <div class="mapRow"><span class="from">Balance</span><span class="arrow">→</span>
+          <select><option>Ignore this column</option><option>Amount</option></select></div>
+        <p class="hint">These headers matched a mapping you confirmed on 2 July, so it has been filled in for you.</p>
+        <button class="tbtn" style="margin-top:11px">Use this mapping</button>
+      </div>
+
+      <div class="step">
+        <h3>Confirm the clients</h3>
+        <div class="cli"><div class="t">Starter Labs<div class="d">2 contracts · also appears as STARTER LABS LTD</div></div><button class="tbtn">Separate</button></div>
+        <div class="cli"><div class="t">Nexus Digital<div class="d">1 contract</div></div><button class="tbtn">Separate</button></div>
+        <div class="cli"><div class="t">Bloom Agency<div class="d">1 contract</div></div><button class="tbtn">Separate</button></div>
+        <p class="hint">Payments that mention none of these names stay unassigned until you place them.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane work">
+    <div class="paneHead">Processing <div class="spacer"></div> uploaded · text read · rules extracted · reconciled</div>
+    <div class="scroll">
+      <div class="pipe">
+        <div class="t"><b>starter_labs_2025.pdf</b><div class="d">Two clauses located exactly, one approximately.</div></div>
+        <div class="stages"><i class="stg done"></i><i class="stg done"></i><i class="stg done"></i><i class="stg done"></i></div>
+        <button class="tbtn">Open</button>
+      </div>
+      <div class="pipe">
+        <div class="t"><b>nexus_sow.pdf</b><div class="d">No text layer. Queued for the next OCR batch.</div></div>
+        <div class="stages"><i class="stg done"></i><i class="stg now"></i><i class="stg"></i><i class="stg"></i></div>
+        <button class="tbtn">Check status</button>
+      </div>
+      <div class="pipe">
+        <div class="t"><b>bloom_msa.pdf</b><div class="d">Read, but no billing frequency found. Set it and this contract joins the schedule.</div></div>
+        <div class="stages"><i class="stg done"></i><i class="stg done"></i><i class="stg err"></i><i class="stg"></i></div>
+        <button class="tbtn">Set frequency</button>
+      </div>
+      <div class="pipe">
+        <div class="t"><b>statement_q1.csv</b><div class="d">55 rows read. 50 matched to a client, 5 waiting on you.</div></div>
+        <div class="stages"><i class="stg done"></i><i class="stg done"></i><i class="stg done"></i><i class="stg now"></i></div>
+        <button class="tbtn">Place 5 payments</button>
+      </div>
+      <div class="pipe">
+        <div class="t"><b>scan_0417.pdf</b><div class="d">OCR returned nothing legible. Upload a clearer scan or enter the figures by hand.</div></div>
+        <div class="stages"><i class="stg done"></i><i class="stg err"></i><i class="stg"></i><i class="stg"></i></div>
+        <button class="tbtn">Replace</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ ANSWER SHEET ══════════ -->
+<div class="sheet" id="sheet">
+  <div class="sheetHead">
+    <div class="q">
+      <div class="lbl">You asked</div>
+      <div class="txt">Can I afford a senior designer at 5,000 a month starting in September?</div>
+    </div>
+    <button class="tbtn" data-close>Close</button>
+  </div>
+  <div class="sheetBody">
+    <div class="answer">
+      <div class="verdictLine">
+        <div class="v">Yes</div>
+        <div class="s">18,690 a month left over — 17,500 if you recover nothing</div>
+      </div>
+      <p class="lede">
+        Your last six months averaged <span class="n">22,500</span> a month after expenses. The five
+        confirmed findings come to <span class="n">14,280</span> a year, which is
+        <span class="n">1,190</span> a month once collected. Taking on a
+        <span class="n">5,000</span> hire leaves <span class="n">18,690</span> against
+        <span class="n">17,500</span> today.
+      </p>
+      <p class="lede" style="margin-top:16px;color:var(--mute)">
+        Two findings are still waiting on the agent and one was ruled out, so none of those three
+        count here. Confirming both waiting findings would add another 90 a month.
+      </p>
+
+      <div class="chart">
+        <div class="ch">Monthly surplus, next twelve months</div>
+        <div class="cb">
+          <i style="height:58%"></i><i class="up" style="height:62%"></i>
+          <i style="height:57%"></i><i class="up" style="height:61%"></i>
+          <i style="height:59%"></i><i class="up" style="height:64%"></i>
+          <i style="height:56%"></i><i class="up" style="height:60%"></i>
+          <i style="height:60%"></i><i class="up" style="height:65%"></i>
+          <i style="height:58%"></i><i class="up" style="height:63%"></i>
+        </div>
+      </div>
+
+      <div class="scope">
+        <p>This answers questions about affording a recurring cost. It cannot yet answer questions about a single client, a past period, or a change to your prices.</p>
+        <div class="chips">
+          <button class="chip">Can I afford 3,000 a month more rent from July?</button>
+          <button class="chip">Can I take on two contractors at 4,200 each?</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="working">
+      <div class="paneHead">How this was worked out</div>
+      <div class="wRow"><div class="t">Average monthly revenue<span class="src">55 payments across six months</span></div><div class="fig">41,300.00</div></div>
+      <div class="wRow"><div class="t">Average monthly expenses<span class="src">same period</span></div><div class="fig neg">(18,800.00)</div></div>
+      <div class="wRow sub"><div class="t">Surplus today</div><div class="fig">22,500.00</div></div>
+      <div class="wRow"><div class="t">Confirmed findings<span class="src">5 of 7 · see Findings</span></div><div class="fig">14,280.00</div></div>
+      <div class="wRow"><div class="t">Spread across the year<span class="src">divided by 12</span></div><div class="fig">1,190.00</div></div>
+      <div class="wRow sub"><div class="t">Surplus once collected</div><div class="fig">23,690.00</div></div>
+      <div class="wRow"><div class="t">Cost of the hire<span class="src">taken from your question</span></div><div class="fig neg">(5,000.00)</div></div>
+      <div class="wRow fin"><div class="t">Left over each month</div><div class="fig">18,690.00</div></div>
+      <div class="wFoot">Every figure above was computed in Python from your own records. The model read your question and wrote the sentences — it produced none of these numbers.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<footer class="askRail">
+  <span class="chev">&gt;</span>
+  <button class="field" id="openSheet">Can I afford <em>a senior designer at 5,000 a month from September</em>?</button>
+  <span class="lbl">Answers show their working</span>
+  <kbd>⌘/</kbd>
+</footer>
+
+<script>
+  const go = id => {
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+    document.querySelectorAll('.modes button').forEach(b =>
+      b.setAttribute('aria-current', String(b.dataset.go === id)));
+  };
+  document.querySelectorAll('.modes button').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
+
+  const sheet = document.getElementById('sheet');
+  document.getElementById('openSheet').addEventListener('click', () => sheet.classList.add('on'));
+  document.querySelector('[data-close]').addEventListener('click', () => sheet.classList.remove('on'));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') sheet.classList.remove('on'); });
+
+  document.querySelectorAll('.queue .row').forEach(r => r.addEventListener('click', () => {
+    document.querySelectorAll('.queue .row').forEach(x => x.classList.remove('sel'));
+    r.classList.add('sel');
+  }));
+  document.querySelectorAll('.seg button, .toggle button').forEach(b => b.addEventListener('click', () => {
+    b.parentElement.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+  }));
+</script>
+</body>
+</html>

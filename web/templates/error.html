@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Something broke · FinSight</title>
+<link rel="stylesheet" href="{{ url_for('static', path='css/tokens.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
+</head>
+<body>
+<div class="shell">
+  <section class="blank-slate">
+    <p class="eyebrow accent">Error</p>
+    <h1>That page could not be rendered.</h1>
+    <p>The details are in the server log. Nothing was written to the database.</p>
+    <div class="absent"><b>Detail</b>{{ detail }}</div>
+    <p style="margin-top:24px"><a href="{{ url_for('integrity') }}">Back to the Integrity Engine</a></p>
+  </section>
+</div>
+</body>
+</html>

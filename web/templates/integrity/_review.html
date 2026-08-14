@@ -1,0 +1,200 @@
+{# The findings screen: four cards, the table, then the selected finding blown
+   out across three panels — what the contract says, what arrived, and how it
+   was checked. Selecting a row is a plain link, so every finding has its own
+   URL and the back button works. #}
+
+<section class="panels panels-4 rule-b">
+  {% for c in view.cards %}{{ macros.card(c) }}{% endfor %}
+</section>
+
+<section class="rule-b">
+  <div class="findings-head">
+    <h2>Findings</h2>
+    <p>Select a row to see the clause it came from and how it was checked</p>
+    <div class="spacer"></div>
+    <span class="sortnote">Sorted by amount</span>
+  </div>
+
+  <div class="frow fhead">
+    <div>Client</div>
+    <div>What happened</div>
+    <div class="r">Due</div>
+    <div class="r">Received</div>
+    <div class="r">Not collected</div>
+    <div>Checked</div>
+  </div>
+
+  {% if view.findings %}
+    {% for f in view.findings %}
+      {# data-href rather than a wrapping <a>: the row is a six-column grid and
+         an anchor around it would collapse the layout. app.js makes it click. #}
+      <div class="frow fbody{% if loop.index0 % 2 %} is-alt{% endif %}{% if f.selected %} is-selected{% endif %}"
+           data-href="{{ select_url }}{{ f.id }}"
+           role="link" tabindex="0"
+           aria-current="{{ 'true' if f.selected else 'false' }}">
+        <div class="c-client">{{ f.client }}</div>
+        <div class="c-what">
+          <b>{{ f.title }}</b>
+          <div class="sub">{{ macros.value(f.sub) }}</div>
+        </div>
+        <div class="c-num">{{ macros.value(f.due) }}</div>
+        <div class="c-num">{{ macros.value(f.received) }}</div>
+        <div class="c-gap{% if f.kind == 'out' %} is-out{% endif %}">{{ macros.value(f.gap) }}</div>
+        <div class="c-verdict">{{ macros.tag(f.verdict, f.kind) }}</div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="pad-24">
+      {{ macros.skeleton([90, 76, 84]) }}
+      {{ macros.absent('No findings', 'Nothing was flagged against this run.') }}
+    </div>
+  {% endif %}
+</section>
+
+{% if view.selected %}
+{% set sel = view.selected %}
+
+<section class="panels panels-2 rule-b">
+  <div class="sel-head">
+    <div class="line">
+      <span class="type">{{ sel.type_label }}</span>
+      <span class="period">{{ macros.value(sel.period) }}</span>
+    </div>
+    {% if sel.headline %}
+      <h2>{{ sel.headline }}</h2>
+    {% else %}
+      <h2>{{ macros.skeleton([90, 60]) }}</h2>
+    {% endif %}
+    <p class="prov">{{ macros.value(sel.provenance) }}</p>
+  </div>
+  <div class="sel-actions">
+    <div class="calc">{{ macros.value(sel.calc) }}</div>
+    <button class="btn-outline" type="button" disabled>Not an issue</button>
+    <button class="btn-solid" type="button" disabled>Add to recoverable</button>
+  </div>
+</section>
+
+<section class="panels confront rule-b">
+
+  {# ── What the contract says ─────────────────────────────────────────── #}
+  <div class="panel side">
+    <div class="side-head">
+      <span class="kicker">What the contract says</span>
+      <div class="spacer"></div>
+      {{ macros.tag(sel.ground_tag, sel.ground_kind) }}
+    </div>
+    <div class="docpane">
+      <div class="page">
+        <i class="margin-rule"></i>
+        <div class="pagemeta">{{ macros.value(sel.doc_meta) }}</div>
+        <div class="ln w94"></div>
+        <div class="ln w78"></div>
+        {% if sel.clause %}
+          {# Highlighted only when the locator actually placed the quote in the
+             PDF. A highlight in the wrong place is worse than none (ADR-005). #}
+          <p class="clause{% if not sel.highlighted %} is-ungrounded{% endif %}">{{ sel.clause }}</p>
+        {% else %}
+          <div style="margin:16px 0">{{ macros.skeleton([96, 88, 44]) }}</div>
+        {% endif %}
+        <div class="ln w90"></div>
+        <div class="ln w52"></div>
+        <div class="ln w86"></div>
+        <div class="ln w68"></div>
+      </div>
+      {% if sel.clause %}
+        <p class="note-sm">{{ sel.ground_note }}</p>
+      {% else %}
+        <div style="margin-top:16px">
+          {{ macros.absent('No clause on file', 'This finding has no clause_reference row, so nothing proves it yet. Hard rule 5 says a finding without a clause is not a proven finding.') }}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── What arrived ───────────────────────────────────────────────────── #}
+  <div class="panel side">
+    <div class="side-head">
+      <span class="kicker">What arrived</span>
+      <div class="spacer"></div>
+      <span class="meta">{{ macros.value(sel.period) }}</span>
+    </div>
+    <div>
+      {% for t in sel.txns %}
+        <div class="txn{% if t.muted %} is-void{% endif %}">
+          <div class="t">
+            {{ t.label }}
+            {% if t.meta %}<div class="d">{{ t.meta }}</div>{% endif %}
+          </div>
+          {% if t.amount %}<div class="fig">{{ t.amount }}</div>{% endif %}
+        </div>
+      {% endfor %}
+      {% if sel.window_total %}
+        {# Shown only when it can differ from the line below — a client with two
+           billings in one month. Otherwise it is the same number twice. #}
+        <div class="sum subtotal"><div class="t">Arrived in this window</div><div class="fig">{{ sel.window_total }}</div></div>
+        <div class="sum"><div class="t">Matched to this billing</div><div class="fig">{{ macros.value(sel.received_total) }}</div></div>
+      {% else %}
+        <div class="sum subtotal"><div class="t">Received</div><div class="fig">{{ macros.value(sel.received_total) }}</div></div>
+      {% endif %}
+      <div class="sum">
+        <div class="t">Due{% if sel.clause_ref %} under {{ sel.clause_ref }}{% endif %}</div>
+        <div class="fig">{{ macros.value(sel.due_total) }}</div>
+      </div>
+      <div class="sum total"><div class="t">Not collected</div><div class="fig">{{ macros.value(sel.gap_total) }}</div></div>
+      <p class="methodnote">
+        Payments are matched to a client and a calendar month, with fifteen days of
+        tolerance at each boundary. A payment that arrived on 2 February still counts
+        toward January.
+      </p>
+    </div>
+  </div>
+
+  {# ── How it was checked ─────────────────────────────────────────────── #}
+  <div class="panel-bg side">
+    <div class="side-head">
+      <span class="kicker">How it was checked</span>
+      <div class="spacer"></div>
+      {{ macros.tag(sel.verdict, sel.kind) }}
+    </div>
+
+    <div class="ctx">
+      {% if sel.tools or sel.agent_prose %}
+        <div class="tools">
+          {% for t in sel.tools %}
+            <div class="tool">
+              <b>{{ t.call }}</b>
+              <div class="res">{{ t.result }}</div>
+            </div>
+          {% endfor %}
+        </div>
+        {% if sel.agent_prose %}<p class="prose">{{ sel.agent_prose }}</p>{% endif %}
+        {% if sel.needs_review %}
+          <div class="ctx-actions">
+            <button class="btn-solid" type="button" disabled>Confirm it myself</button>
+            <button class="btn-outline" type="button" disabled>Rule it out</button>
+          </div>
+        {% endif %}
+      {% else %}
+        {{ macros.skeleton([100, 100, 100]) }}
+        {{ macros.absent('Not checked yet', view.notices.get('agent')) }}
+      {% endif %}
+    </div>
+
+    <div class="ctx">
+      <h3>{{ sel.client }}</h3>
+      <div class="kv"><span>Contracts on file</span><b>{{ macros.value(sel.c_contracts) }}</b></div>
+      <div class="kv"><span>Received this run</span><b>{{ macros.value(sel.c_received) }}</b></div>
+      <div class="kv"><span>Share of revenue</span><b>{{ macros.value(sel.c_share) }}</b></div>
+      <div class="kv"><span>Not collected</span><b class="accent">{{ macros.value(sel.c_gap) }}</b></div>
+    </div>
+
+    <div class="ctx">
+      <h3>Where the numbers come from</h3>
+      <p class="fine">
+        The clause was read by the model and quoted verbatim. Every amount on this page
+        was computed in code from your own records — the model produced none of them.
+      </p>
+    </div>
+  </div>
+</section>
+{% endif %}

@@ -1,0 +1,52 @@
+{# Nothing uploaded. The one screen where having no data is not a gap — it is
+   the starting position, so it gets real copy rather than skeletons. #}
+<section class="empty-hero rule-b">
+  <div class="lede">
+    <p class="eyebrow accent">Nothing uploaded yet</p>
+    <h1>Give it your contracts and your bank statements.</h1>
+    <p class="sub">
+      FinSight reads what each contract says you should have billed, then compares it
+      against what actually arrived. You need at least one contract and one statement
+      before there is anything to compare.
+    </p>
+  </div>
+
+  <div class="panels panels-2 dropzones">
+    <div class="dropzone">
+      <b>Contracts</b>
+      <span>PDF · typed or scanned · drop several at once</span>
+      <button class="btn-solid" type="button" disabled
+              title="Upload lands with the extraction pipeline">Choose contracts</button>
+    </div>
+    <div class="dropzone">
+      <b>Invoices and statements</b>
+      <span>CSV export from your bank, or PDF invoices</span>
+      <button class="btn-outline" type="button" disabled
+              title="Upload lands with the extraction pipeline">Choose files</button>
+    </div>
+  </div>
+
+  <div class="panels panels-3 steps">
+    <div class="step">
+      <b>1 · Read</b>
+      <span>Each contract's fees, rises and discounts are pulled out with the sentence they came from.</span>
+    </div>
+    <div class="step">
+      <b>2 · Compare</b>
+      <span>What should have been billed each month is worked out in code, then matched against what arrived.</span>
+    </div>
+    <div class="step">
+      <b>3 · Confront</b>
+      <span>Every shortfall is shown next to the clause that proves it.</span>
+    </div>
+  </div>
+
+  {% if not chrome.is_demo %}
+    <div class="absent" style="margin-top:36px">
+      <b>Live mode · no data</b>
+      This run has no documents. Seed a complete demo run with
+      <code>python scripts/seed_demo.py</code>, or switch the state bar to Demo to see
+      the screens filled in.
+    </div>
+  {% endif %}
+</section>

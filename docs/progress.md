@@ -1307,6 +1307,76 @@ Cached responses make a re-run near-instant; add `--no-cache` to force real call
 <!-- APPEND NEW PHASE ENTRIES ABOVE THIS LINE.                         -->
 <!-- ================================================================= -->
 
+---
+
+## Second frontend — FastAPI + Jinja2 alongside Streamlit (2026-08-14)
+
+**Completed:** 2026-08-14 · **Owner:** B · **Not a numbered phase.** This ran in parallel with Phase 6 and changes no engine, extraction or database logic. Recorded here because it adds a whole directory and one ADR.
+
+### Why
+
+A designed mockup was delivered as a single 636-line file (`temp/FinSight Mockups.dc.html`) with every style inline, a `{{ }}` templating dialect and its state machine in a `<script>` tag. Streamlit cannot render it — Streamlit renders widgets, not arbitrary HTML — so the delivered design had no route into the product. Rather than approximate it in `st.markdown`, the design got its own server-rendered frontend, and Streamlit kept the operational pages it is good at.
+
+### Built by B
+
+- `web/main.py` — the FastAPI app: mounts `static/`, includes three routers, `/healthz`, a 500 handler
+- `web/viewmodels.py` — the dataclasses every template renders. **This is the demo/live contract**: adding a field means filling it in both presenters, which is deliberate friction
+- `web/presenters/demo.py` — the mockup's own `FINDINGS`/`PIPELINE`/`working` arrays, transcribed. The reference render
+- `web/presenters/live.py` — the same shapes built from `core.db.queries`, plus `derive_state()` which works out which of the four Integrity screens a run has earned
+- `web/format.py` — money, dates, the em dash. One place, so two pages cannot format `480` differently
+- `web/chrome.py` — header, state bar, offline banner, for either mode
+- `web/settings.py` — `WEB_*` variables and the cookie that overrides them
+- `web/deps.py` — per-request mode, a session that yields `None` instead of raising, query-string carry-over
+- `web/templating.py` — the Jinja environment and the single `render()` every route ends in
+- `web/routers/{integrity,decision,system}.py` — one per page, plus the mode toggle and a read-only endpoint page
+- `web/templates/` — `base.html`, `macros.html`, three partials, one file per Integrity state, `decision/index.html`
+- `web/static/css/tokens.css` — the design system's own file, copied **verbatim** from `temp/_ds/modernist-*/`
+- `web/static/css/app.css` — the mockup's inline styles transcribed into named classes. A transcription, not a redesign
+- `web/static/js/app.js` — ~40 lines: clickable table rows and scroll-into-view. Everything else is server-rendered
+- `run_web.py` — `python run_web.py [--live] [--reload] [--fixed]`
+
+### Added to `core/db/queries.py` (additive; no existing function changed)
+
+- `TransactionRow`, `ClientTotals` row shapes
+- `list_transaction_rows(session, run_id, client_id, start, end) -> list[TransactionRow]` — UI-safe transactions, unlike `list_transactions` which hands the agent live ORM objects
+- `get_client_totals(session, run_id, client_id) -> ClientTotals | None`
+- `revenue_by_month(session, run_id) -> dict[str, float]`
+
+### Decisions recorded
+
+- ADR-018: two frontends over one database; the demo/live toggle never falls back
+
+### Known gaps / deliberately deferred
+
+- **Nothing in `web/` writes.** Every button is inert: upload, "Add to recoverable", "Rule it out", "Confirm and reconcile", the CSV mapping accept. They render exactly as designed and do nothing, because the actions behind them are Phases 6–9. They are `disabled` with a `title`, not greyed out — a wall of half-opacity controls would misrepresent the design.
+- **The Decision Engine has no live answer and will not get one here.** `core/ai/decision_analyzer.py` is a Phase 9 stub, and no table holds expenses, so no surplus can be computed. Live mode shows the revenue and findings lines it *can* compute and dashes the rest. Demo mode shows the mockup's worked example.
+- **The agent panel is empty in live mode.** Seeded anomalies carry `status='unverified'`, no `agent_reasoning` and no `agent_tool_calls`, so the panel draws skeletons and names Phase 8. `_tool_calls()` already reads the JSON defensively for when Phase 8 writes it.
+- **No PDF page is rendered in the clause viewer**, same as Streamlit — `pdf_renderer.py` is a Phase 7 stub (known issue #19). The grey bars around the quote are the mockup's own placeholder, not a stand-in for a missing render.
+- **Processing state is thin in live mode.** The column-mapping and client-confirmation panels only ever have content mid-import, which no stored run is; both show a stated reason rather than invented rows.
+- **`app/` and `web/` are not kept in visual sync** and are not meant to be. They are two views of one database with different jobs.
+- **The 1440px art board is not reproduced.** The delivered file centred a fixed 1440px canvas on a grey ground; that framing is an artefact of how the mockup was drawn, and reproducing it left grey gutters around a running app. The shell fills the window and is `min-height:100vh`. `WEB_FLUID_WIDTH=false` (or `run_web.py --fixed`) restores the exact art board for diffing against the original file.
+- The mockup's own copy is carried verbatim where it is content ("Reading nine documents" heads a list of six, because the mockup does).
+
+### How to verify this works
+
+```bash
+python run_web.py
+# demo: the five state-bar buttons render the five delivered screens
+open 'http://127.0.0.1:8000/?state=empty'
+open 'http://127.0.0.1:8000/?state=processing'
+open 'http://127.0.0.1:8000/?state=review'
+open 'http://127.0.0.1:8000/?state=clean'
+open 'http://127.0.0.1:8000/?state=offline'
+# live: the same screens against Supabase, gaps shown as gaps
+open 'http://127.0.0.1:8000/?mode=live'
+open 'http://127.0.0.1:8000/decision?mode=live'
+# and the original frontend, unchanged
+streamlit run app/main.py
+```
+
+Verified on 2026-08-14 against the live Supabase run `demo_v1 · #4`: all five demo states and both live pages return 200, live mode reads **26,908.00 across 7 findings, 3 of 5 clients, 6 of 7 clauses located**, and `streamlit run app/main.py` still serves HTTP 200 with no exceptions.
+
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
@@ -1610,3 +1680,36 @@ What this does **not** fix: both sessions can be dead at once, cold starts are s
 This does not close known issue #28. Converting EDGAR HTML to PDF on the way into the corpus remains unsolved and uncosted, and it is still the main debt ADR-013 created. What changes is that the debt is now confined to *highlighting*, not to *correctness*.
 
 One reporting obligation follows: "clause grounding rate" is two different measurements, and a report that quotes a single number without saying which one it is would read well and mean nothing. The eval script prints both, labelled.
+
+---
+
+## ADR-018 — Two frontends over one database, and a demo/live toggle that never falls back
+
+**Status:** Accepted (2026-08-14, alongside Phase 6) · **Extends ADR-008**
+
+**Context.** The delivered design arrived as a single HTML file with a fixed 1440px canvas, a full inline-styled component system and five hand-built states. Streamlit renders widgets, not arbitrary markup: reproducing that design inside it would mean a wall of `st.markdown(unsafe_allow_html=True)`, which loses the layout, the hover states and the ability to edit a screen without redeploying an app. Meanwhile Streamlit is genuinely good at the things it was chosen for — the config page with its ✅/❌ table, DB health, the model-endpoint switcher, file upload widgets — and none of those are worth rewriting.
+
+There was also a second problem the mockup surfaced. It shows five screens, and four of them are states the database can be *in*: nothing uploaded, mid-import, findings, clean run. A demo needs all five on demand. A real run has exactly one. Building only the real path means the design can never be shown; building only the mock path means the app is a picture of a product.
+
+**Decision.** Two frontends over one database, and neither is deprecated.
+
+`app/` (Streamlit) keeps the operational pages. `web/` (FastAPI + Jinja2) renders the delivered design. Both read through the same `core.db.queries` helpers — there is no second data path, and hard rule 3 holds for both: **the UI reads only the database.**
+
+Within `web/`, every screen is rendered from one of two presenters, selected by a toggle:
+
+* `presenters/demo.py` returns the mockup's own content, transcribed. It is the reference render — the thing to diff against when a template change is meant to be invisible.
+* `presenters/live.py` returns the same dataclasses built from the database.
+
+**They never call each other, and there is no fallback from live into demo.** Where the database has no answer, the view model carries `None` or an empty list, and the template draws skeleton bars plus a dashed box naming the phase that fills it. A page of dashes is a correct page.
+
+The mode resolves cookie → `WEB_DATA_MODE` → `demo`, so the environment sets what the app boots into and the on-page toggle overrides it per browser. `?mode=live` pins it for a screenshot without touching the cookie.
+
+**Consequences.**
+
+The design is now in the product rather than in a folder. Each of the five screens is a file that can be opened, reviewed and changed on its own, and the mockup's six repetitions of one findings-row grid template became one CSS class.
+
+Both presenters returning identical dataclasses is what makes this cheap rather than a second codebase: the templates cannot tell which mode produced the page, so "does live mode look right?" is answerable by eye against the demo render. The cost is that a new field must be filled in twice. That friction is the feature — a field only one presenter sets is a field the live page renders blank without anyone noticing.
+
+The no-fallback rule is the load-bearing half. The tempting version of this feature quietly shows a demo figure when the live one is missing, and it produces a page that looks finished and is fiction. Every other rule in this project — the LLM never produces a number, every anomaly traces to a clause, engine functions are pure — exists to make the figures defensible. A frontend that invents one when the database is quiet would undo all of it at the last inch. Hence: absent data is *displayed* as absent, and the reason is named on screen.
+
+What we gave up: two frontends drift, and they will. They are not kept in visual sync and are not meant to be. The mitigation is that they share the query layer, so they can drift in appearance but not in figures.

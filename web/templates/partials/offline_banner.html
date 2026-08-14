@@ -1,0 +1,18 @@
+{#
+  Shown when the model endpoint does not answer.
+
+  The wording is load-bearing, not reassurance. Every figure on the page was
+  computed by deterministic Python and stored, so a dead notebook session
+  cannot change a single number — only new extraction stops. Saying that
+  plainly is what stops a dead endpoint reading as "the results are wrong".
+#}
+<div class="banner">
+  <span class="banner-tag">Model endpoint unreachable</span>
+  <div class="banner-body">
+    Nothing new can be read from a contract until the endpoint answers again.
+    Everything below was read earlier and is stored — figures, clauses and
+    verdicts are unaffected, because they were computed in code and saved.
+    Uploads are accepted and queued.
+  </div>
+  <a class="banner-action" href="{{ url_for('endpoint_page') }}">Change endpoint</a>
+</div>
