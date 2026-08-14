@@ -32,6 +32,12 @@ SQLITE_FALLBACK = f"sqlite:///{PROJECT_ROOT / 'data' / 'finsight.db'}"
 PROVIDER_ENDPOINT = {
     "colab_tunnel": "COLAB_TUNNEL_URL",
     "kaggle_tunnel": "KAGGLE_TUNNEL_URL",
+    # Modal is a peer of the two notebooks, not an exception to ADR-011: it runs
+    # the SAME open-source weights we host ourselves, on rented GPU instead of a
+    # free one. No third-party model is called. What it buys is a URL that does
+    # not rotate and a host that does not idle out mid-demo — which is why it is
+    # the sensible failover target rather than a second notebook.
+    "modal": "MODAL_BASE_URL",
     "custom": "CUSTOM_BASE_URL",
 }
 
@@ -191,6 +197,7 @@ class Settings:
     llm_model: str
     colab_tunnel_url: str | None
     kaggle_tunnel_url: str | None
+    modal_base_url: str | None
     custom_base_url: str | None
     llm_api_key: str | None
     llm_timeout_seconds: int
@@ -198,6 +205,11 @@ class Settings:
     #: tunnel once before giving up. Mitigation for known issue #6 — a dead Colab
     #: session otherwise takes the whole app down mid-demo.
     llm_failover: bool
+    #: Send every call to Modal, without waiting for a notebook to fail
+    #: first. Beats LLM_PROVIDER; the in-app switcher still beats this,
+    #: because a radio button someone just clicked is a more deliberate
+    #: statement of intent than a variable set days ago (ADR-016).
+    use_modal: bool
     hf_token: str | None
     llm_cache_enabled: bool
     log_level: str
@@ -240,6 +252,7 @@ class Settings:
         return {
             "COLAB_TUNNEL_URL": self.colab_tunnel_url,
             "KAGGLE_TUNNEL_URL": self.kaggle_tunnel_url,
+            "MODAL_BASE_URL": self.modal_base_url,
             "CUSTOM_BASE_URL": self.custom_base_url,
         }.get(self.active_endpoint_name)
 
@@ -275,6 +288,8 @@ class Settings:
                     "Cold starts load 3B of weights before the first answer"),
             Setting("LLM_FAILOVER", str(self.llm_failover).lower(), False, False,
                     "Fall through to the other configured tunnel when this one is dead"),
+            Setting("USE_MODAL", str(self.use_modal).lower(), False, False,
+                    "true = call Modal directly, instead of only on failover"),
             Setting("DATABASE_URL", self.database_url, False, True, f"Falls back to {SQLITE_FALLBACK}"),
             Setting("SUPABASE_URL", self.supabase_url, False, False, "Needed from Phase 2 (file storage)"),
             Setting("SUPABASE_KEY", self.supabase_key, False, True, "anon key — safe to publish"),
@@ -353,10 +368,12 @@ def get_settings() -> Settings:
         llm_model=_read("LLM_MODEL", DEFAULT_MODEL) or "",
         colab_tunnel_url=_read("COLAB_TUNNEL_URL"),
         kaggle_tunnel_url=_read("KAGGLE_TUNNEL_URL"),
+        modal_base_url=_read("MODAL_BASE_URL"),
         custom_base_url=_read("CUSTOM_BASE_URL"),
         llm_api_key=_read("LLM_API_KEY"),
         llm_timeout_seconds=_read_int("LLM_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
         llm_failover=_read_bool("LLM_FAILOVER", True),
+        use_modal=_read_bool("USE_MODAL", False),
         hf_token=_read("HF_TOKEN"),
         llm_cache_enabled=_read_bool("LLM_CACHE_ENABLED", True),
         log_level=(_read("LOG_LEVEL", "INFO") or "INFO").upper(),

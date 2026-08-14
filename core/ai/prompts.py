@@ -20,7 +20,31 @@ not a failure (known issue #8), and Phase 10 is what closes the gap.
 
 from __future__ import annotations
 
-PROMPT_VERSION = "v1"
+#: v2 (2026-08-14) — first revision made against real model output rather than
+#: guesswork. v1 scored 10/10 valid but extracted a base_amount in 2 of 10
+#: contracts, a billing frequency in 1 and an escalation in 1, on a corpus
+#: selected *because* every contract has all three. The diagnosis was rule 3,
+#: "If a field is not stated, use null. Never guess a value." A 3B model reads
+#: that as "when unsure, leave it blank", and it is unsure often. v2 splits the
+#: two ideas the old rule conflated: null means the contract is silent, not that
+#: the reader is uncertain. It also names the wordings real contracts use, since
+#: the failures were on sentences that said "shall increase" rather than
+#: "escalation" and "per month" rather than "monthly".
+#: v3 (2026-08-14) — v2 tripled what was extracted (base_amount 2->5 of 10,
+#: frequency 1->4, escalation 1->3) and halved quote fidelity, 80% -> 51.5%.
+#: Splitting the 16 rejected quotes showed the model had NOT got sloppier:
+#: genuine fabrication went 3 -> 4. The collapse was two mechanical faults —
+#: 8 quotes copied out of this file's own worked example, and 4 written as the
+#: literal string "null". Rule 11 addresses the first; rule 12 and
+#: contract_extractor.is_absent() address the second.
+#: v4 (2026-08-14) — v3's explicit "never copy from the example" rule changed
+#: nothing: still 8 copied quotes in 10 contracts, identical to v2. Adjacency
+#: beat instruction. v4 therefore MOVES the example out of the user turn (where
+#: it sat immediately above the contract) into the tail of this system prompt,
+#: and the user turn now carries the contract alone. It also drops v3's "worse
+#: than no answer at all", which bought quote fidelity by making the model
+#: timid again (base_amount 5 -> 3 of 10).
+PROMPT_VERSION = "v4"
 
 #: The shape the model must produce. Shown to the model literally, because a 3B
 #: model follows an example far better than it follows a description of one.
@@ -36,28 +60,6 @@ CONTRACT_RULES_SKELETON = """{
   "discounts": [{"percentage": number, "duration_months": number, "clause_text": "string"}],
   "milestones": [{"description": "string", "amount": number, "due_condition": "string or null", "clause_text": "string"}]
 }"""
-
-EXTRACTION_SYSTEM = f"""You are a contract analysis assistant. You read a commercial contract and extract its financial rules.
-
-Output rules:
-1. Output one valid JSON object and nothing else. No prose. No code fences.
-2. Use exactly this shape:
-{CONTRACT_RULES_SKELETON}
-3. If a field is not stated in the contract, use null. Never guess a value.
-4. Never calculate. Copy every number exactly as the contract writes it.
-5. discounts and milestones are lists. Use [] when there are none.
-
-Clause rules:
-6. For every rule you extract, copy the exact sentence it came from into clause_text, character for character.
-7. Do not paraphrase, summarise, shorten or tidy that sentence.
-8. If you cannot find an exact sentence for a rule, omit the rule entirely.
-
-Definitions:
-9. base_amount is the recurring fee, not a total contract value and not a one-off payment.
-10. escalation is a stated increase in the FEE over time, such as an annual percentage uplift or a CPI adjustment. A procedure for escalating a DISPUTE to senior management is not an escalation — ignore it.
-11. A discount is a reduction that applies for a limited number of months. A permanent lower rate is not a discount; it is the base_amount.
-12. A milestone is a one-off payment tied to a deliverable or an event.
-13. If a figure is redacted (for example [***]), treat it as not stated and use null."""
 
 EXTRACTION_EXAMPLE_INPUT = """MASTER SERVICES AGREEMENT between Northwind Studio LLC ("Provider") and Starter Labs, Inc. ("Client"), effective January 15, 2025 and continuing for twelve (12) months.
 
@@ -81,25 +83,79 @@ EXTRACTION_EXAMPLE_OUTPUT = """{
 }"""
 
 
-def extraction_user(contract_text: str, *, part: int = 1, of: int = 1) -> str:
-    """The user turn: one worked example, then the real contract.
+EXTRACTION_SYSTEM = f"""You are a contract analysis assistant. You read a commercial contract and extract its financial rules.
 
-    The example carries the dispute-escalation trap (clause 9.2 above) on
-    purpose. 68 of the 81 CUAD contracts matching "escalat" mean dispute
-    procedure rather than a price rise (known issue #24); showing the model one
-    it must ignore is cheaper than any amount of prose telling it to.
+Your job is to FIND what the contract says. The contract you are given does contain payment terms — locate them.
+
+Output rules:
+1. Output one valid JSON object and nothing else. No prose. No code fences.
+2. Use exactly this shape:
+{CONTRACT_RULES_SKELETON}
+3. Never calculate. Copy every number exactly as the contract writes it.
+4. discounts and milestones are lists. Use [] when there are none.
+
+When to use null — read this carefully:
+5. null means THE CONTRACT DOES NOT SAY. It does not mean you are unsure.
+6. If the contract states something in any wording at all, extract it. Contracts rarely use the words in this schema; "shall pay", "compensation", "consideration", "fees" and "charges" all describe the same thing.
+7. Do not use null just because the wording is unusual, the sentence is long, or the figure appears far from the word "fee".
+8. Only a genuinely absent fact is null. A redacted figure ([***], [REDACTED], blank) counts as absent.
+
+Clause rules:
+9. For every rule you extract, copy the exact sentence it came from into clause_text, character for character.
+10. Do not paraphrase, summarise, shorten or tidy that sentence. Copy it, including its numbers and punctuation.
+11. Every clause_text must be a sentence from the contract in the user message. The illustration at the end of these instructions uses a different, imaginary contract — never quote from it.
+12. If you cannot find an exact sentence for a rule, omit the rule entirely. Do not write "null" into clause_text; leave the whole rule out.
+
+Definitions:
+13. base_amount is the recurring fee — the amount paid over and over. Not the total contract value, not a one-off payment.
+14. billing_frequency comes from how the contract describes the timing. "per month", "monthly", "each month", "a month" -> monthly. "per quarter", "quarterly" -> quarterly. "per annum", "per year", "annually", "annual fee" -> annual. Use "one_time" for a single payment. Use "unknown" ONLY when no timing word appears anywhere near the amount.
+15. escalation is a stated increase in the FEE over time. It is often not called an escalation. "shall increase by", "shall be increased", "shall be adjusted", "uplift", "subject to an annual increase", and any reference to the consumer price index or CPI all count.
+16. A procedure for escalating a DISPUTE to senior management is NOT an escalation. Ignore it.
+17. A discount is a reduction that applies for a limited number of months. A permanent lower rate is not a discount; it is the base_amount.
+18. A milestone is a one-off payment tied to a deliverable or an event.
+
+Worked reasoning for one hard sentence:
+    "...payment of the Platform Access Charge per Licensed Unit shall be made from Operator to Supplier in the amount of $4,250 per month through the end of Operator's 2019 fiscal year which stated amount shall increase..."
+    base_amount is 4250 — it is an amount paid repeatedly.
+    billing_frequency is "monthly" — the sentence says "per month".
+    escalation is present — the sentence says "shall increase".
+    All three facts came from one sentence. Read the whole sentence before deciding anything is absent.
+
+ILLUSTRATION ONLY — an imaginary contract, shown so you can see the output format. Its sentences are NOT available to quote.
+
+Imaginary contract:
+{EXTRACTION_EXAMPLE_INPUT}
+
+Correct output for that imaginary contract:
+{EXTRACTION_EXAMPLE_OUTPUT}
+
+The real contract follows in the user message. Quote only from that."""
+
+
+def extraction_user(contract_text: str, *, part: int = 1, of: int = 1) -> str:
+    """The user turn: **the real contract only.**
+
+    v4 moved the worked example out of here and into `EXTRACTION_SYSTEM`. It
+    used to sit directly above the contract, and the model copied sentences out
+    of it into `clause_text` 8 times in 10 contracts — v3 added an explicit
+    "never copy from the example" rule and the count did not move at all. For a
+    3B model, adjacency beats instruction: the example was the nearest thing
+    that looked like a contract clause, so it got quoted. The fix is distance,
+    not more prose.
+
+    The example still carries the dispute-escalation trap on purpose. 68 of the
+    81 CUAD contracts matching "escalat" mean dispute procedure rather than a
+    price rise (known issue #24); showing the model one it must ignore is
+    cheaper than any amount of prose telling it to.
     """
     header = "" if of == 1 else (
         f"This is part {part} of {of} of one contract. Extract only what THIS part "
         "states. Use null for anything it does not mention.\n\n"
     )
     return (
-        "Example contract:\n"
-        f"{EXTRACTION_EXAMPLE_INPUT}\n\n"
-        "Example output:\n"
-        f"{EXTRACTION_EXAMPLE_OUTPUT}\n\n"
-        "Now do the same for this contract.\n\n"
         f"{header}"
+        "Read this contract and extract its financial rules as JSON.\n"
+        "Every clause_text must be a sentence copied from the contract below.\n\n"
         "Contract:\n"
         f"{contract_text}\n\n"
         "JSON:"

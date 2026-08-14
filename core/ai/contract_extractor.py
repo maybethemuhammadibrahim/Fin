@@ -44,9 +44,17 @@ log = logging.getLogger(__name__)
 #: 12000 characters is deliberately under the line rather than at it.
 CHUNK_CHARS = 12_000
 
-#: More than this and cost grows without finding much: fee terms cluster in the
-#: first few pages and in the payment article.
-MAX_CHUNKS = 3
+#: Measured 2026-08-14 on the 10 EDGAR contracts of the Phase 5 eval, counting
+#: what share of a contract's dollar amounts survive selection:
+#:
+#:     3 chunks -> 77%   4 -> 86%   5 -> 92%   6 -> 94%   8 -> 98%
+#:
+#: The old value of 3 was costing real money on long contracts specifically:
+#: Bedminster (130k chars, 12 chunks) showed the model 30% of its figures and
+#: Bryn Mawr 33%, so those extractions were blank for want of context rather
+#: than for want of a better model. Returns flatten after 6, and 6 keeps a
+#: 10-contract run at ~40 calls, inside the 35-55 budget in CLAUDE.md.
+MAX_CHUNKS = 6
 
 #: A clause_text at or above this partial-ratio counts as present in the
 #: document. Below it, the quote is treated as fabricated and the rule dropped.
@@ -82,6 +90,9 @@ class ExtractionReport:
     #: Quotes the model produced that are not in the document — hallucinations,
     #: dropped before they could reach the database.
     dropped: list[str] = field(default_factory=list)
+    #: Rules the model returned with no quote at all (a literal "null" in the
+    #: string field). Also discarded, but not evidence of fabrication.
+    blank: list[str] = field(default_factory=list)
     grounded: int = 0
     error: str | None = None
 
@@ -151,6 +162,18 @@ def _flatten(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
+#: A model that has no sentence to give sometimes writes the *word* null into
+#: the string field rather than omitting the rule. That is an absent quote, not
+#: a fabricated one, and conflating the two overstates the hallucination rate:
+#: on the v2 prompt, 4 of 16 rejected quotes were this (2026-08-14).
+NULLISH = frozenset({"", "null", "none", "n/a", "na", "nil", "not stated", "not specified"})
+
+
+def is_absent(clause_text: str | None) -> bool:
+    """Did the model decline to quote, rather than quote something wrong?"""
+    return (clause_text or "").strip().strip(".\"'").lower() in NULLISH
+
+
 def is_verbatim(clause_text: str, document_text: str) -> bool:
     """Is this quote actually in the document?
 
@@ -170,34 +193,39 @@ def is_verbatim(clause_text: str, document_text: str) -> bool:
     return fuzz.partial_ratio(needle, haystack) >= GROUNDING_THRESHOLD
 
 
-def _ground(rules: ContractRules, document_text: str) -> tuple[ContractRules, list[str], int]:
-    """Strip every rule whose quote is not in the document."""
+def _ground(
+    rules: ContractRules, document_text: str
+) -> tuple[ContractRules, list[str], int, list[str]]:
+    """Strip every rule whose quote is not in the document.
+
+    Three outcomes, not two. A rule is kept only when its quote is really in the
+    document; but a rule with *no* quote is discarded as **blank**, separately
+    from one whose quote was invented. Both leave the database equally empty —
+    the distinction is for the eval, where calling an absent quote a
+    hallucination makes the model look worse than it is.
+    """
     dropped: list[str] = []
+    blank: list[str] = []
     grounded = 0
 
+    def verdict(clause_text: str) -> bool:
+        """True to keep. Records why, when not."""
+        nonlocal grounded
+        if is_absent(clause_text):
+            blank.append(clause_text)
+            return False
+        if is_verbatim(clause_text, document_text):
+            grounded += 1
+            return True
+        dropped.append(clause_text)
+        return False
+
     escalation: Escalation | None = rules.escalation
-    if escalation is not None:
-        if is_verbatim(escalation.clause_text, document_text):
-            grounded += 1
-        else:
-            dropped.append(escalation.clause_text)
-            escalation = None
+    if escalation is not None and not verdict(escalation.clause_text):
+        escalation = None
 
-    discounts: list[Discount] = []
-    for discount in rules.discounts:
-        if is_verbatim(discount.clause_text, document_text):
-            discounts.append(discount)
-            grounded += 1
-        else:
-            dropped.append(discount.clause_text)
-
-    milestones: list[Milestone] = []
-    for milestone in rules.milestones:
-        if is_verbatim(milestone.clause_text, document_text):
-            milestones.append(milestone)
-            grounded += 1
-        else:
-            dropped.append(milestone.clause_text)
+    discounts = [d for d in rules.discounts if verdict(d.clause_text)]
+    milestones = [m for m in rules.milestones if verdict(m.clause_text)]
 
     return (
         rules.model_copy(
@@ -209,6 +237,7 @@ def _ground(rules: ContractRules, document_text: str) -> tuple[ContractRules, li
         ),
         dropped,
         grounded,
+        blank,
     )
 
 
@@ -309,12 +338,15 @@ def extract_rules_verbose(doc: ExtractedDoc, *, max_chunks: int = MAX_CHUNKS) ->
         report.error = "nothing to merge"
         return report
 
-    grounded_rules, dropped, grounded = _ground(merged, doc.full_text)
+    grounded_rules, dropped, grounded, blank = _ground(merged, doc.full_text)
     report.rules = grounded_rules
     report.dropped = dropped
+    report.blank = blank
     report.grounded = grounded
     if dropped:
         log.info("dropped %d ungrounded clause(s) — quotes not present in the document", len(dropped))
+    if blank:
+        log.info("dropped %d clause(s) the model left unquoted", len(blank))
     return report
 
 

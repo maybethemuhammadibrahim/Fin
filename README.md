@@ -140,6 +140,153 @@ Phase 5 stands the notebook up on **base** weights so the rest of the build has 
 
 That last row is the largest operational risk in the project. It was accepted knowingly, in exchange for a system whose weights, tuning and serving are entirely ours to explain — and for results that are reproducible, because nobody can change the model out from under us between the evaluation run and the demo.
 
+### Starting a session
+
+Both hosts are peers, not primary and backup (ADR-016). Pick either; the cells differ only in how the secret is read.
+
+**Before either:** store the shared secret in the host's secret manager under exactly the name `LLM_API_KEY` — Colab's **Secrets** panel (key icon, left sidebar) or Kaggle's **Add-ons → Secrets**. On Colab, also switch that secret's **Notebook access** toggle on; it is off by default.
+
+The current value is `finsight-GaK-on1sZuD1sH6Vs92cC6qTEStXPc9p`. It is a self-invented shared secret, not a vendor key — rotating it means changing it in three places: `.env`, the Colab secret, and the Kaggle secret.
+
+**Colab** — Runtime → Change runtime type → **T4 GPU**, then one cell:
+
+```python
+!git clone -q https://github.com/maybethemuhammadibrahim/Fin.git 2>/dev/null || git -C Fin pull -q
+
+# vLLM upgrades PyTorch; Colab's preinstalled torchaudio is then a CUDA version
+# behind and transformers refuses to import. We serve text, so drop it.
+!pip install -q vllm
+!pip uninstall -y -q torchaudio
+
+# Colab secrets are readable only from the notebook kernel, never from a
+# `!python` subprocess. Read it here and pass it down as an env var, which
+# serve_model.py prefers over the secret store anyway.
+import os
+from google.colab import userdata
+os.environ["LLM_API_KEY"] = userdata.get("LLM_API_KEY")
+
+!python Fin/training/serve_model.py
+```
+
+**Kaggle** — Settings → Accelerator → **T4**, and Internet **on**. No env-var dance: `kaggle_secrets` works from a subprocess.
+
+```python
+!git clone -q https://github.com/maybethemuhammadibrahim/Fin.git 2>/dev/null || git -C Fin pull -q
+!pip install -q vllm
+!python Fin/training/serve_model.py
+```
+
+Either way the cell prints the two lines to paste into FinSight:
+
+```
+COLAB_TUNNEL_URL=https://<words>.trycloudflare.com
+LLM_PROVIDER=colab_tunnel
+```
+
+Paste them on the **Model endpoint** page (`app/pages/8_model_endpoint.py`) rather than editing `.env` — `core/ai/endpoints.py` resolves the URL at call time over `data/endpoint_override.json`, so a swap needs no restart (ADR-016).
+
+**Expect ~8 minutes before the first request lands.** A fresh VM re-pays everything each time: pip install vLLM (~4 min), download 5.75 GB of weights (~1.5 min), load and compile (~2 min). Measured on Colab T4, 2026-08-14.
+
+Three failure modes that look alarming and are not:
+
+| What you see | What it means |
+|---|---|
+| `SELF-TEST FAILED — the tunnel did not answer`, immediately after `downloading cloudflared` | A race, not a fault. A quick tunnel takes a few seconds to become routable after printing its URL. `curl <url>/v1/models -H "Authorization: Bearer $LLM_API_KEY"` from your laptop — it is usually already live. |
+| `Cannot use FA version 2 … compute capability >= 8` | Expected on a T4 (7.5). vLLM falls back to `TRITON_ATTN` and runs fine. Same for the FlashInfer sampler warning. |
+| `Casting torch.bfloat16 to torch.float16` | Deliberate — `serve_model.py` picks `half` on anything below Ampere. |
+
+If vLLM will not start at all, `--backend transformers` serves the same two routes without it: slower per request, far fewer moving parts.
+
+### Modal — the third host, and the one that does not expire
+
+Same weights, same routes, rented GPU instead of a free one. **This is not a vendor model API and does not touch ADR-011** — Modal is hardware; the model is still the Qwen 2.5 3B we host ourselves.
+
+Two things it fixes, both of which cost real time with a notebook:
+
+- **The address never changes.** No re-pasting a URL after every restart.
+- **Nothing expires.** No session to keep alive, nothing to die halfway through a demo.
+
+You pay per second of GPU time, and only while a request is actually running.
+
+#### Step by step, from nothing
+
+**1. Make a Modal account.** Go to [modal.com](https://modal.com) and sign up — GitHub or Google sign-in works. New accounts come with free credit.
+
+**2. Install the tool** (on your own machine, not in a notebook):
+
+```bash
+pip install modal
+```
+
+**3. Connect your account.** Run this once:
+
+```bash
+modal setup
+```
+
+A browser tab opens; approve it. Nothing to copy or paste — it writes the credentials itself, into `~/.modal.toml`.
+
+**4. Give Modal the shared password.** Same one your notebooks use:
+
+```bash
+modal secret create finsight-llm LLM_API_KEY=finsight-GaK-on1sZuD1sH6Vs92cC6qTEStXPc9p
+```
+
+The name `finsight-llm` matters — `training/serve_modal.py` looks for exactly that.
+
+**5. Deploy.**
+
+```bash
+modal deploy training/serve_modal.py
+```
+
+The first run takes about 10 minutes: it builds an image and bakes the 6 GB of model weights into it. **This is the slow part and it happens once.** Later deploys reuse the image and take seconds.
+
+When it finishes it prints a URL like:
+
+```
+https://your-workspace--finsight-llm-serve.modal.run
+```
+
+**6. Tell FinSight about it.** Put that line in `.env`:
+
+```
+MODAL_BASE_URL=https://your-workspace--finsight-llm-serve.modal.run
+```
+
+Unlike the tunnel URLs, **this line stays correct.** Set it once.
+
+**7. Check it works:**
+
+```bash
+curl $MODAL_BASE_URL/v1/models -H "Authorization: Bearer $LLM_API_KEY"
+```
+
+The very first call is slow — it starts a container and loads the model onto the card. After that, calls are fast until it goes idle again.
+
+#### Choosing when Modal is used
+
+One variable, two behaviours:
+
+| `.env` | What happens |
+|---|---|
+| `USE_MODAL=false` *(default)* | Notebooks first. Modal is only called if the active notebook is dead. Free unless something breaks. |
+| `USE_MODAL=true` | **Everything** goes to Modal. Notebooks are ignored unless Modal itself fails. Use this for a demo. |
+
+The Model endpoint page in the app beats both — if you click a host there, that choice wins, because a button someone just pressed says more than a variable set last week.
+
+`USE_MODAL` is separate from `LLM_FAILOVER`. Failover only reacts *after* something has broken; `USE_MODAL` decides where calls go in the first place.
+
+**Failover reaches for Modal first** (`core/ai/endpoints.py:fallback`). The notebooks are what die, so when the active host fails, the peer worth trying is the one with a stable address.
+
+#### Keeping the cost down
+
+- **Idle costs nothing.** No requests, no charge.
+- **`CONTAINER_IDLE_SECONDS`** in `training/serve_modal.py` (default 120) is how long a warm container waits before shutting down. Longer means fewer slow first-calls and more idle cost. 120s keeps one full extraction run inside a single warm container.
+- **`MODAL_GPU`** defaults to `L4`. `T4` is cheaper; `A10G` gives Phase 10's adapter more headroom.
+- Check spending at [modal.com/settings/usage](https://modal.com/settings/usage).
+- Stop it entirely with `modal app stop finsight-llm`.
+
 ---
 
 ## Commands

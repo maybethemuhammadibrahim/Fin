@@ -59,6 +59,9 @@ class Row:
     milestones: int = 0
     grounded_clauses: int = 0
     dropped_clauses: int = 0
+    #: Rules returned with no quote at all. Discarded like a dropped one, but
+    #: not evidence of fabrication — see contract_extractor.is_absent.
+    blank_clauses: int = 0
     located: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -110,6 +113,7 @@ def run_text_corpus(limit: int, use_cache: bool) -> list[Row]:
             chunks_parsed=report.chunks_parsed,
             grounded_clauses=report.grounded,
             dropped_clauses=len(report.dropped),
+            blank_clauses=len(getattr(report, "blank", [])),
             error=report.error,
         )
         if report.rules:
@@ -241,6 +245,33 @@ def main() -> int:
         print("  PDF grounding rate       not measured (pass --pdfs N)")
     print("=" * 70)
 
+    # ---- coverage: did it find what is actually there? -------------------
+    # Grounding alone rewards silence. Prompt v1 scored 80% by producing 15
+    # quotes across 10 contracts and finding a fee in 2 of them; v2 found a fee
+    # in 5 and scored 51.5%. By grounding alone the useless version wins.
+    #
+    # Every contract in ready/ and filled/ was selected *because* it states a
+    # recurring amount and an escalation (see data/corpus/contracts/MANIFEST.md),
+    # so a perfect reader would score 10/10 on both. This is a floor, not exact
+    # ground truth — it is the number Phase 10 has to move to prove tuning did
+    # anything, which is why it is tracked from here on. NOT a phase gate.
+    found_base = sum(1 for r in text_rows if r.base_amount is not None)
+    found_freq = sum(1 for r in text_rows if r.frequency not in (None, "unknown"))
+    found_esc = sum(1 for r in text_rows if r.escalation)
+    with_any = sum(1 for r in text_rows if r.grounded_clauses > 0)
+    coverage = round(100 * (found_base + found_freq + found_esc) / (3 * total), 1) if total else 0.0
+    blanks = sum(r.blank_clauses for r in text_rows)
+
+    print("FIELD COVERAGE — did it find what the contract states? (tracking, not a gate)")
+    print(f"  recurring amount         {found_base}/{total}")
+    print(f"  billing frequency        {found_freq}/{total}")
+    print(f"  escalation clause        {found_esc}/{total}")
+    print(f"  contracts with >=1 grounded clause  {with_any}/{total}")
+    print(f"  combined coverage        {coverage}%")
+    if blanks:
+        print(f"  (plus {blanks} rule(s) returned with no quote — absent, not fabricated)")
+    print("=" * 70)
+
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
@@ -253,6 +284,15 @@ def main() -> int:
                 "total": total,
                 "text_grounding_pct": text_grounding,
                 "quotes": quotes,
+                "prompt_version": getattr(__import__("core.ai.prompts", fromlist=["x"]), "PROMPT_VERSION", "?"),
+                "coverage": {
+                    "base_amount": found_base,
+                    "billing_frequency": found_freq,
+                    "escalation": found_esc,
+                    "contracts_with_a_clause": with_any,
+                    "combined_pct": coverage,
+                    "blank_clauses": blanks,
+                },
                 "pdf_grounding": pdf_rates,
                 "text_rows": [asdict(row) for row in text_rows],
                 "pdf_rows": [asdict(row) for row in pdf_rows],

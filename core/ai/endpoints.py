@@ -45,6 +45,7 @@ OVERRIDE_PATH = PROJECT_ROOT / "data" / "endpoint_override.json"
 PROVIDER_LABELS = {
     "colab_tunnel": "Google Colab",
     "kaggle_tunnel": "Kaggle",
+    "modal": "Modal (paid, stable URL)",
     "custom": "Custom endpoint",
 }
 
@@ -133,14 +134,26 @@ def _env_url(provider: str) -> str | None:
     return {
         "colab_tunnel": settings.colab_tunnel_url,
         "kaggle_tunnel": settings.kaggle_tunnel_url,
+        "modal": settings.modal_base_url,
         "custom": settings.custom_base_url,
     }.get(provider)
 
 
 def active_provider() -> str:
+    """Who answers this request. Three layers, most deliberate first.
+
+    1. the in-app switcher (`data/endpoint_override.json`) — someone clicked it
+    2. `USE_MODAL=true` — send everything to Modal, do not wait for a notebook
+       to fail first. This is the "I am doing a demo and I want the paid host"
+       switch, and it is separate from `LLM_FAILOVER`, which only reacts *after*
+       something has already broken.
+    3. `LLM_PROVIDER`, then Colab
+    """
     override = _read_override().get("provider")
     if override in PROVIDER_ENDPOINT:
         return override
+    if settings.use_modal:
+        return "modal"
     return settings.llm_provider if settings.llm_provider in PROVIDER_ENDPOINT else "colab_tunnel"
 
 
@@ -172,11 +185,18 @@ def fallback() -> Endpoint | None:
     Deliberately never returns `custom` unless it is what you switched away
     from: falling through to a URL nobody has looked at in a week is worse than
     a clean failure.
+
+    **Modal is tried first.** The two notebooks are the ones that die — their
+    URL rotates on restart and the host idles out — so when the active endpoint
+    has just failed, the peer most likely to actually answer is the one whose
+    address is stable. It costs money per call, which is exactly the right thing
+    to spend at the moment the free option is down. Order below is failover
+    order, not preference: whatever is active is still what gets called first.
     """
     if not settings.llm_failover:
         return None
     current = active_provider()
-    for candidate in ("colab_tunnel", "kaggle_tunnel", "custom"):
+    for candidate in ("modal", "colab_tunnel", "kaggle_tunnel", "custom"):
         if candidate == current:
             continue
         endpoint = get(candidate)
