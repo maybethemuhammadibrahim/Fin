@@ -21,9 +21,13 @@
 {# `macros` is a Jinja global registered in web/templating.py, not an import —
    see the note there about blocks and parent-template imports. #}
 
+<a class="skiplink" href="#main">Skip to content</a>
+
 {# The shell fills the window. WEB_FLUID_WIDTH=false pins it back to the
-   mockup's 1440px art board, for comparing against the delivered file. #}
-<div class="shell{% if not fluid_width %} shell-fixed{% endif %}">
+   mockup's 1440px art board, for comparing against the delivered file.
+   `is-app` turns it into a fixed-height two-pane app; only the findings
+   screen wants that, every other screen stays an ordinary document. #}
+<div class="shell{% if not fluid_width %} shell-fixed{% endif %}{% if app_shell %} is-app{% endif %}">
 
   {% include "partials/statebar.html" %}
   {% include "partials/header.html" %}
@@ -32,7 +36,7 @@
     {% include "partials/offline_banner.html" %}
   {% endif %}
 
-  <main>
+  <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
 

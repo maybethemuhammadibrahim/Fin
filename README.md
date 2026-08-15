@@ -177,6 +177,59 @@ mode the screen is derived from the run instead — no documents means *empty*,
 findings mean *review*, everything read and nothing found means *clean* — so
 those buttons are drawn inert, and a run picker appears beside them.
 
+### The findings screen, and why it is a split
+
+The first version of this screen put the selected finding's detail *below* the
+whole findings table. That reads fine at five findings and is unusable at two
+hundred — you click a row and scroll past everything to see what you clicked.
+
+It is now a master-detail split: the list scrolls in its own pane, the detail
+scrolls in another, and the page itself does not scroll at all. Around that:
+
+* **Grouped by leak type** with a subtotal and a sticky header per group, so
+  "which kind of leak costs me most" is answerable by looking.
+* **Filter** — client-side, matched against a haystack string the server builds
+  per row, so it never touches the network and never reads layout.
+* **Sort** by amount, client or period. Server-side, and it keeps your selection.
+* **Keyboard** — `↑`/`↓` or `j`/`k` to move, `/` to focus the filter, `Esc` to
+  clear it, `Enter` on a focused row.
+* Rows are real `<a href>` elements, so every finding has its own URL, the back
+  button works, and ctrl/middle-click opens a new tab.
+
+**Selection does not reload the page.** `/finding/{id}` returns just the detail
+pane, `app.js` prefetches it on hover and swaps it on click, and the URL is
+updated with `pushState`. With JavaScript disabled every row is still an
+ordinary link that loads a full page — the fragment is an optimisation, never a
+requirement.
+
+### Performance, measured
+
+The numbers that shaped the code, taken on this machine against the project's
+own Supabase instance:
+
+| | |
+|---|---|
+| Page render, no database (demo mode) | **~4 ms** |
+| `SELECT 1` round trip to Supabase `ap-southeast-1` | **~409 ms median** |
+| Live page, before this work | 35 queries, **8.7 s** |
+| Live page, after reducing query count | 9 queries, **~5 s** |
+| Live page, warm read cache | 0 queries, **~3 ms** |
+| Findings list at 500 rows | 16 ms server render, 422 KB |
+
+The conclusion that matters: **a live page's response time is its query count
+times 400 ms, and nothing else.** So the work went into the count, not the SQL —
+`get_summary_stats` was eight round trips and is now three, and the presenter
+memoises per request so the state bar, the cards and the state derivation share
+one result instead of asking three times.
+
+Below that floor sits `WEB_CACHE_SECONDS` (default 15), a short read cache that
+is safe here only because `web/` writes nothing. `?fresh=1` bypasses it.
+
+Long lists are handled with `content-visibility: auto` on rows rather than a
+virtualisation library: the browser skips layout and paint for anything scrolled
+out of view, with no fixed row heights and no scroll maths. Comfortable to about
+a thousand findings; past that the HTML payload itself would argue for paging.
+
 ### Layout of `web/`
 
 ```

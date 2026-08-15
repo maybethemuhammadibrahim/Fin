@@ -79,7 +79,16 @@ GROUND_COPY = {
 
 #: Tag class per grounding outcome — exact reads as settled, fuzzy as hedged,
 #: not-found as needing attention.
-GROUND_TAG_KIND = {"exact": "confirmed", "fuzzy": "out", "none": "waiting"}
+#:
+#: These are deliberately *not* the verdict kinds (confirmed / waiting / out).
+#: Grounding answers "was this quote found in the PDF?", which is a different
+#: question from "is this finding real?", and the badge sits inches from a
+#: verdict tag on the same screen. Borrowing the verdict classes drew "Located
+#: approximately" in the identical grey as a ruled-out finding and "Not
+#: located" in the identical accent as one awaiting review — two unrelated
+#: facts wearing one uniform. app.css gives these three a dotted edge, so the
+#: whole family reads as being about evidence rather than status.
+GROUND_TAG_KIND = {"exact": "located", "fuzzy": "approx", "none": "unlocated"}
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +219,35 @@ class FindingRow:
     verdict: str
     kind: str
     selected: bool = False
+    #: anomaly_type, for grouping and for the filter chips.
+    type_key: str = ""
+    #: Everything about this row, lowercased, in one string. The client-side
+    #: filter matches against this instead of walking the DOM for each row —
+    #: one property read per row per keystroke rather than five.
+    haystack: str = ""
+
+
+@dataclass(frozen=True)
+class FindingGroup:
+    """Findings of one leak type, with their subtotal.
+
+    Grouping is what makes a long list readable: four labelled runs with
+    subtotals beat two hundred undifferentiated rows, and the subtotal answers
+    "which kind of leak is costing me most?" without a chart.
+    """
+
+    key: str
+    label: str
+    count: int
+    total: str | None
+    rows: list[FindingRow]
+
+
+@dataclass(frozen=True)
+class SortOption:
+    key: str
+    label: str
+    active: bool
 
 
 @dataclass(frozen=True)
@@ -298,6 +336,10 @@ class IntegrityView:
     state: str  # one of INTEGRITY_STATES
     cards: list[Card] = field(default_factory=list)
     findings: list[FindingRow] = field(default_factory=list)
+    #: The same rows, bucketed by leak type. The list pane renders these; the
+    #: flat `findings` above is kept for counting and for the keyboard order.
+    groups: list[FindingGroup] = field(default_factory=list)
+    sorts: list[SortOption] = field(default_factory=list)
     selected: FindingDetail | None = None
 
     # processing state only

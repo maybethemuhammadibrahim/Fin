@@ -43,7 +43,7 @@ def decision_page(request: Request) -> HTMLResponse:
                       ask_url=ask_url(request, "/decision"))
 
     # -- live -------------------------------------------------------------
-    with db_or_none() as session:
+    with db_or_none(request) as session:
         if session is None:
             view = DecisionView(
                 question=question,
@@ -66,9 +66,7 @@ def decision_page(request: Request) -> HTMLResponse:
             return render(request, "decision/index.html", chrome=chrome, view=view,
                           ask_url=ask_url(request, "/decision"))
 
-        from core.db.queries import list_runs
-
-        runs = list_runs(session)
+        runs = live.runs(session)
         requested = request.query_params.get("run")
         run = next((r for r in runs if str(r.id) == requested), None) or (runs[0] if runs else None)
         run_id = run.id if run else None

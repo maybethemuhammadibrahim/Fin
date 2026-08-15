@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Integrity Engine · FinSight{% endblock %}
 
+{# Only the findings screen becomes a fixed-height two-pane app. The other
+   three are ordinary documents and should scroll like one. #}
+{% set app_shell = view.state == 'review' and view.findings %}
+
 {# One of four screens, picked by `view.state`. In demo mode the state bar
    chooses it; in live mode `presenters.live.derive_state` works it out from
    what the run holds. Each partial owns exactly one state — none of them

@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from core.db.models import (
@@ -110,6 +110,10 @@ class AnomalyRow:
     expected_timeline_id: int | None
     actual_transaction_id: int | None
     agent_reasoning: str | None
+    #: The agent's tool trace, as Phase 8 wrote it. Carried on the row rather
+    #: than re-fetched, so rendering a finding does not cost an extra round
+    #: trip per drill-down — free here, because the ORM object is already open.
+    agent_tool_calls: list[dict] | None
     verified_at: datetime | None
 
     @property
@@ -257,51 +261,67 @@ def get_latest_run(session: Session) -> RunRow | None:
 # ---------------------------------------------------------------------------
 
 
+def _count_if(condition) -> object:
+    """SUM(CASE WHEN cond THEN 1 ELSE 0 END) — a conditional count.
+
+    Written the long way rather than with `count(...) FILTER (WHERE ...)`
+    because FILTER is Postgres-only and ADR-003 requires the SQLite fallback to
+    behave identically. This form runs the same on both.
+    """
+    return func.coalesce(func.sum(case((condition, 1), else_=0)), 0)
+
+
 def get_summary_stats(session: Session, run_id: int) -> SummaryStats:
     """Aggregate figures for one run.
 
     Returns a zero-filled SummaryStats for an unknown or empty run rather than
     None — the dashboard should render "nothing found" cards, not blow up.
+
+    **Three round trips, not eight.** This used to issue one query per figure,
+    which reads nicely and cost 3.2 seconds a page against a Supabase instance
+    two continents away (measured: 409 ms median per round trip). Every count
+    that comes off `anomalies` is now one scan with conditional sums, because
+    over a link like that the number of queries *is* the response time.
     """
-    totals = session.execute(
-        select(func.coalesce(func.sum(Anomaly.gap), 0.0), func.count(Anomaly.id)).where(
-            Anomaly.run_id == run_id
-        )
+    row = session.execute(
+        select(
+            func.coalesce(func.sum(Anomaly.gap), 0.0),
+            func.count(Anomaly.id),
+            _count_if(Anomaly.status == "unverified"),
+            _count_if(Anomaly.clause_reference_id.is_(None)),
+            func.count(func.distinct(Anomaly.client_id)),
+        ).where(Anomaly.run_id == run_id)
     ).one()
+    total_gap, anomaly_count, unverified, unlinked, affected = row
 
     by_type = {
-        row.anomaly_type: row.n
-        for row in session.execute(
+        r.anomaly_type: r.n
+        for r in session.execute(
             select(Anomaly.anomaly_type, func.count(Anomaly.id).label("n"))
             .where(Anomaly.run_id == run_id)
             .group_by(Anomaly.anomaly_type)
         )
     }
 
-    unverified = session.scalar(
-        select(func.count(Anomaly.id)).where(Anomaly.run_id == run_id, Anomaly.status == "unverified")
-    )
-    unlinked = session.scalar(
-        select(func.count(Anomaly.id)).where(
-            Anomaly.run_id == run_id, Anomaly.clause_reference_id.is_(None)
+    # Has a clause, but the clause has no coordinates (ADR-005). Needs the join,
+    # so it cannot fold into the scan above; the two remaining table counts ride
+    # along with it as scalar subqueries rather than as their own round trips.
+    counts = session.execute(
+        select(
+            select(func.count(Anomaly.id))
+            .join(ClauseReference, Anomaly.clause_reference_id == ClauseReference.id)
+            .where(Anomaly.run_id == run_id, ClauseReference.source_page.is_(None))
+            .scalar_subquery(),
+            select(func.count(Client.id)).where(Client.run_id == run_id).scalar_subquery(),
+            select(func.count(Document.id)).where(Document.run_id == run_id).scalar_subquery(),
         )
-    )
-    # Has a clause, but the clause has no coordinates (ADR-005).
-    unlocatable = session.scalar(
-        select(func.count(Anomaly.id))
-        .join(ClauseReference, Anomaly.clause_reference_id == ClauseReference.id)
-        .where(Anomaly.run_id == run_id, ClauseReference.source_page.is_(None))
-    )
-    clients = session.scalar(select(func.count(Client.id)).where(Client.run_id == run_id))
-    affected = session.scalar(
-        select(func.count(func.distinct(Anomaly.client_id))).where(Anomaly.run_id == run_id)
-    )
-    documents = session.scalar(select(func.count(Document.id)).where(Document.run_id == run_id))
+    ).one()
+    unlocatable, clients, documents = counts
 
     return SummaryStats(
         run_id=run_id,
-        total_leaked=_money(totals[0]),
-        anomaly_count=totals[1] or 0,
+        total_leaked=_money(total_gap),
+        anomaly_count=anomaly_count or 0,
         client_count=clients or 0,
         affected_client_count=affected or 0,
         document_count=documents or 0,
@@ -351,6 +371,7 @@ def list_anomalies(
             expected_timeline_id=a.expected_timeline_id,
             actual_transaction_id=a.actual_transaction_id,
             agent_reasoning=a.agent_reasoning,
+            agent_tool_calls=a.agent_tool_calls,
             verified_at=a.verified_at,
         )
         for a, client_name, billing_date in session.execute(stmt)
@@ -565,24 +586,26 @@ def get_client_totals(session: Session, run_id: int, client_id: int) -> ClientTo
     if client is None or client.run_id != run_id:
         return None
 
-    contracts = session.scalar(
-        select(func.count(ContractRule.id)).where(ContractRule.client_id == client_id)
-    )
-    received = session.scalar(
-        select(func.coalesce(func.sum(ActualTransaction.amount), 0.0)).where(
-            ActualTransaction.run_id == run_id, ActualTransaction.client_id == client_id
+    # One round trip, four scalar subqueries. Same reason as get_summary_stats:
+    # against a remote Postgres the query count is the latency.
+    contracts, received, gap_total, run_total = session.execute(
+        select(
+            select(func.count(ContractRule.id))
+            .where(ContractRule.client_id == client_id)
+            .scalar_subquery(),
+            select(func.coalesce(func.sum(ActualTransaction.amount), 0.0))
+            .where(
+                ActualTransaction.run_id == run_id, ActualTransaction.client_id == client_id
+            )
+            .scalar_subquery(),
+            select(func.coalesce(func.sum(Anomaly.gap), 0.0))
+            .where(Anomaly.run_id == run_id, Anomaly.client_id == client_id)
+            .scalar_subquery(),
+            select(func.coalesce(func.sum(ActualTransaction.amount), 0.0))
+            .where(ActualTransaction.run_id == run_id)
+            .scalar_subquery(),
         )
-    )
-    gap_total = session.scalar(
-        select(func.coalesce(func.sum(Anomaly.gap), 0.0)).where(
-            Anomaly.run_id == run_id, Anomaly.client_id == client_id
-        )
-    )
-    run_total = session.scalar(
-        select(func.coalesce(func.sum(ActualTransaction.amount), 0.0)).where(
-            ActualTransaction.run_id == run_id
-        )
-    )
+    ).one()
 
     return ClientTotals(
         client_id=client_id,

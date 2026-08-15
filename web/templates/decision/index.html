@@ -7,8 +7,13 @@
    the working shows only the lines the database can actually support. #}
 {% block content %}
 
-<section class="ask rule-b">
-  <p class="eyebrow">Ask about a recurring cost</p>
+{# The page had no heading of any level — the only screen in the app without
+   one, so a screen reader's landmark list showed it as untitled and the
+   headings below it started at no level in particular. #}
+<h1 class="sr-only">Decision Engine</h1>
+
+<section class="ask rule-b" aria-labelledby="ask-label">
+  <p class="eyebrow" id="ask-label">Ask about a recurring cost</p>
   <form class="askbar" method="get" action="{{ url_for('decision') }}">
     {{ carry_fields | safe }}
     <input class="q" type="text" name="q" autocomplete="off"
@@ -38,10 +43,8 @@
         <div class="word is-muted">—</div>
         <div class="qual">No verdict yet</div>
       </div>
-      <div style="max-width:60ch">{{ macros.skeleton([96, 88, 92, 54]) }}</div>
-      <div style="margin-top:20px">
-        {{ macros.absent('No answer computed', view.notices.get('decision')) }}
-      </div>
+      {{ macros.skeleton([96, 88, 92, 54]) }}
+      {{ macros.absent('No answer computed', view.notices.get('decision')) }}
     {% endif %}
 
     {% if view.bars %}
@@ -71,7 +74,7 @@
         <div class="chart-head">
           <span class="kicker">Monthly surplus, next twelve months</span>
         </div>
-        <div style="padding:18px 16px">
+        <div class="chart-empty">
           {{ macros.absent('Nothing to project', view.notices.get('expenses')) }}
         </div>
       </div>
@@ -83,7 +86,7 @@
   </div>
 
   <div class="panel-bg">
-    <div class="working-head"><span class="kicker">How this was worked out</span></div>
+    <div class="working-head"><h2 class="kicker">How this was worked out</h2></div>
     {% for w in view.working %}
       <div class="workrow{% if loop.index0 % 2 %} is-alt{% endif %}{% if w.bold %} is-bold{% endif %}{% if w.final %} is-final{% endif %}">
         <div class="lbl">

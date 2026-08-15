@@ -19,6 +19,13 @@ prevent.
 
 from __future__ import annotations
 
+from web.presenters.grouping import (
+    DEFAULT_SORT,
+    build_groups,
+    haystack,
+    sort_key,
+    sort_options,
+)
 from web.viewmodels import (
     Bar,
     Card,
@@ -380,7 +387,33 @@ def selection_count() -> int:
     return len(_FINDINGS)
 
 
-def integrity(state: str, selected: int = DEFAULT_SELECTION) -> IntegrityView:
+#: The mockup's five findings predate the four-type taxonomy in the DB, so
+#: each carries its display label. Map back to the canonical key for grouping.
+_TYPE_KEYS = {
+    "Never billed": "ghost_invoice",
+    "Rise not applied": "forgotten_raise",
+    "Discount outlived its term": "zombie_discount",
+    "Paid short": "short_change",
+}
+
+
+def _raw_gap(text: str) -> float:
+    """Turn the mockup's "(15,000.00)" back into 15000.0 for a subtotal.
+
+    The demo stores its figures pre-formatted — they were transcribed from the
+    mockup as strings — so a subtotal has to parse them back. Live mode never
+    does this: it sums the floats it already has.
+    """
+    cleaned = text.strip().strip("()").replace(",", "")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0  # "—", the ruled-out row
+
+
+def integrity(
+    state: str, selected: int = DEFAULT_SELECTION, sort: str = DEFAULT_SORT
+) -> IntegrityView:
     """The Integrity Engine in one of its four states, with demo content."""
     if state == "empty":
         return IntegrityView(state="empty")
@@ -451,6 +484,29 @@ def integrity(state: str, selected: int = DEFAULT_SELECTION) -> IntegrityView:
 
     # review (and offline, which is review plus the banner)
     selected = selected if 0 <= selected < len(_FINDINGS) else DEFAULT_SELECTION
+
+    items = []
+    for i, f in enumerate(_FINDINGS):
+        row = FindingRow(
+            id=str(i),
+            client=f["client"],
+            title=f["title"],
+            sub=f["sub"],
+            due=f["due"],
+            received=f["received"],
+            gap=f["gap"],
+            verdict=f["verdict"],
+            kind=f["kind"],
+            selected=i == selected,
+            type_key=_TYPE_KEYS.get(f["type"], "short_change"),
+            haystack=haystack(f["client"], f["title"], f["sub"], f["type"], f["period"], f["verdict"]),
+        )
+        items.append((row, _raw_gap(f["gap"]), f["client"], None))
+
+    items.sort(key=sort_key(sort))
+    rows = [item[0] for item in items]
+    gaps = {item[0].id: item[1] for item in items}
+
     return IntegrityView(
         state="review",
         cards=[
@@ -459,23 +515,18 @@ def integrity(state: str, selected: int = DEFAULT_SELECTION) -> IntegrityView:
             Card("Clients affected", "3 of 5", "Across 5 contracts on file"),
             Card("Clauses located", "11 of 13", "9 exactly · 2 approximately"),
         ],
-        findings=[
-            FindingRow(
-                id=str(i),
-                client=f["client"],
-                title=f["title"],
-                sub=f["sub"],
-                due=f["due"],
-                received=f["received"],
-                gap=f["gap"],
-                verdict=f["verdict"],
-                kind=f["kind"],
-                selected=i == selected,
-            )
-            for i, f in enumerate(_FINDINGS)
-        ],
+        findings=rows,
+        groups=build_groups(rows, gaps),
+        sorts=sort_options(sort),
         selected=_detail(selected),
     )
+
+
+def detail(index: int) -> FindingDetail | None:
+    """One finding's detail, for the fragment route. None when out of range."""
+    if not (0 <= index < len(_FINDINGS)):
+        return None
+    return _detail(index)
 
 
 def decision() -> DecisionView:

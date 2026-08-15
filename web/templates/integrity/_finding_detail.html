@@ -1,0 +1,169 @@
+{#
+  The detail pane, on its own so it can be fetched and swapped without
+  re-rendering the list. `web/routers/integrity.py` serves this same file at
+  /finding/{id}; app.js replaces the pane's contents with the response.
+
+  Nothing in here may depend on `view` — only on `sel` — because the fragment
+  route builds one finding and no page around it.
+#}
+{% if sel %}
+<article class="detail" aria-labelledby="detail-headline">
+
+  <header class="detail-head">
+    <div class="line">
+      <span class="type">{{ sel.type_label }}</span>
+      <span class="period">{{ macros.value(sel.period) }}</span>
+      <div class="spacer"></div>
+      {{ macros.tag(sel.verdict, sel.kind) }}
+    </div>
+    {% if sel.headline %}
+      <h2 id="detail-headline">{{ sel.headline }}</h2>
+    {% else %}
+      <h2 id="detail-headline" class="sr-quiet">Finding detail</h2>
+      {{ macros.skeleton([90, 60]) }}
+    {% endif %}
+    <p class="prov">{{ macros.value(sel.provenance) }}</p>
+
+    <div class="detail-actions">
+      <div class="calc">{{ macros.value(sel.calc) }}</div>
+      <button class="btn-outline" type="button" disabled
+              title="Writing a verdict back lands with the verification agent (Phase 8)">Not an issue</button>
+      <button class="btn-solid" type="button" disabled
+              title="Writing a verdict back lands with the verification agent (Phase 8)">Add to recoverable</button>
+    </div>
+  </header>
+
+  <div class="confront">
+
+    {# ── What the contract says ──────────────────────────────────────── #}
+    <section class="side" aria-labelledby="side-contract">
+      <div class="side-head">
+        <h3 class="kicker" id="side-contract">What the contract says</h3>
+        <div class="spacer"></div>
+        {{ macros.tag(sel.ground_tag, sel.ground_kind) }}
+      </div>
+      <div class="docpane">
+        <div class="page">
+          <i class="margin-rule"></i>
+          <div class="pagemeta">{{ macros.value(sel.doc_meta) }}</div>
+          <div class="ln w94"></div>
+          <div class="ln w78"></div>
+          {% if sel.clause %}
+            {# Highlighted only when the locator actually placed the quote in
+               the PDF. A highlight in the wrong place is worse than none. #}
+            <p class="clause{% if not sel.highlighted %} is-ungrounded{% endif %}">{{ sel.clause }}</p>
+          {% else %}
+            <div class="clause-skel">{{ macros.skeleton([96, 88, 44]) }}</div>
+          {% endif %}
+          <div class="ln w90"></div>
+          <div class="ln w52"></div>
+          <div class="ln w86"></div>
+          <div class="ln w68"></div>
+        </div>
+        {% if sel.clause %}
+          <p class="note-sm">{{ sel.ground_note }}</p>
+        {% else %}
+          {{ macros.absent('No clause on file', 'This finding has no clause_reference row, so nothing proves it yet. Hard rule 5 says a finding without a clause is not a proven finding.') }}
+        {% endif %}
+      </div>
+    </section>
+
+    {# ── What arrived ────────────────────────────────────────────────── #}
+    <section class="side" aria-labelledby="side-ledger">
+      <div class="side-head">
+        <h3 class="kicker" id="side-ledger">What arrived</h3>
+        <div class="spacer"></div>
+        <span class="meta">{{ macros.value(sel.period) }}</span>
+      </div>
+      <div class="side-body">
+        {% for t in sel.txns %}
+          <div class="txn{% if t.muted %} is-void{% endif %}">
+            <div class="t">
+              {{ t.label }}
+              {% if t.meta %}<div class="d">{{ t.meta }}</div>{% endif %}
+            </div>
+            {% if t.amount %}<div class="fig">{{ t.amount }}</div>{% endif %}
+          </div>
+        {% endfor %}
+        {% if sel.window_total %}
+          {# Shown only when it can differ from the line below — a client with
+             two billings in one month. Otherwise it is the same number twice. #}
+          <div class="sum subtotal"><div class="t">Arrived in this window</div><div class="fig">{{ sel.window_total }}</div></div>
+          <div class="sum"><div class="t">Matched to this billing</div><div class="fig">{{ macros.value(sel.received_total) }}</div></div>
+        {% else %}
+          <div class="sum subtotal"><div class="t">Received</div><div class="fig">{{ macros.value(sel.received_total) }}</div></div>
+        {% endif %}
+        <div class="sum">
+          <div class="t">Due{% if sel.clause_ref %} under {{ sel.clause_ref }}{% endif %}</div>
+          <div class="fig">{{ macros.value(sel.due_total) }}</div>
+        </div>
+        <div class="sum total"><div class="t">Not collected</div><div class="fig">{{ macros.value(sel.gap_total) }}</div></div>
+        <p class="methodnote">
+          Payments are matched to a client and a calendar month, with fifteen days of
+          tolerance at each boundary. A payment that arrived on 2 February still counts
+          toward January.
+        </p>
+      </div>
+    </section>
+
+    {# ── How it was checked ──────────────────────────────────────────── #}
+    <section class="side side-ctx" aria-labelledby="side-checked">
+      <div class="side-head">
+        <h3 class="kicker" id="side-checked">How it was checked</h3>
+      </div>
+
+      <div class="ctx">
+        {% if sel.tools or sel.agent_prose %}
+          <div class="tools">
+            {% for t in sel.tools %}
+              <div class="tool">
+                <b>{{ t.call }}</b>
+                <div class="res">{{ t.result }}</div>
+              </div>
+            {% endfor %}
+          </div>
+          {% if sel.agent_prose %}<p class="prose">{{ sel.agent_prose }}</p>{% endif %}
+          {% if sel.needs_review %}
+            <div class="ctx-actions">
+              <button class="btn-solid" type="button" disabled
+                      title="Recording your own verdict lands in Phase 8">Confirm it myself</button>
+              <button class="btn-outline" type="button" disabled
+                      title="Recording your own verdict lands in Phase 8">Rule it out</button>
+            </div>
+          {% endif %}
+        {% else %}
+          {{ macros.skeleton([100, 100, 100]) }}
+          {{ macros.absent('Not checked yet', agent_notice) }}
+        {% endif %}
+      </div>
+
+      <div class="ctx">
+        <h4 class="kicker">{{ sel.client }}</h4>
+        <div class="kv"><span>Contracts on file</span><b>{{ macros.value(sel.c_contracts) }}</b></div>
+        <div class="kv"><span>Received this run</span><b>{{ macros.value(sel.c_received) }}</b></div>
+        <div class="kv"><span>Share of revenue</span><b>{{ macros.value(sel.c_share) }}</b></div>
+        <div class="kv"><span>Not collected</span><b class="accent">{{ macros.value(sel.c_gap) }}</b></div>
+      </div>
+
+      <div class="ctx">
+        <h4 class="kicker">Where the numbers come from</h4>
+        <p class="fine">
+          The clause was read by the model and quoted verbatim. Every amount on this page
+          was computed in code from your own records — the model produced none of them.
+        </p>
+      </div>
+    </section>
+  </div>
+</article>
+
+{% else %}
+{# No row selected — a real state, not an error. Reached with an empty list, or
+   when a filter matches nothing. #}
+<div class="detail detail-blank">
+  <div class="blank-inner">
+    <p class="eyebrow">Nothing selected</p>
+    <h2>Pick a finding to see what proves it.</h2>
+    <p class="sub">Each one opens the clause it came from, the payments that arrived, and how the check was made.</p>
+  </div>
+</div>
+{% endif %}

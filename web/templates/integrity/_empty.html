@@ -11,18 +11,22 @@
     </p>
   </div>
 
+  {# Both halves are required before anything can be compared, so both get the
+     same button weight. The solid/outline pair the mockup used reads as a
+     primary and a secondary action, which would send you off to upload
+     contracts alone and land you back on this same screen. #}
   <div class="panels panels-2 dropzones">
     <div class="dropzone">
       <b>Contracts</b>
       <span>PDF · typed or scanned · drop several at once</span>
       <button class="btn-solid" type="button" disabled
-              title="Upload lands with the extraction pipeline">Choose contracts</button>
+              title="Upload lands with the extraction pipeline (Phase 6)">Choose contracts</button>
     </div>
     <div class="dropzone">
       <b>Invoices and statements</b>
       <span>CSV export from your bank, or PDF invoices</span>
-      <button class="btn-outline" type="button" disabled
-              title="Upload lands with the extraction pipeline">Choose files</button>
+      <button class="btn-solid" type="button" disabled
+              title="Upload lands with the extraction pipeline (Phase 6)">Choose files</button>
     </div>
   </div>
 
@@ -41,12 +45,17 @@
     </div>
   </div>
 
-  {% if not chrome.is_demo %}
-    <div class="absent" style="margin-top:36px">
-      <b>Live mode · no data</b>
-      This run has no documents. Seed a complete demo run with
-      <code>python scripts/seed_demo.py</code>, or switch the state bar to Demo to see
-      the screens filled in.
-    </div>
-  {% endif %}
+  {# This is the one screen whose main controls are the inert ones, so it says
+     so in the page rather than only in a tooltip. Everywhere else the disabled
+     buttons sit beside data you can still read; here there is nothing else. #}
+  <div class="absent">
+    <b>Upload is not wired yet</b>
+    The two buttons above are inert. Extraction — reading a contract and writing
+    <code>contract_rules</code> — lands in Phase 6; until then the screens are filled
+    from the database.
+    {% if not chrome.is_demo %}
+      This run has no documents: seed a complete one with
+      <code>python scripts/seed_demo.py</code>, or switch the state bar to Demo.
+    {% endif %}
+  </div>
 </section>

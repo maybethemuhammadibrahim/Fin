@@ -43,6 +43,58 @@ a:hover { color: var(--color-accent-700); }
 }
 .shell-fixed { width: 1440px; }
 
+/* The findings screen is an app, not a document: chrome at a fixed height and
+   two panes that scroll themselves. `min-height: 0` on the flex children is
+   the load-bearing bit — without it a flex item refuses to shrink below its
+   content and the inner panes never get a scrollbar, they just push the page
+   taller, which is the bug this layout exists to fix. */
+.shell.is-app {
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.shell.is-app > main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visible only to screen readers. Used for the page's h1 and for input labels
+   the design shows as placeholders. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sr-quiet { position: absolute; left: -9999px; }
+
+/* Keyboard users land here first. Visible only when focused. */
+.skiplink {
+  position: absolute;
+  left: 8px;
+  top: -60px;
+  z-index: 50;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font: 800 13px/1 Archivo, sans-serif;
+  padding: 12px 16px;
+  transition: top 150ms ease;
+}
+.skiplink:focus { top: 8px; color: var(--color-bg); }
+
+/* One focus treatment everywhere. tokens.css sets a 2px accent ring; rows and
+   panes need it inset so it is not clipped by their own overflow. */
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.frow:focus-visible,
+.list-scroll:focus-visible { outline-offset: -2px; }
+
 .spacer { flex: 1; }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -63,7 +115,7 @@ a:hover { color: var(--color-accent-700); }
   align-items: center;
   gap: 10px;
   font-size: 11px;
-  letter-spacing: .14em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   font-weight: 600;
   color: var(--color-neutral-400);
@@ -71,6 +123,10 @@ a:hover { color: var(--color-accent-700); }
   white-space: nowrap;
 }
 .statebar-group { display: flex; align-items: stretch; gap: 0; }
+/* The second and later labels need air after the group of buttons before them.
+   Derived from position rather than set on the element, so adding a third
+   group to the bar does not mean remembering to hand-space it. */
+.statebar-group + .statebar-label { padding-left: 20px; }
 .statebar-btn {
   border: 0;
   background: transparent;
@@ -108,6 +164,7 @@ a:hover { color: var(--color-accent-700); }
   border: 1px solid var(--color-neutral-700);
   font: 600 12px/1 Archivo, sans-serif;
   padding: 7px 9px;
+  min-height: 37px;              /* the shared small-control height */
   border-radius: 0;
 }
 
@@ -136,9 +193,11 @@ a:hover { color: var(--color-accent-700); }
 .topbar-name { font: 800 19px/1 Archivo, sans-serif; letter-spacing: -.03em; }
 
 .topnav { display: flex; align-items: stretch; }
+/* The active underline lives on the inner .tab. The anchor used to carry a
+   second 3px transparent bottom border as well, which reserved space nothing
+   ever drew into and pushed the tab labels 3px off the header's centre line. */
 .topnav a {
   border: 0;
-  border-bottom: 3px solid transparent;
   background: transparent;
   cursor: pointer;
   padding: 0 22px;
@@ -211,9 +270,23 @@ a:hover { color: var(--color-accent-700); }
 
 .rule-b { border-bottom: 2px solid var(--color-divider); }
 
+/* Uppercase micro-labels.
+ *
+ * Nine classes below do the same job — a small caps-and-tracking label over a
+ * block — and every one had picked its own tracking: .06, .08, .1, .11, .12,
+ * .13 and .14em, several of them within sight of each other on one screen.
+ * Uppercase text needs tracking in inverse proportion to its size, so the
+ * scale is now tied to the size and there are three steps, not seven:
+ *
+ *   10.5px → .11em   .kicker · .tag · .group-head · .absent b
+ *   11px   → .12em   .eyebrow · .card .lbl · .detail-head .type · .pagemeta
+ *   12–13px → .1em   .kicker-lg · .step b · .banner-tag
+ *
+ * A new label picks the row its size lands in. It does not invent an eighth.
+ */
 .eyebrow {
   font: 600 11px/1 Archivo, sans-serif;
-  letter-spacing: .14em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--color-neutral-700);
   margin: 0 0 18px;
@@ -226,6 +299,11 @@ a:hover { color: var(--color-accent-700); }
   text-transform: uppercase;
   color: var(--color-neutral-700);
 }
+/* .kicker is used on both <span>s and headings. tokens.css gives every heading
+   an 8px bottom margin, so the same label sat 8px lower when it was marked up
+   as a real heading than when it was not — the two must be indistinguishable.
+   Sections that want space below their kicker set it themselves (.ctx h4). */
+h1.kicker, h2.kicker, h3.kicker, h4.kicker, h5.kicker, h6.kicker { margin: 0; }
 .kicker-lg {
   font: 800 13px/1 Archivo, sans-serif;
   letter-spacing: .1em;
@@ -236,10 +314,14 @@ a:hover { color: var(--color-accent-700); }
 
 .num { font-variant-numeric: tabular-nums; }
 
-/* Tags — Confirmed / Waiting / Ruled out, and the clause grounding badge. */
+/* Tags. tokens.css also defines `.tag` plus a tag-accent / tag-neutral /
+   tag-outline family; this file owns the shape and FinSight's own variants.
+   Two vocabularies share the prefix, so a new variant goes here, never there. */
 .tag {
+  display: inline-flex;
+  align-items: center;
   font: 700 10.5px/1 Archivo, sans-serif;
-  letter-spacing: .1em;
+  letter-spacing: .11em;
   text-transform: uppercase;
   white-space: nowrap;
   padding: 6px 8px;
@@ -247,9 +329,30 @@ a:hover { color: var(--color-accent-700); }
   color: var(--color-neutral-600);
   background: transparent;
 }
+
+/* A finding's verdict: Confirmed / Waiting / Ruled out. */
 .tag-confirmed { border-color: var(--color-text); color: var(--color-text); background: transparent; }
 .tag-waiting { border-color: var(--color-accent-700); color: var(--color-accent-800); background: var(--color-accent-200); }
 .tag-out { border-color: var(--color-neutral-400); color: var(--color-neutral-600); background: transparent; }
+
+/* Whether the quoted clause was found in the PDF — a different question from
+   the verdict, so it gets its own three classes. It used to borrow the ones
+   above, which drew "Located approximately" in the same grey as a ruled-out
+   finding and "Not located" in the same accent as one awaiting review. The
+   dotted edge marks the whole family as being about evidence, not status. */
+.tag-located { border-color: var(--color-text); color: var(--color-text); border-style: dotted; }
+.tag-approx {
+  border-color: var(--color-neutral-500);
+  color: var(--color-neutral-800);
+  background: var(--color-neutral-200);
+  border-style: dotted;
+}
+.tag-unlocated {
+  border-color: var(--color-accent-700);
+  color: var(--color-accent-800);
+  background: var(--color-accent-100);
+  border-style: dotted;
+}
 
 /* Buttons */
 .btn-solid {
@@ -262,7 +365,7 @@ a:hover { color: var(--color-accent-700); }
   text-align: left;
   display: inline-block;
 }
-.btn-solid:hover { background: var(--color-accent-600); color: var(--color-bg); }
+.btn-solid:not(:disabled):hover { background: var(--color-accent-600); color: var(--color-bg); }
 .btn-outline {
   background: transparent;
   color: var(--color-text);
@@ -273,33 +376,40 @@ a:hover { color: var(--color-accent-700); }
   text-align: left;
   display: inline-block;
 }
-.btn-outline:hover { background: var(--color-neutral-200); color: var(--color-text); }
+.btn-outline:not(:disabled):hover { background: var(--color-neutral-200); color: var(--color-text); }
 .btn-quiet {
   border: 1px solid var(--color-divider);
   background: var(--color-neutral-100);
   font: 700 13px/1 Archivo, sans-serif;
-  padding: 9px 13px;
+  /* 13px line + 22px padding + 2px border = 37px, one small-control height
+     shared with .btn-small, .sortlink and .statebar-select. */
+  padding: 11px 13px;
   cursor: pointer;
   text-align: left;
 }
-.btn-quiet:hover { background: var(--color-neutral-200); }
+.btn-quiet:not(:disabled):hover { background: var(--color-neutral-200); }
 .btn-small {
   border: 1px solid var(--color-divider);
   background: transparent;
   font: 700 12.5px/1 Archivo, sans-serif;
-  padding: 8px 12px;
+  padding: 11px 12px;
   cursor: pointer;
   text-align: left;
 }
-.btn-small:hover { background: var(--color-neutral-200); }
+.btn-small:not(:disabled):hover { background: var(--color-neutral-200); }
 .btn-small.accent { border-color: var(--color-accent-700); color: var(--color-accent-800); }
-.btn-small.accent:hover { background: var(--color-accent-200); }
+.btn-small.accent:not(:disabled):hover { background: var(--color-accent-200); }
 
 /* Most buttons in this build are inert — the actions behind them land in later
  * phases. They keep the mockup's appearance rather than being greyed out: the
  * page is a faithful render of the design, and a wall of half-opacity controls
- * would misrepresent what the finished screen looks like. The cursor and the
- * title attribute carry the "not wired yet" signal instead. */
+ * would misrepresent what the finished screen looks like.
+ *
+ * What they must not do is *behave* like live controls. Every :hover above is
+ * guarded with :not(:disabled), so an inert button never lights up under the
+ * pointer — a lit button that does nothing when clicked is a worse lie than a
+ * flat one. The cursor and the title carry the "not wired yet" signal, and
+ * every disabled control in the app has a title saying which phase wires it. */
 button:disabled, .is-disabled { cursor: not-allowed; }
 
 /* Grid-of-panels: a 2px divider showing through the gaps. */
@@ -338,12 +448,14 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 .dropzone .btn-solid,
 .dropzone .btn-outline { align-self: flex-start; margin-top: 14px; }
 
+.empty-hero > .absent { margin-top: 36px; }
+
 .steps { margin-top: 2px; max-width: 1000px; }
 .step { background: var(--color-bg); padding: 22px 24px; }
 .step b {
   display: block;
   font: 800 13px/1 Archivo, sans-serif;
-  letter-spacing: .06em;
+  letter-spacing: .1em;
   text-transform: uppercase;
   margin-bottom: 8px;
 }
@@ -394,6 +506,7 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 }
 .docrow .btn-quiet { min-width: 150px; }
 
+.maplist { display: flex; flex-direction: column; gap: 8px; }
 .maprow { display: flex; align-items: center; gap: 12px; }
 .maprow .src {
   flex: 0 0 150px;
@@ -403,9 +516,12 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   padding: 9px 10px;
 }
 .maprow .arrow { color: var(--color-neutral-500); }
+/* Both halves of the pair are read-only chips, so both take the passive
+   1px neutral-300 edge. The target used to take the darker interactive
+   `divider`, which put two different border weights either side of one arrow. */
 .maprow .dst {
   flex: 1;
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--color-neutral-300);
   padding: 9px 10px;
   font-size: 13.5px;
   background: var(--color-neutral-100);
@@ -420,6 +536,7 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   border-bottom: 1px solid var(--color-neutral-300);
 }
 .confirmrow:last-child { border-bottom: 0; }
+.confirmrow .who { flex: 1; min-width: 0; }
 .confirmrow b { font: 700 14px/1.3 Archivo, sans-serif; }
 .confirmrow .meta { font-size: 12.5px; color: var(--color-neutral-700); margin-top: 3px; }
 .confirmrow.accent b { color: var(--color-accent-700); }
@@ -427,11 +544,22 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 .pad-24 { padding: 24px; }
 .note-sm { font-size: 12.5px; color: var(--color-neutral-700); margin: 16px 0 0; max-width: 64ch; }
 
+/* The button that commits a panel's contents. One offset for both panels —
+   they used to sit 14px and 18px below their lists, which is visible when the
+   two are side by side and the buttons should line up. */
+.panel-action { margin-top: 18px; }
+
 /* ══════════════════════════════════════════════════════════════════════════
    Integrity — summary cards (review + clean)
    ══════════════════════════════════════════════════════════════════════════ */
 
-.card { background: var(--color-neutral-100); padding: 22px 24px; }
+/* tokens.css also defines `.card`, as a flex column with an 8px gap. That gap
+   stacked on top of the margins below, so the label sat 20px off the value
+   instead of 12px and the sub 16px instead of 8px — every summary card in the
+   app was taller and looser than the mockup. Zero the inherited gap here
+   rather than subtracting it from each margin, so the numbers below stay the
+   ones the design actually specifies. */
+.card { background: var(--color-neutral-100); padding: 22px 24px; gap: 0; }
 .card .lbl {
   font: 600 11px/1 Archivo, sans-serif;
   letter-spacing: .12em;
@@ -448,113 +576,335 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 .card .sub { font-size: 12.5px; color: var(--color-neutral-700); margin-top: 8px; }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   Integrity — findings table
+   Integrity — the master/detail split
    ══════════════════════════════════════════════════════════════════════════ */
 
-.findings-head {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  padding: 22px 24px 16px;
-  flex-wrap: wrap;
-}
-.findings-head h2 { font: 800 24px/1.1 Archivo, sans-serif; letter-spacing: -.03em; margin: 0; }
-.findings-head p { margin: 0; font-size: 13.5px; color: var(--color-neutral-700); }
-.findings-head .sortnote { font-size: 12.5px; color: var(--color-neutral-700); }
+/* The summary strip is pinned; only the two panes below it scroll. Its bottom
+   edge is therefore a hard boundary between a fixed region and a moving one,
+   which is exactly where this design puts a 2px rule — the template adds
+   `rule-b` for it. The 2px gaps the grid shows between the cards then meet
+   that rule, so the strip closes into one frame instead of four loose cards
+   fading into the list.
 
-/* One grid template, declared once, shared by the header and every row —
-   the mockup repeated it inline six times and they had to be kept in step. */
-.frow {
+   Everything on this seam is --color-neutral-100 by design (cards, list pane,
+   list toolbar). The separation is carried by the rule, not by a background
+   change — the same way .detail-head sits over .confront further down. Do not
+   "fix" a future version of this by tinting one side; tint one and the whole
+   screen's two-surface logic (neutral-100 raised, --color-bg recessed) stops
+   meaning anything. */
+.cards-strip { flex: 0 0 auto; }
+
+/* Two panes, each scrolling itself. The detail never moves off screen no
+   matter how long the list is — the whole reason this screen was split.
+   The list is given a fixed column so the detail does not jump width when a
+   longer client name appears. */
+.split {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 170px 1fr 150px 150px 140px 150px;
-  padding: 0 24px;
-  align-items: baseline;
+  grid-template-columns: minmax(380px, 460px) 1fr;
+  gap: 2px;
+  background: var(--color-divider);
 }
-.fhead {
-  border-bottom: 1px solid var(--color-neutral-400);
+
+/* ── list pane ─────────────────────────────────────────────────────────── */
+
+.listpane {
+  background: var(--color-neutral-100);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.list-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-neutral-300);
+  background: var(--color-neutral-100);
+}
+.search { display: flex; }
+/* The one field on the findings screen, so it takes the interactive edge the
+   buttons use rather than the lighter neutral-300 a passive container gets.
+   It used to be the only control in the app outlined like a container, which
+   is why it read as a caption rather than as something you can type in. */
+.search-input {
+  flex: 1;
+  min-height: 44px;              /* touch target */
+  font: 400 14px/1 Archivo, sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  padding: 0 12px;
+  border-radius: 0;
+  transition: border-color 150ms ease;
+}
+.search-input::placeholder { color: var(--color-neutral-600); }
+.search-input:hover { border-color: color-mix(in srgb, var(--color-text) 65%, transparent); }
+.search-input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+
+.sortbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.sortbar .kicker { margin-right: 6px; }
+.sortlink {
+  font: 600 12.5px/1 Archivo, sans-serif;
+  color: var(--color-neutral-700);
+  padding: 11px 10px;
+  min-height: 37px;              /* the shared small-control height */
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.sortlink:hover { background: var(--color-neutral-200); color: var(--color-text); }
+.sortlink.is-active {
+  color: var(--color-text);
+  border-color: var(--color-divider);
   background: var(--color-bg);
 }
-.fhead > div {
+
+/* content-visibility lets the browser skip layout and paint for rows scrolled
+   out of view. It is the cheap 90% of list virtualisation with none of the
+   machinery — no fixed row heights, no scroll maths, no JS. contain-intrinsic
+   -size reserves the height so the scrollbar does not jitter as rows render. */
+.list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.list-scroll .frow {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 68px;
+}
+
+.group { border-bottom: 1px solid var(--color-neutral-300); }
+.group:last-child { border-bottom: 0; }
+.group.is-hidden { display: none; }
+
+/* Sticky so you always know which kind of leak you are looking at, however
+   far down the list you have scrolled. */
+.group-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-neutral-300);
   font: 700 10.5px/1 Archivo, sans-serif;
   letter-spacing: .11em;
   text-transform: uppercase;
   color: var(--color-neutral-700);
-  padding: 10px 12px;
 }
-.fhead > div:first-child { padding-left: 0; }
-.fhead > div:last-child { padding-right: 0; }
-.fhead .r { text-align: right; }
+.group-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-600);
+  border: 1px solid var(--color-neutral-300);
+  padding: 3px 6px;
+}
+.group-total { color: var(--color-text); letter-spacing: 0; font-size: 12px; }
 
-.frow.fbody {
-  cursor: pointer;
+/* A row is a real <a>, so it is focusable, Enter-able and middle-clickable
+   for free. Two columns and two lines: identity on the left, the money on the
+   right, because the amount is what the eye scans for. */
+.frow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "client gap"
+    "title  title"
+    "meta   meta";
+  column-gap: 12px;
+  row-gap: 3px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--color-neutral-300);
   background: var(--color-neutral-100);
   color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 150ms ease, box-shadow 150ms ease;
 }
-.frow.fbody.is-alt { background: var(--color-bg); }
-.frow.fbody:hover { background: var(--color-neutral-200); }
-.frow.fbody.is-selected {
+.frow:last-child { border-bottom: 0; }
+.frow:hover { background: var(--color-neutral-200); color: var(--color-text); }
+.frow.is-hidden { display: none; }
+.frow.is-selected {
   background: var(--color-accent-200);
   box-shadow: inset 4px 0 0 var(--color-accent);
 }
-.frow.fbody .c-client { padding: 14px 12px 14px 0; font: 700 14px/1.3 Archivo, sans-serif; letter-spacing: -.01em; }
-.frow.fbody .c-what { padding: 14px 12px; }
-.frow.fbody .c-what b { font: 600 14px/1.3 Archivo, sans-serif; }
-.frow.fbody .c-what .sub { font-size: 12.5px; color: var(--color-neutral-700); margin-top: 3px; }
-.frow.fbody .c-num { padding: 14px 12px; text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
-.frow.fbody .c-gap {
-  padding: 14px 12px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  font: 700 15px/1.3 Archivo, sans-serif;
-  color: var(--color-accent-700);
+.frow.is-selected:hover { background: var(--color-accent-200); }
+
+.frow .c-client {
+  grid-area: client;
+  font: 700 14px/1.3 Archivo, sans-serif;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.frow.fbody .c-gap.is-out { color: var(--color-neutral-500); }
-.frow.fbody .c-verdict { padding: 14px 0 14px 12px; }
+/* Clamped to two lines. A row that grows with its title makes the list
+   impossible to scan and breaks the fixed intrinsic size the browser uses to
+   skip off-screen rows; the full text is in the title attribute and in the
+   detail pane one click away. */
+.frow .c-title {
+  grid-area: title;
+  font: 600 13.5px/1.35 Archivo, sans-serif;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+.frow .c-gap {
+  grid-area: gap;
+  text-align: right;
+  font: 700 15px/1.3 Archivo, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent-700);
+  white-space: nowrap;
+}
+/* Ruled out: greyed, and the parentheses are already gone, so the meaning does
+   not rest on colour alone. */
+.frow .c-gap.is-out { color: var(--color-neutral-500); }
+.frow .c-meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 2px;
+}
+.frow .c-sub {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.frow .c-money {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.frow .tag { padding: 4px 6px; font-size: 9.5px; flex: none; }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Integrity — selected finding
-   ══════════════════════════════════════════════════════════════════════════ */
+.list-empty { padding: 32px 16px; margin: 0; font-size: 13.5px; color: var(--color-neutral-700); }
 
-.sel-head { background: var(--color-neutral-100); padding: 26px 24px; }
-.sel-head .line { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
-.sel-head .type {
+.list-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-neutral-300);
+  background: var(--color-bg);
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+}
+.list-foot kbd {
+  font: 600 10px/1 ui-monospace, Menlo, monospace;
+  border: 1px solid var(--color-neutral-400);
+  padding: 3px 4px;
+  margin-right: 2px;
+  color: var(--color-neutral-700);
+}
+.list-foot .hint { display: flex; align-items: center; gap: 2px; }
+
+/* ── detail pane ───────────────────────────────────────────────────────── */
+
+.detailpane {
+  background: var(--color-bg);
+  overflow-y: auto;
+  /* Reserve the scrollbar's width always, so swapping to a shorter finding
+     does not reflow the pane sideways by 15px. */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  min-height: 0;
+  /* The swap is a content replacement, not a navigation. A short fade keeps it
+     from reading as a flicker without making it feel slow. */
+  transition: opacity 120ms ease;
+}
+.detailpane[aria-busy="true"] { opacity: .6; }
+
+.detail { display: flex; flex-direction: column; min-height: 100%; }
+
+.detail-head {
+  padding: 22px 24px 20px;
+  background: var(--color-neutral-100);
+  border-bottom: 2px solid var(--color-divider);
+}
+.detail-head .line { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.detail-head .type {
   font: 600 11px/1 Archivo, sans-serif;
-  letter-spacing: .13em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--color-accent-700);
 }
-.sel-head .period { font-size: 12.5px; color: var(--color-neutral-700); }
-.sel-head h2 { font: 800 26px/1.15 Archivo, sans-serif; letter-spacing: -.03em; margin: 0 0 8px; max-width: 34ch; }
-.sel-head .prov { font-size: 13.5px; color: var(--color-neutral-700); margin: 0; }
+.detail-head .period { font-size: 12.5px; color: var(--color-neutral-700); }
+.detail-head h2 {
+  font: 800 26px/1.15 Archivo, sans-serif;
+  letter-spacing: -.03em;
+  margin: 0 0 8px;
+  max-width: 40ch;
+}
+.detail-head .prov { font-size: 13.5px; color: var(--color-neutral-700); margin: 0; }
 
-.sel-actions {
-  background: var(--color-neutral-100);
-  padding: 26px 24px;
+.detail-actions {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 12px;
-  justify-content: flex-end;
+  margin-top: 18px;
   flex-wrap: wrap;
 }
-.sel-actions .calc { flex: 1; font-size: 14px; color: var(--color-neutral-800); font-variant-numeric: tabular-nums; }
-.sel-actions .btn-outline,
-.sel-actions .btn-solid { padding: 12px 16px; }
-.sel-actions .btn-solid { padding: 12px 18px; }
+.detail-actions .calc {
+  flex: 1;
+  min-width: 220px;
+  font-size: 13.5px;
+  color: var(--color-neutral-800);
+  font-variant-numeric: tabular-nums;
+}
 
-/* The three-column confrontation: contract | ledger | how it was checked. */
-.confront { grid-template-columns: 1fr 1fr 380px; }
-.side { display: flex; flex-direction: column; }
+/* Three columns on a wide screen, and they stack rather than squash — a
+   ledger squeezed to 200px is unreadable, which is worse than scrolling. */
+.confront {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 340px;
+  gap: 2px;
+  background: var(--color-divider);
+  align-content: start;
+}
+.side {
+  background: var(--color-neutral-100);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.side-ctx { background: var(--color-bg); }
 .side-head {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--color-neutral-300);
+  min-height: 44px;
 }
+.side-head h3 { margin: 0; }
 .side-head .meta { font-size: 12.5px; color: var(--color-neutral-700); }
 
-.docpane { padding: 22px 20px 20px; }
+.detail-blank { align-items: center; justify-content: center; }
+.detail-blank .blank-inner { padding: 64px 32px; max-width: 46ch; }
+.detail-blank h2 { font: 800 26px/1.15 Archivo, sans-serif; letter-spacing: -.03em; margin: 0 0 10px; }
+.detail-blank .sub { font-size: 14.5px; color: var(--color-neutral-700); margin: 0; }
+
+.docpane { padding: 20px; }
 .page {
   background: var(--color-bg);
   border: 1px solid var(--color-neutral-300);
@@ -564,10 +914,11 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 .page .margin-rule { position: absolute; left: 26px; top: 0; bottom: 0; width: 1px; background: var(--color-neutral-400); }
 .page .pagemeta {
   font: 600 11px/1 Archivo, sans-serif;
-  letter-spacing: .08em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--color-neutral-600);
   margin-bottom: 18px;
+  word-break: break-word;
 }
 /* Grey bars standing in for the surrounding body text of the PDF page. */
 .ln { height: 8px; background: var(--color-neutral-200); margin-bottom: 10px; }
@@ -592,7 +943,13 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   border-left: 3px solid var(--color-neutral-400);
   color: var(--color-neutral-800);
 }
+/* The placeholder that stands in for a clause we do not have. Same vertical
+   rhythm as the .clause it replaces, so the page does not jump when one
+   finding has a quote and the next does not. */
+.clause-skel { margin: 16px 0; }
+.docpane .absent { margin-top: 16px; }
 
+.side-body { display: flex; flex-direction: column; }
 .txn {
   display: flex;
   align-items: baseline;
@@ -600,9 +957,9 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   padding: 13px 20px;
   border-bottom: 1px solid var(--color-neutral-300);
 }
-.txn .t { flex: 1; font-size: 13.5px; }
+.txn .t { flex: 1; font-size: 13.5px; min-width: 0; }
 .txn .d { font-size: 12px; color: var(--color-neutral-600); margin-top: 3px; }
-.txn .fig { font-variant-numeric: tabular-nums; font-size: 14px; }
+.txn .fig { font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
 .txn.is-void .t { color: var(--color-neutral-600); }
 
 .sum {
@@ -613,7 +970,7 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   background: var(--color-bg);
 }
 .sum .t { flex: 1; font-size: 13.5px; }
-.sum .fig { font-variant-numeric: tabular-nums; font-size: 14px; }
+.sum .fig { font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
 .sum.subtotal { border-top: 2px solid var(--color-divider); }
 .sum.total { padding: 15px 20px; border-top: 2px solid var(--color-text); }
 .sum.total .t { font: 800 15px/1 Archivo, sans-serif; }
@@ -622,13 +979,7 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 
 .ctx { padding: 18px 20px; border-bottom: 1px solid var(--color-neutral-300); }
 .ctx:last-child { border-bottom: 0; }
-.ctx h3 {
-  font: 700 10.5px/1 Archivo, sans-serif;
-  letter-spacing: .11em;
-  text-transform: uppercase;
-  color: var(--color-neutral-700);
-  margin: 0 0 12px;
-}
+.ctx h4 { margin: 0 0 12px; }
 .tools { display: flex; flex-direction: column; gap: 8px; }
 .tool {
   background: var(--color-neutral-100);
@@ -636,17 +987,18 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   border-left: 3px solid var(--color-text);
   padding: 10px 12px;
   font-size: 12.5px;
+  word-break: break-word;
 }
 .tool b { font-weight: 600; }
 .tool .res { color: var(--color-neutral-700); margin-top: 5px; }
 .prose { font-size: 13.5px; color: var(--color-neutral-800); margin: 14px 0 0; }
-.ctx-actions { margin-top: 14px; display: flex; gap: 10px; }
+.ctx-actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
 .ctx-actions .btn-solid,
-.ctx-actions .btn-outline { font-size: 13px; padding: 10px 14px; }
+.ctx-actions .btn-outline { font-size: 13px; padding: 12px 14px; }
 
-.kv { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13.5px; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13.5px; }
 .kv span { color: var(--color-neutral-800); }
-.kv b { font-variant-numeric: tabular-nums; }
+.kv b { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kv b.accent { color: var(--color-accent-700); }
 .ctx p.fine { font-size: 12.5px; color: var(--color-neutral-700); margin: 0; }
 
@@ -726,6 +1078,11 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 .answer .lead { font-size: 16.5px; line-height: 1.62; max-width: 60ch; margin: 0 0 16px; }
 .answer .lead b { font-weight: 700; border-bottom: 2px solid var(--color-accent); font-variant-numeric: tabular-nums; }
 .answer .after { font-size: 15px; line-height: 1.6; max-width: 60ch; color: var(--color-neutral-700); margin: 0; }
+/* The unanswered state stands in for .lead, so it takes the same measure —
+   a skeleton running the full panel width reads as a loading bar rather than
+   as the paragraph it is replacing. */
+.answer .skeleton { max-width: 60ch; }
+.answer > .absent { margin-top: 20px; }
 
 .chart { margin-top: 34px; max-width: 760px; border: 1px solid var(--color-neutral-300); background: var(--color-bg); }
 .chart-head {
@@ -745,6 +1102,9 @@ button:disabled, .is-disabled { cursor: not-allowed; }
 .bargroup .a { flex: 1; background: var(--color-neutral-400); }
 .bargroup .b { flex: 1; background: var(--color-accent); }
 .axis { display: flex; justify-content: space-between; padding: 0 16px 14px; font-size: 11.5px; color: var(--color-neutral-600); }
+/* The chart frame with nothing to plot: the explanation sits where the bars
+   would, inside the same border, rather than the frame collapsing. */
+.chart-empty { padding: 18px 16px; }
 
 .caveat {
   margin-top: 30px;
@@ -831,12 +1191,115 @@ button:disabled, .is-disabled { cursor: not-allowed; }
   margin-bottom: 8px;
 }
 
+/* The heading level here follows the page it sits on — an <h1> on the standalone
+   error and endpoint pages, an <h2> on the findings screen, which already has
+   one. Both are styled, or the findings screen's "Nothing was flagged" headline
+   silently falls back to the generic 32px h2 from tokens.css and reads a size
+   and a tracking away from every other headline in the app. */
 .blank-slate { padding: 60px 24px 72px; }
-.blank-slate h1 { font: 800 34px/1.1 Archivo, sans-serif; letter-spacing: -.03em; margin: 0 0 16px; max-width: 26ch; }
+.blank-slate h1,
+.blank-slate h2 { font: 800 34px/1.1 Archivo, sans-serif; letter-spacing: -.03em; margin: 0 0 16px; max-width: 26ch; }
 .blank-slate p { font-size: 15px; color: var(--color-neutral-700); max-width: 68ch; margin: 0 0 12px; }
 .blank-slate code {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 13px;
   background: var(--color-neutral-200);
   padding: 2px 6px;
+}
+.blank-slate .backlink { margin-top: 24px; }
+.blank-slate .absent { margin-top: 24px; }
+
+/* The model-endpoint page: one card per host. Same .card as the summary strip,
+   but the figure is a URL, so it gets a monospace measure of its own rather
+   than the 34px display numeral. */
+.endpoint-grid { margin-top: 32px; max-width: 1100px; }
+.card .url {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  color: var(--color-neutral-800);
+  word-break: break-all;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Interaction polish
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Nothing in this UI changes state at 0ms. 150ms is the shortest interval that
+   reads as a transition rather than a jump, and the longest that still feels
+   instant. Only colour and shadow are animated — never width, height or top,
+   which force layout on every frame. */
+.btn-solid, .btn-outline, .btn-quiet, .btn-small,
+.statebar-btn, .topnav a, .suggestions a, .sortlink, .banner-action {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+/* Touch targets. The design's small controls came in at ~30px, below the
+   comfortable floor for a finger, and each class had drifted to its own
+   number — .btn-small 30px, .sortlink 34px, .statebar-select 36px, all in
+   sight of one another. There are now two heights and only two:
+   37px for a small control in a toolbar or a row (.btn-quiet, .btn-small,
+   .sortlink, .statebar-select) and 44px for a field you aim at directly
+   (.search-input, .side-head). Both are reached with padding rather than by
+   changing the type, so the visual weight of the design is unchanged, and
+   each is set where its class is defined rather than patched from here. */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Responsive
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* The three detail columns stop being readable well before they stop fitting.
+   A ledger squeezed to 200px is worse than a scroll, so they stack early. */
+@media (max-width: 1400px) {
+  .confront { grid-template-columns: 1fr 1fr; }
+  .side-ctx { grid-column: 1 / -1; }
+}
+
+@media (max-width: 1180px) {
+  .split { grid-template-columns: minmax(320px, 380px) 1fr; }
+  .confront { grid-template-columns: 1fr; }
+  .panels-4 { grid-template-columns: 1fr 1fr; }
+  .decision { grid-template-columns: 1fr; }
+  .confront-legacy { grid-template-columns: 1fr; }
+}
+
+/* Below this the two panes cannot both be useful side by side. The shell stops
+   being a fixed-height app and becomes a document again: the list gets a
+   capped height, the detail follows it, and the page scrolls normally. */
+@media (max-width: 900px) {
+  .shell.is-app { height: auto; overflow: visible; }
+  .shell.is-app > main { display: block; }
+  .split { grid-template-columns: 1fr; }
+  .listpane { max-height: 60vh; }
+  .detailpane { overflow: visible; }
+  .panels-2, .panels-3, .panels-4 { grid-template-columns: 1fr; }
+  .proc-head, .findings-head { flex-wrap: wrap; }
+  .docrow { flex-wrap: wrap; gap: 12px; }
+  .docrow .who { flex: 1 0 100%; }
+  .empty-hero h1 { font-size: 34px; }
+  .clean h1 { font-size: 32px; }
+  .verdict .word { font-size: 56px; }
+  .askbar { flex-direction: column; }
+  .askbar button { padding: 16px 26px; }
+}
+
+@media (max-width: 640px) {
+  .statebar { flex-wrap: wrap; padding: 8px 16px; gap: 4px; }
+  .statebar-note { padding-left: 0; flex-basis: 100%; }
+  .topbar { height: auto; flex-wrap: wrap; }
+  .topbar-util { border-left: 0; padding: 10px 16px; }
+  .empty-hero, .clean, .blank-slate { padding-left: 16px; padding-right: 16px; }
+  .frow, .list-toolbar, .group-head { padding-left: 12px; padding-right: 12px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Reduced motion — one rule, covering everything above
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

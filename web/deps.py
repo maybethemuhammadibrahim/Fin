@@ -20,7 +20,7 @@ from web.settings import MODE_COOKIE, resolve_mode
 
 #: Query parameters that identify *what you are looking at* and should survive
 #: a tab switch. `sel` and `q` belong to one page each and are not carried.
-CARRIED = ("state", "run", "mode")
+CARRIED = ("state", "run", "mode", "sort")
 
 
 def request_mode(request: Request) -> str:
@@ -70,6 +70,18 @@ def select_url(request: Request, path: str) -> str:
     return f"{path}?{query}&sel=" if query else f"{path}?sel="
 
 
+def sort_url(request: Request, path: str) -> str:
+    """A URL ending in ``sort=``. Keeps the selected finding across a re-sort —
+    re-ordering the list should not throw away what you were reading."""
+    params = {
+        k: v for k, v in request.query_params.items() if k in CARRIED and k != "sort"
+    }
+    if "sel" in request.query_params:
+        params["sel"] = request.query_params["sel"]
+    query = urlencode(params)
+    return f"{path}?{query}&sort=" if query else f"{path}?sort="
+
+
 def ask_url(request: Request, path: str) -> str:
     """A URL ending in ``q=`` so a suggested question can be appended."""
     params = {k: v for k, v in request.query_params.items() if k in CARRIED}
@@ -78,18 +90,25 @@ def ask_url(request: Request, path: str) -> str:
 
 
 @contextmanager
-def db_or_none() -> Iterator[object | None]:
+def db_or_none(request: Request | None = None) -> Iterator[object | None]:
     """A read session, or None when the database cannot be reached.
 
     Yields None rather than raising so the caller can render an honest empty
     page. The reason is available from `last_db_error()`.
+
+    Passing the request lets ``?fresh=1`` bypass the read cache for that one
+    render — the flag is stamped on the session because the presenters have no
+    request of their own.
     """
     global _LAST_DB_ERROR
+    fresh = bool(request and request.query_params.get("fresh"))
     try:
         from core.db import database
 
         with database.session_scope() as session:
             _LAST_DB_ERROR = None
+            if fresh:
+                session._finsight_fresh = True  # type: ignore[attr-defined]
             yield session
     except Exception as exc:  # noqa: BLE001 - the whole point is not to raise
         _LAST_DB_ERROR = f"{type(exc).__name__}: {exc}"

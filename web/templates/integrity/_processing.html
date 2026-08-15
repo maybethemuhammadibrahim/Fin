@@ -19,7 +19,8 @@
         </div>
         {{ macros.stages(doc.stages) }}
         <span class="tag {% if doc.needs_attention %}tag-waiting{% else %}tag-out{% endif %}">{{ doc.status }}</span>
-        <button class="btn-quiet" type="button" disabled>{{ doc.action }}</button>
+        <button class="btn-quiet" type="button" disabled
+                title="Acting on a document lands with the extraction pipeline (Phase 6)">{{ doc.action }}</button>
       </div>
     {% endfor %}
   {% else %}
@@ -32,11 +33,11 @@
 
 <section class="panels panels-2 rule-b">
   <div class="panel pad-24">
-    <h3 class="kicker-lg">
+    <h2 class="kicker-lg">
       Confirm the columns{% if view.column_map_file %} · {{ view.column_map_file }}{% endif %}
-    </h3>
+    </h2>
     {% if view.column_map %}
-      <div style="display:flex;flex-direction:column;gap:8px">
+      <div class="maplist">
         {% for m in view.column_map %}
           <div class="maprow">
             <span class="src">{{ m.source }}</span>
@@ -46,7 +47,8 @@
         {% endfor %}
       </div>
       {% if view.column_map_note %}<p class="note-sm">{{ view.column_map_note }}</p>{% endif %}
-      <button class="btn-solid" type="button" style="margin-top:14px" disabled>Use this mapping</button>
+      <button class="btn-solid panel-action" type="button" disabled
+              title="Writing a confirmed mapping back lands with the extraction pipeline (Phase 6)">Use this mapping</button>
     {% else %}
       {{ macros.skeleton([100, 100, 100, 100]) }}
       {{ macros.absent('Nothing to confirm', view.notices.get('column_map')) }}
@@ -54,20 +56,22 @@
   </div>
 
   <div class="panel pad-24">
-    <h3 class="kicker-lg">{{ view.clients_headline or 'Confirm the clients' }}</h3>
+    <h2 class="kicker-lg">{{ view.clients_headline or 'Confirm the clients' }}</h2>
     {% if view.clients %}
       <div>
         {% for c in view.clients %}
           <div class="confirmrow{% if c.accent %} accent{% endif %}">
-            <div style="flex:1">
+            <div class="who">
               <b>{{ c.name }}</b>
               <div class="meta">{{ macros.value(c.meta) }}</div>
             </div>
-            <button class="btn-small{% if c.accent %} accent{% endif %}" type="button" disabled>{{ c.action }}</button>
+            <button class="btn-small{% if c.accent %} accent{% endif %}" type="button" disabled
+                    title="Recording a client match lands with the extraction pipeline (Phase 6)">{{ c.action }}</button>
           </div>
         {% endfor %}
       </div>
-      <button class="btn-solid" type="button" style="margin-top:18px" disabled>Confirm and reconcile</button>
+      <button class="btn-solid panel-action" type="button" disabled
+              title="Running reconciliation lands with the engine (Phase 6)">Confirm and reconcile</button>
     {% else %}
       {{ macros.skeleton([88, 74, 80]) }}
       {{ macros.absent('Nothing to confirm', view.notices.get('clients')) }}

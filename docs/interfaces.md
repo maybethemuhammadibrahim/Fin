@@ -249,7 +249,9 @@ SummaryStats(run_id, total_leaked, anomaly_count, client_count, document_count,
 AnomalyRow(id, run_id, client_id, client_name, anomaly_type, expected_amount,
            actual_amount, gap, confidence_score, status, billing_date,
            clause_reference_id, expected_timeline_id, actual_transaction_id,
-           agent_reasoning, verified_at).has_clause
+           agent_reasoning, agent_tool_calls, verified_at).has_clause
+           # agent_tool_calls added 2026-08-15: carried on the row so rendering a
+           # finding costs no extra round trip. Phase 8 writes it.
 ClauseRefRow(id, contract_rule_id, document_id, clause_type, clause_text,
              source_page, source_bbox, locate_method, document_filename)
 TransactionRow(id, client_id, client_name, transaction_date, amount,

@@ -1,6 +1,6 @@
 {
   "project": "FinSight",
-  "updated": "2026-08-14",
+  "updated": "2026-08-15",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
   "current_phase": 6,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
@@ -374,7 +374,12 @@
     {
       "id": 52,
       "phase": 6,
-      "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema."
+      "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema. UPDATED 2026-08-15: web/ now caches database reads for WEB_CACHE_SECONDS (default 15) in web/cache.py. That is only safe BECAUSE nothing writes -- the first write path added to web/ must call web.cache.clear() or the UI will show stale figures for up to 15 seconds after a user's own action."
+    },
+    {
+      "id": 53,
+      "phase": 6,
+      "text": "A live web/ page cannot be made fast from this repo: the Supabase instance is in ap-southeast-1 and a single round trip measured 409 ms median (1127 ms for a fresh connection), so response time is query-count x 400 ms. Query count was cut 35 -> 9 (get_summary_stats 8 -> 3 round trips, get_client_totals 4 -> 1, plus a per-request memo), which took a cold page from 8.7 s to ~5 s; the read cache makes warm pages ~3 ms. The remaining ~5 s cold is network and needs a region change or a nearer pooler, not code. Demo mode renders in 4 ms and never touches the database. Do not 'optimise' the SQL -- it is not the SQL."
     }
   ],
   "adrs": [

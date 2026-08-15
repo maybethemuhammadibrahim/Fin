@@ -1,0 +1,79 @@
+{#
+  The list pane. Scrolls independently of the detail pane, so the detail is
+  always on screen no matter how long the list gets — the whole reason this
+  screen was split.
+
+  Rows are real anchors. An <a> can be a grid container, and making it one buys
+  focus order, Enter-to-open, middle-click-to-new-tab and a working browser
+  history for free; app.js then intercepts the plain click to swap the pane
+  without a navigation. With JavaScript off, every row still works as a link.
+#}
+<div class="listpane" id="listpane">
+
+  <div class="list-toolbar">
+    <div class="search">
+      {# type=search gives the native clear button; the filter is client-side
+         and runs against a prebuilt haystack, so it is instant at any size. #}
+      <label class="sr-only" for="finding-filter">Filter findings</label>
+      <input id="finding-filter" class="search-input" type="search" autocomplete="off"
+             placeholder="Filter by client, month or type…"
+             aria-controls="findings-groups" spellcheck="false">
+    </div>
+    <div class="sortbar" role="group" aria-label="Sort findings">
+      <span class="kicker">Sort</span>
+      {% for s in view.sorts %}
+        <a class="sortlink{% if s.active %} is-active{% endif %}"
+           href="{{ sort_url }}{{ s.key }}"
+           {% if s.active %}aria-current="true"{% endif %}>{{ s.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="list-scroll" id="findings-groups" role="listbox"
+       aria-label="Findings, {{ view.findings | length }} total"
+       tabindex="-1">
+    {% for g in view.groups %}
+      <div class="group" data-group="{{ g.key }}">
+        <div class="group-head">
+          <span class="group-label">{{ g.label }}</span>
+          <span class="group-count">{{ g.count }}</span>
+          <div class="spacer"></div>
+          <span class="group-total num">{{ macros.value(g.total) }}</span>
+        </div>
+        {% for f in g.rows %}
+          <a class="frow{% if f.selected %} is-selected{% endif %}"
+             id="frow-{{ f.id }}"
+             href="{{ select_url }}{{ f.id }}"
+             data-id="{{ f.id }}"
+             data-haystack="{{ f.haystack }}"
+             role="option"
+             aria-selected="{{ 'true' if f.selected else 'false' }}">
+            {# Three lines, each with one job: who and how much, what happened,
+               then the supporting detail. The title is clamped rather than
+               allowed to wrap freely, so every row is the same height and the
+               list stays scannable. #}
+            <span class="c-client">{{ f.client }}</span>
+            <span class="c-gap{% if f.kind == 'out' %} is-out{% endif %}">{{ macros.value(f.gap) }}</span>
+            <span class="c-title" title="{{ f.title }}">{{ f.title }}</span>
+            <span class="c-meta">
+              <span class="c-sub">{{ macros.value(f.sub) }}</span>
+              <span class="spacer"></span>
+              <span class="c-money">{{ macros.value(f.received) }} of {{ macros.value(f.due) }}</span>
+              {{ macros.tag(f.verdict, f.kind) }}
+            </span>
+          </a>
+        {% endfor %}
+      </div>
+    {% endfor %}
+
+    {# Shown by app.js when a filter matches nothing. Rendered up front so
+       there is no layout shift when it appears. #}
+    <p class="list-empty" id="list-empty" hidden>No finding matches that filter.</p>
+  </div>
+
+  <div class="list-foot">
+    <span id="list-count">{{ view.findings | length }}</span> shown
+    <div class="spacer"></div>
+    <span class="hint"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>/</kbd> filter</span>
+  </div>
+</div>

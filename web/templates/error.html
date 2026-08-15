@@ -1,9 +1,22 @@
 <!DOCTYPE html>
+{#
+  Standalone, not an extension of base.html: whatever broke may have been the
+  chrome's own context, so this page must render with nothing but `detail`.
+  That means the <head> is duplicated rather than inherited — keep it in step
+  with base.html, in particular the font link. Without it the page falls back
+  to tokens.css's own @import, which carries only weights 400/600/800, and
+  every `font: 700` in app.css is synthesised instead of loaded.
+#}
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Something broke · FinSight</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
 <link rel="stylesheet" href="{{ url_for('static', path='css/tokens.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
 </head>
@@ -14,7 +27,7 @@
     <h1>That page could not be rendered.</h1>
     <p>The details are in the server log. Nothing was written to the database.</p>
     <div class="absent"><b>Detail</b>{{ detail }}</div>
-    <p style="margin-top:24px"><a href="{{ url_for('integrity') }}">Back to the Integrity Engine</a></p>
+    <p class="backlink"><a href="{{ url_for('integrity') }}">Back to the Integrity Engine</a></p>
   </section>
 </div>
 </body>

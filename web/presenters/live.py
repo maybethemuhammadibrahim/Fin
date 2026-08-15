@@ -29,6 +29,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
+from web import cache as web_cache
 from core.db.queries import (
     AnomalyRow,
     RunRow,
@@ -37,10 +38,18 @@ from core.db.queries import (
     get_summary_stats,
     list_anomalies,
     list_documents,
+    list_runs,
     list_transaction_rows,
     revenue_by_month,
 )
 from web.format import DASH, day_month, gap as fmt_gap, money, month_name, pct, plural
+from web.presenters.grouping import (
+    DEFAULT_SORT,
+    build_groups,
+    haystack,
+    sort_key,
+    sort_options,
+)
 from web.viewmodels import (
     Bar,
     Card,
@@ -80,6 +89,65 @@ NOTICE_EXPENSES = (
     "No expense figures exist in the database, so the surplus and the verdict "
     "cannot be computed. Only what arrived is shown."
 )
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped memo
+# ---------------------------------------------------------------------------
+
+#: Supabase is a network hop away — measured at roughly a quarter-second per
+#: round trip from here — so the query *count* per render is the whole
+#: performance story, not the SQL. The first version of this module asked for
+#: `get_summary_stats` three times per page (once to derive the state, once for
+#: the cards, once for the state-bar note), and that one function is seven
+#: queries: 21 round trips for one figure, before anything else ran. Measured:
+#: 35 queries and 8.7s for a single page.
+#:
+#: The cache hangs off the Session, which `deps.db_or_none` opens and closes per
+#: request. That makes its lifetime exactly one request by construction — it
+#: cannot go stale between them and it cannot leak across users, which a
+#: module-level dict would do on both counts.
+#: Layered on top of that is `web.cache`, a few-second TTL shared across
+#: requests. The per-session memo below is what makes one render cheap; the TTL
+#: cache is what makes the *next* render free. Read that module's docstring for
+#: why a read cache is safe in a frontend that writes nothing.
+def _memo(session: Session, key: tuple, build):
+    cache = getattr(session, "_finsight_memo", None)
+    if cache is None:
+        cache = {}
+        try:
+            session._finsight_memo = cache  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - Session always accepts this
+            return build()
+    if key not in cache:
+        cache[key] = web_cache.get_or_set(key, build, enabled=cache_enabled(session))
+    return cache[key]
+
+
+def cache_enabled(session: Session) -> bool:
+    """False when the request asked for fresh data with ``?fresh=1``.
+
+    Set by the router on the session, because the presenter has no request.
+    """
+    return not getattr(session, "_finsight_fresh", False)
+
+
+def _stats(session: Session, run_id: int):
+    return _memo(session, ("stats", run_id), lambda: get_summary_stats(session, run_id))
+
+
+def _anomalies(session: Session, run_id: int):
+    return _memo(session, ("anomalies", run_id), lambda: list_anomalies(session, run_id))
+
+
+def _documents(session: Session, run_id: int):
+    return _memo(session, ("documents", run_id), lambda: list_documents(session, run_id))
+
+
+def runs(session: Session):
+    """Every run, for the picker. Cached — new runs come from scripts, not
+    from this frontend, which writes nothing."""
+    return _memo(session, ("runs",), lambda: list_runs(session))
 
 
 # ---------------------------------------------------------------------------
@@ -203,13 +271,13 @@ def derive_state(session: Session, run_id: int | None) -> str:
     if run_id is None:
         return "empty"
 
-    stats = get_summary_stats(session, run_id)
+    stats = _stats(session, run_id)
     if stats.document_count == 0:
         return "empty"
     if stats.anomaly_count:
         return "review"
 
-    docs = list_documents(session, run_id)
+    docs = _documents(session, run_id)
     if all(d.extraction_status == "complete" for d in docs):
         # Read everything, found nothing. That is a result, not a blank page —
         # but only if there was something to reconcile against in the first place.
@@ -249,6 +317,13 @@ def _cards(stats) -> list[Card]:
 
 
 def _detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDetail:
+    """Cached whole, not per-query. The three reads below (clause, ledger,
+    client totals) always travel together, so caching the assembled result is
+    three fewer round trips than caching each one."""
+    return _memo(session, ("detail", run_id, row.id), lambda: _build_detail(session, run_id, row))
+
+
+def _build_detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDetail:
     verdict, kind = _verdict(row.status)
 
     # -- the contract side ------------------------------------------------
@@ -311,7 +386,7 @@ def _detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDetail:
     totals = get_client_totals(session, run_id, row.client_id)
 
     # -- the verification side --------------------------------------------
-    tools = _tool_calls(session, row)
+    tools = _tool_calls(row)
 
     return FindingDetail(
         client=row.client_name,
@@ -346,16 +421,13 @@ def _detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDetail:
     )
 
 
-def _tool_calls(session: Session, row: AnomalyRow) -> list[ToolCall]:
+def _tool_calls(row: AnomalyRow) -> list[ToolCall]:
     """The agent's trace, if Phase 8 has written one.
 
     `agent_tool_calls` is free-form JSON, so read it defensively — a run from an
     older schema should degrade to no trace, not to a 500.
     """
-    from core.db.models import Anomaly
-
-    record = session.get(Anomaly, row.id)
-    raw = getattr(record, "agent_tool_calls", None) or []
+    raw = row.agent_tool_calls or []
     calls: list[ToolCall] = []
     for item in raw:
         if not isinstance(item, dict):
@@ -367,8 +439,22 @@ def _tool_calls(session: Session, row: AnomalyRow) -> list[ToolCall]:
     return calls
 
 
+def detail(session: Session, run_id: int, anomaly_id: str) -> FindingDetail | None:
+    """One finding's detail, for the fragment route. None when unknown.
+
+    Looks the row up in the run's own list rather than by primary key alone, so
+    an id from a different run cannot be rendered under this run's chrome.
+    """
+    rows = _anomalies(session, run_id)
+    row = next((r for r in rows if str(r.id) == str(anomaly_id)), None)
+    return _detail(session, run_id, row) if row else None
+
+
 def integrity(
-    session: Session, run_id: int | None, selected_id: str | None = None
+    session: Session,
+    run_id: int | None,
+    selected_id: str | None = None,
+    sort: str = DEFAULT_SORT,
 ) -> IntegrityView:
     """Build the Integrity Engine view from whatever the run actually holds."""
     state = derive_state(session, run_id)
@@ -376,10 +462,12 @@ def integrity(
     if run_id is None or state == "empty":
         return IntegrityView(state="empty")
 
-    stats = get_summary_stats(session, run_id)
-    docs = list_documents(session, run_id)
+    stats = _stats(session, run_id)
 
     if state == "processing":
+        # Fetched only here. The review and clean screens never render the
+        # document list, and over a 400 ms link an unused query is 400 ms.
+        docs = _documents(session, run_id)
         done = sum(1 for d in docs if d.extraction_status == "complete")
         failed = sum(1 for d in docs if d.extraction_status == "failed")
         in_flight = len(docs) - done - failed
@@ -439,42 +527,52 @@ def integrity(
         )
 
     # -- review -----------------------------------------------------------
-    rows = list_anomalies(session, run_id)
+    rows = _anomalies(session, run_id)
     chosen = None
     if selected_id is not None:
         chosen = next((r for r in rows if str(r.id) == str(selected_id)), None)
     if chosen is None and rows:
         chosen = rows[0]
 
-    findings = []
+    items = []
     for r in rows:
         verdict, kind = _verdict(r.status)
-        findings.append(
-            FindingRow(
-                id=str(r.id),
-                client=r.client_name,
-                title=_title(r),
-                sub=_type_label(r.anomaly_type)
-                + (f" · confidence {r.confidence_score:.2f}" if r.confidence_score else ""),
-                due=money(r.expected_amount),
-                received=money(r.actual_amount),
-                gap=fmt_gap(r.gap),
-                verdict=verdict,
-                kind=kind,
-                selected=chosen is not None and r.id == chosen.id,
-            )
+        period = month_name(r.billing_date)
+        type_label = _type_label(r.anomaly_type)
+        title = _title(r)
+        row = FindingRow(
+            id=str(r.id),
+            client=r.client_name,
+            title=title,
+            sub=type_label
+            + (f" · confidence {r.confidence_score:.2f}" if r.confidence_score else ""),
+            due=money(r.expected_amount),
+            received=money(r.actual_amount),
+            gap=fmt_gap(r.gap),
+            verdict=verdict,
+            kind=kind,
+            selected=chosen is not None and r.id == chosen.id,
+            type_key=r.anomaly_type,
+            haystack=haystack(r.client_name, title, type_label, period, verdict),
         )
+        items.append((row, float(r.gap or 0.0), r.client_name, r.billing_date))
+
+    items.sort(key=sort_key(sort))
+    findings = [item[0] for item in items]
+    gaps = {item[0].id: item[1] for item in items}
 
     notices = {}
-    detail = _detail(session, run_id, chosen) if chosen else None
-    if detail is not None and not detail.tools and not detail.agent_prose:
+    selected_detail = _detail(session, run_id, chosen) if chosen else None
+    if selected_detail is not None and not selected_detail.tools and not selected_detail.agent_prose:
         notices["agent"] = NOTICE_AGENT
 
     return IntegrityView(
         state="review",
         cards=_cards(stats),
         findings=findings,
-        selected=detail,
+        groups=build_groups(findings, gaps),
+        sorts=sort_options(sort),
+        selected=selected_detail,
         notices=notices,
     )
 
@@ -509,10 +607,10 @@ def decision(session: Session, run_id: int | None, question: str | None = None) 
             notices={"decision": NOTICE_DECISION, "working": "No run selected."},
         )
 
-    stats = get_summary_stats(session, run_id)
+    stats = _stats(session, run_id)
     months = revenue_by_month(session, run_id)
     avg_revenue = round(sum(months.values()) / len(months), 2) if months else None
-    confirmed = [a for a in list_anomalies(session, run_id, status="confirmed")]
+    confirmed = [a for a in _anomalies(session, run_id) if a.status == "confirmed"]
     confirmed_total = round(sum(a.gap for a in confirmed), 2) if confirmed else 0.0
     monthly_recovery = round(confirmed_total / 12, 2) if confirmed_total else None
 
@@ -572,7 +670,7 @@ def state_note(session: Session, run_id: int | None, state: str) -> str:
     if run_id is None:
         return "No runs in the database yet"
 
-    stats = get_summary_stats(session, run_id)
+    stats = _stats(session, run_id)
     if state == "empty":
         return "Nothing uploaded to this run"
     if state == "processing":

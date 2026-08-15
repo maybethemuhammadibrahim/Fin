@@ -11,6 +11,9 @@
 <link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
 </head>
 <body>
+
+<a class="skiplink" href="#main">Skip to content</a>
+
 <div class="shell{% if not fluid_width %} shell-fixed{% endif %}">
 
   <header class="topbar">
@@ -25,7 +28,7 @@
     </div>
   </header>
 
-  <section class="blank-slate rule-b">
+  <section class="blank-slate rule-b" id="main" tabindex="-1">
     <p class="eyebrow">Model endpoint</p>
     <h1>Where the model is served from right now.</h1>
     <p>
@@ -34,17 +37,17 @@
       it is read fresh on every call.
     </p>
 
-    <div class="panels panels-3" style="margin-top:32px;max-width:1100px">
+    <div class="panels panels-3 endpoint-grid">
       {% for label, url, source in rows %}
         <div class="card">
           <div class="lbl">{{ label }}</div>
-          <div class="sub" style="margin-top:0;word-break:break-all;font-size:13px">{{ url }}</div>
+          <div class="url">{{ url }}</div>
           <div class="sub">{{ source }}</div>
         </div>
       {% endfor %}
     </div>
 
-    <div class="absent" style="margin-top:32px">
+    <div class="absent">
       <b>Read only</b>
       Setting a URL, switching hosts and probing for life all live on the Streamlit
       Model endpoint page — <code>streamlit run app/main.py</code>, then

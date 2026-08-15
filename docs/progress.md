@@ -1376,6 +1376,77 @@ streamlit run app/main.py
 
 Verified on 2026-08-14 against the live Supabase run `demo_v1 · #4`: all five demo states and both live pages return 200, live mode reads **26,908.00 across 7 findings, 3 of 5 clients, 6 of 7 clauses located**, and `streamlit run app/main.py` still serves HTTP 200 with no exceptions.
 
+---
+
+## web/ UX pass — master-detail, and the query count that was the real bug (2026-08-15)
+
+**Completed:** 2026-08-15 · **Owner:** B · **Not a numbered phase.** Follows the 2026-08-14 FastAPI entry; no engine, extraction or schema change.
+
+### The problem
+
+The findings screen rendered the selected finding's detail *below* the entire list. Correct at the mockup's five findings, unusable at a hundred: you click a row and scroll past everything to see what you clicked.
+
+Chasing that turned up a second, larger problem that had nothing to do with layout.
+
+### Measured before touching anything
+
+| | |
+|---|---|
+| Page render with no database (demo mode) | **4 ms** |
+| `SELECT 1` round trip to Supabase `ap-southeast-1` | **409 ms median** (min 101, max 511); a fresh connection **1127 ms** |
+| Live page | **35 queries, 8.7 s** |
+
+So a live page's response time was its query count times 400 ms and nothing else. `get_summary_stats` alone was 8 round trips and was being called **three times per render** — once by `derive_state`, once by `_cards`, once by `state_note`.
+
+### Built by B
+
+- `web/templates/integrity/_findings_list.html`, `_finding_detail.html` — the review screen split in two, so the detail can be re-rendered without the list
+- `web/presenters/grouping.py` — sorting and grouping shared by both presenters, so demo and live cannot order the list differently
+- `web/cache.py` — a TTL read cache, `WEB_CACHE_SECONDS` (default 15), `?fresh=1` to bypass
+- `GET /finding/{id}` in `web/routers/integrity.py` — the detail pane as an HTML fragment
+- `web/static/js/app.js` — rewritten: prefetch on hover/focus, swap on click, `pushState`, `popstate`, client-side filter, `↑`/`↓`/`j`/`k`/`/`/`Esc`
+
+### Changed in core/db/queries.py (additive to behaviour, not to results — all figures verified identical)
+
+- `get_summary_stats` — 8 round trips to **3**, via `SUM(CASE WHEN …)` conditional counts and scalar subqueries. Written the long way rather than with `count(…) FILTER`, which is Postgres-only; ADR-003 requires SQLite parity and it was re-verified on both.
+- `get_client_totals` — 4 round trips to **1**
+- `AnomalyRow.agent_tool_calls` — carried on the row, removing a per-drill-down `session.get`
+
+### Measured after
+
+| | |
+|---|---|
+| Live page | **9 queries, ~5 s** cold |
+| Live page, warm cache | **0 queries, ~3 ms** |
+| Detail fragment | 4 queries cold, 0 warm — and prefetched on hover, so a click is usually already resolved |
+| Findings list at 500 rows | 16 ms server render, 422 KB, verified in a browser |
+
+### UX rules applied (via the ui-ux-pro-max skill's guidelines)
+
+Skip link; a real `h1` per page; rows as real `<a href>` with `role="option"` inside a `role="listbox"`; `aria-live` on the swapping pane; visible focus rings, inset where a pane clips them; `btn-small` raised to a 44px touch target; every state change given a 150ms transition instead of 0ms; one global `prefers-reduced-motion` rule; breakpoints at 1400 / 1180 / 900 / 640 where the panes stop being readable rather than where they stop fitting; `content-visibility: auto` on rows instead of a virtualisation library.
+
+**The recommended design system was deliberately not adopted.** The skill proposed a dark ops-dashboard palette with Fira; the Modernist system is delivered and fixed, so only the UX and performance guidance was taken. No new colour was introduced — the four leak types are distinguished by grouped headings and labels, not by four new hues the token file does not have.
+
+### Known gaps / deliberately deferred
+
+- **The cold live page is still ~5 s and cannot be made faster from this repo.** The floor is the Supabase region: 9 queries at ~400 ms. Moving the instance nearer, or a connection pooler closer to the app, is the only remaining lever. The read cache hides it after the first hit.
+- **The read cache is only safe while `web/` writes nothing** (known issue #52). The first write path added must call `web.cache.clear()` or narrow the TTL — this is written on the module.
+- Past roughly a thousand findings the HTML payload argues for paging; nothing paginates today.
+- Sorting is server-side, so it costs a round trip on a cold cache. Filtering is client-side and free.
+- The demo presenter parses its own formatted strings back into floats to build group subtotals, because the mockup's figures were transcribed as strings. Live mode sums the floats it already has.
+
+### How to verify
+
+```bash
+python run_web.py
+# hover a row: the detail is already fetched before you click
+# type in the filter, press / to focus it, arrow through the list
+open 'http://127.0.0.1:8000/?state=review'
+open 'http://127.0.0.1:8000/?mode=live'
+open 'http://127.0.0.1:8000/?mode=live&fresh=1'   # bypass the read cache
+streamlit run app/main.py                          # still unaffected
+```
+
 
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
