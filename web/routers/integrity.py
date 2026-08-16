@@ -18,8 +18,11 @@ is a few lines wide and lives here.
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
+from core.db.queries import get_clause_reference, get_document
+from core.extraction.pdf_renderer import render_document_page
+from web import cache as web_cache
 from web import chrome as chrome_mod
 from web.deps import carry, db_or_none, last_db_error, request_mode, select_url, sort_url
 from web.presenters import demo, live
@@ -108,6 +111,62 @@ def integrity_page(request: Request) -> HTMLResponse:
             runs=_run_options(runs, run_id),
         )
         return render(request, "integrity/index.html", chrome=chrome, view=view, **extra)
+
+
+@router.get("/clause/{clause_id}/page.png", name="clause_page")
+def clause_page(clause_id: int, request: Request) -> Response:
+    """The contract page behind a clause, as a PNG, highlighted. Phase 7.
+
+    A separate request rather than a data: URI in the fragment, for two reasons:
+    the browser caches it, and a 300 KB base64 blob inside the detail pane would
+    undo the whole point of the prefetch-on-hover that makes selection instant.
+
+    404s in demo mode. Demo has no database and no document bytes, and inventing
+    a page for it would be exactly the fallback ADR-018 forbids.
+    """
+    if request_mode(request) != "live":
+        return Response(status_code=404)
+
+    def build() -> bytes | None:
+        with db_or_none(request) as session:
+            if session is None:
+                return None
+            clause = get_clause_reference(session, clause_id)
+            if clause is None or clause.document_id is None:
+                return None
+            document = get_document(session, clause.document_id)
+            if document is None:
+                return None
+            rendered = render_document_page(
+                storage_url=document.storage_url,
+                extracted_text=document.extracted_text,
+                filename=document.filename,
+                file_type=document.file_type,
+                page=clause.source_page,
+                # ADR-005: an ungrounded quote still gets its page, with no box
+                # on it. A highlight in the wrong place is worse than none.
+                bbox=clause.source_bbox if clause.is_grounded else None,
+            )
+            return rendered[0] if rendered else None
+
+    # Cached like every other read, and for a sharper reason than usual: the
+    # `documents` row carries the whole extracted text, which for an EDGAR filing
+    # is a couple of hundred kilobytes pulled across a 400 ms link (known issue
+    # #53) — measured at ~3.5 s cold for one page. The browser's own
+    # `Cache-Control` handles a single user; this handles the second viewer and
+    # the reload.
+    image = web_cache.get_or_set(("clause_png", clause_id), build)
+    if image is None:
+        return Response(status_code=404)
+
+    return Response(
+        content=image,
+        media_type="image/png",
+        # Private: a run's contract page is not shared-proxy material. Long
+        # enough that paging back and forth is free, short enough that
+        # re-locating a clause shows up without a hard refresh.
+        headers={"Cache-Control": "private, max-age=600"},
+    )
 
 
 @router.get("/finding/{finding_id}", response_class=HTMLResponse, name="finding_detail")

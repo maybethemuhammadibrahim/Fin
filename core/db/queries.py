@@ -647,3 +647,22 @@ def list_transactions(session: Session, run_id: int, client_id: int | None = Non
     if client_id is not None:
         stmt = stmt.where(ActualTransaction.client_id == client_id)
     return list(session.scalars(stmt.order_by(ActualTransaction.transaction_date)))
+
+
+def count_contract_rules(session: Session, run_id: int) -> int:
+    """How many contracts in this run have structured rules on file. Phase 6.
+
+    The question the Reconcile panel asks before offering its button: without a
+    `contract_rules` row there is no expected timeline to generate, and the
+    honest answer is "upload a contract and extract it", not an empty findings
+    table.
+    """
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(ContractRule)
+            .join(Client)
+            .where(Client.run_id == run_id)
+        )
+        or 0
+    )

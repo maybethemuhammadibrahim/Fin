@@ -167,6 +167,7 @@ finsight/
 │   ├── pages/
 │   │   ├── 1_integrity_engine.py            # [B] Page 1: upload & detect
 │   │   ├── 2_decision_engine.py             # [B] Page 2: question & verdict
+│   │   ├── 8_model_endpoint.py              # [B] endpoint switcher (added Phase 5)
 │   │   └── 9_db_health.py                   # [B] dev-only diagnostics
 │   ├── components/
 │   │   ├── file_uploader.py                 # [B] dual upload zones + toggle
@@ -177,6 +178,28 @@ finsight/
 │   │   ├── clause_viewer.py                 # [B] highlighted PDF page
 │   │   └── cash_flow_chart.py               # [B] Plotly projection
 │   └── state.py                             # [B] st.session_state helpers
+│
+├── web/                                     # 🎨 SECOND FRONTEND — ADR-018, USER B OWNS IT
+│   │                                        # FastAPI + Jinja2. Added after Phase 5,
+│   │                                        # not in the original plan. `python run_web.py`
+│   ├── main.py                              # [B] app factory, router mounting
+│   ├── settings.py                          # [B] WEB_DATA_MODE, WEB_CACHE_SECONDS
+│   ├── deps.py                              # [B] per-request session, mode resolution
+│   ├── cache.py                             # [B] TTL read cache — writes MUST clear() it
+│   ├── chrome.py                            # [B] header / state-bar view model
+│   ├── format.py                            # [B] money, dates, percentages
+│   ├── templating.py                        # [B] Jinja env + render()
+│   ├── viewmodels.py                        # [B] ⭐ the dataclasses BOTH presenters return
+│   ├── presenters/
+│   │   ├── demo.py                          # [B] the mockup's content, transcribed
+│   │   ├── live.py                          # [B] the same shapes, from the database
+│   │   └── grouping.py                      # [B] sorting/grouping shared by both
+│   ├── routers/
+│   │   ├── integrity.py                     # [B] `/` and `/finding/{id}` fragment
+│   │   ├── decision.py                      # [B] `/decision`
+│   │   └── system.py                        # [B] health, endpoint info
+│   ├── templates/                           # [B] base, integrity/*, decision/*, partials/*
+│   └── static/                              # [B] css + app.js (prefetch, keyboard nav)
 │
 ├── core/
 │   ├── config.py                            # [B] env vars, provider selection
@@ -232,6 +255,8 @@ finsight/
 │       ├── val.jsonl                        # [A]
 │       └── eval_set.jsonl                   # [A] held-out, COMMITTED
 │
+├── run_web.py                               # [B] launcher for web/ (--live, --reload, --fixed)
+│
 ├── scripts/
 │   ├── init_db.py                           # [A] create all tables
 │   ├── seed_demo.py                         # [A] scenario → DB rows
@@ -264,6 +289,42 @@ finsight/
 1. One owner per file. Need a change elsewhere? Ask.
 2. `memory/interfaces.md` gets the signature **before** the implementation exists.
 3. Both people work every phase — nobody waits.
+
+---
+
+## There are two frontends now — where a feature lands (ADR-018)
+
+> [!IMPORTANT]
+> **Added 2026-08-16, after Phase 5.** Everything below this heading post-dates the rest of this plan. Where a later phase says "the UI" or names an `app/components/…` file, read it as **"both frontends"** and use the routing table here to decide what each one gets. The phase texts were left as written; this section is the amendment.
+
+`app/` (Streamlit) is no longer the only frontend. `web/` is a FastAPI + Jinja2 app that renders the delivered design, run with `python run_web.py`. **Neither is deprecated**, neither is kept in visual sync with the other, and **both read only through `core.db.queries`** — they can differ in appearance but never in figures.
+
+### The rule for every remaining phase
+
+**A phase is not done when the engine computes the number. It is done when the number is on screen in the frontend that owns that surface, in both of `web/`'s data modes, and every "lands in Phase N" placeholder that named this phase is gone.**
+
+### Which frontend owns which surface
+
+| Surface | Frontend | Why |
+|---|---|---|
+| Config ✅/❌ table, DB health, model-endpoint switcher | **`app/` only** | Operational pages. Streamlit is genuinely good at these and they are not in the design. |
+| File upload widgets, CSV column-mapping confirm, client-grouping confirm | **`app/` writes, `web/` shows** | These need real widgets and a write path. Build the write path in `app/`; `web/`'s buttons stay inert until a phase explicitly gives `web/` a POST route. |
+| Findings list + detail, clause viewer, summary cards | **both** | `app/` keeps its table (Phase 2), `web/` is the master-detail screen the demo uses. |
+| Agent verdicts and reasoning panel (Phase 8) | **both** | `web/`'s detail pane already reserves the panel; `app/` gets the expander. |
+| Decision Engine question, verdict, projection chart (Phase 9) | **both** | `web/decision` renders the design; `app/pages/2_decision_engine.py` keeps the Streamlit version. |
+| Anything new the design does not cover | **`app/` first** | Do not invent screens in `web/`. Its templates are a transcription of a delivered mockup.
+
+### The four things a phase must do to `web/`
+
+1. **Add the field to `web/viewmodels.py` and fill it in BOTH presenters.** `presenters/demo.py` returns the mockup's own content; `presenters/live.py` returns the database's. A field only one presenter sets renders blank in the other and nobody notices. This friction is deliberate (ADR-018).
+2. **Never fall back from live into demo.** Missing data renders as a skeleton plus a dashed box naming the phase that fills it. A page of dashes is a correct page; a page that quietly borrows a demo figure is fiction.
+3. **Delete the placeholder you just made obsolete.** Grep the templates for `Phase N` before closing the phase — `_empty.html`, `_processing.html`, `_finding_detail.html` and `decision/index.html` all carry `title="… lands in Phase N"` tooltips that become lies the moment the feature exists.
+4. **If the phase adds the first write path to `web/`, it must call `web.cache.clear()`.** `web/cache.py` caches reads for `WEB_CACHE_SECONDS` (default 15) and that is safe *only* while `web/` writes nothing (known issue #52). A write without a `clear()` shows the user a stale page after their own click.
+
+### Two things not to "fix"
+
+* **`web/` is slow in live mode and it is not the SQL** (known issue #53). Supabase sits in `ap-southeast-1` at ~400 ms per round trip, so page time is `query count × 400 ms`. Cut queries, not clauses. Demo mode never touches the database and renders in ~4 ms.
+* **The two frontends will drift in appearance.** That is accepted. They share the query layer, so they cannot drift in figures — which is the only kind of drift that matters.
 
 ---
 
@@ -1345,8 +1406,18 @@ Why aggregate rather than match transaction-to-invoice? Full matching is a combi
 - Swap `seed_demo.py`'s anomaly rows for computed ones in the pipeline
 - **Nothing in the UI changes.** It already reads the `anomalies` table. This is ADR-008 paying off.
 
+> [!NOTE]
+> **Frontend amendment, 2026-08-16 (ADR-018).** "Nothing in the UI changes" holds for *both* frontends' read paths — `app/` and `web/` both read `anomalies` through `core.db.queries`, so computed rows appear with no template edit. Two things Phase 6 does still owe the frontends:
+> * **The write path.** Phase 6 is the first phase that writes rows from a user action (run the pipeline on an upload). Build it in `app/` — the upload widgets and the confirm steps live there. `web/`'s "Confirm and reconcile" button stays inert, and its `title="… lands with the engine (Phase 6)"` tooltip stays honest, until a later phase gives `web/` a POST route. **If you do give `web/` one, it must call `web.cache.clear()`** (known issue #52).
+> * **The obsolete placeholders.** `web/templates/integrity/_empty.html` tells the user `contract_rules` "lands in Phase 6". Once Phase 6 writes those rows, grep the templates for `Phase 6` and remove or re-target every hit.
+
 ## ✅ Definition of done
 All three Phase 3 scenarios run. `easy` and `realistic` reproduce `ground_truth.json` exactly. `edge` (the clean client) produces **zero** anomalies — that's the one that proves you discriminate rather than just flag everything.
+
+**Frontend addendum (2026-08-16):** the same computed run renders in all three places without a hardcoded figure anywhere — `streamlit run app/main.py`, `python run_web.py` in **live** mode, and `web/` in **demo** mode still showing the mockup's own numbers unchanged.
+
+> [!WARNING]
+> `data/` is gitignored and `data/scenarios/` is currently **empty** (known issues #35, #44). The three scenarios this phase is measured against do not exist on disk until you re-run `data_sourcing/scenario_builder.py`. Verify with a directory listing before assuming they are there — this has now bitten two separate phases.
 
 ---
 
@@ -1432,6 +1503,9 @@ def render_highlighted(pdf_path, page_num, bbox, dpi=150):
 - `pdf_renderer.py`
 - Replace the Phase 2 placeholder with the real viewer, all three states
 - Fetch PDFs from Supabase Storage via signed URL
+
+> [!NOTE]
+> **Frontend amendment, 2026-08-16 (ADR-018).** The clause viewer exists **twice**: `app/components/clause_viewer.py` (`st.image()`, as written above) and `web/`'s detail pane, which is a `<img>` in `web/templates/integrity/_finding_detail.html`. `pdf_renderer.py` returns PNG bytes and is frontend-agnostic — keep it that way; `web/` needs a route that serves those bytes, not a second renderer. Add the page/bbox/`locate_method` fields to `web/viewmodels.py` and fill them in **both** presenters (demo gets the mockup's, live gets the database's). All three display states must degrade the same way in both frontends. Known issue #28 still stands: EDGAR serves HTML, not PDF, so many real contracts have no page to render at all — that path degrades to text-only in both.
 
 ## ✅ Definition of done
 All four anomaly types open the correct page with the correct clause highlighted. The ungrounded case degrades honestly instead of crashing.
@@ -1561,6 +1635,9 @@ CONCLUDE: FALSE_POSITIVE — Payment found in bank records under a slightly
 - `verification_agent.py` — the LangGraph graph, iteration cap, verdict writing
 - UI: status badges (✅ confirmed / ⚪ false positive / ⚠️ needs review), an expandable "agent reasoning" panel per row, and a toggle to show or hide filtered false positives
 
+> [!NOTE]
+> **Frontend amendment, 2026-08-16 (ADR-018).** `web/` already reserves the space: `presenters/live.py` carries `NOTICE_AGENT` and `_finding_detail.html` draws a dashed "the verification agent lands in Phase 8" box plus two inert verdict buttons. Phase 8 fills the panel in **both** presenters and deletes that notice. The verdict buttons ("Add to recoverable" / "Rule it out") are a **write** — if Phase 8 wires them in `web/` rather than only in `app/`, that is the first write path in `web/` and it **must** call `web.cache.clear()`, or the user's own click shows a stale page for up to `WEB_CACHE_SECONDS`.
+
 ## ✅ Definition of done
 The `realistic` scenario runs. The planted name-variant case comes back `FALSE_POSITIVE` with a readable explanation. Genuine anomalies stay `CONFIRMED`. No anomaly is ever lost by an agent error.
 
@@ -1687,6 +1764,9 @@ verdict           = "YES" if after_decision > 0 else "NO"
 - `decision_analyzer.py` — `parse_question()` and `explain_verdict()`
 - Plotly projection chart, two lines
 - Replace the Phase 2 hardcoded verdict with real output
+
+> [!NOTE]
+> **Frontend amendment, 2026-08-16 (ADR-018).** Page 2 exists twice: `app/pages/2_decision_engine.py` (Plotly, as written) and `web/templates/decision/index.html`, which renders the design and is currently blank in live mode by design. `web/` has no Plotly — its chart is inline SVG or a static image; do not add a JS charting CDN, the page must stay self-contained. Two blockers that are **not** Phase 9's fault and must be named rather than worked around: `web/`'s question box has no POST route (it is a read-only frontend), and **no table in the schema holds expenses**, so no surplus can be computed from the current data model. Decide deliberately whether Phase 9 adds an expenses source or the Decision Engine ships driven by `app/` input only — and say which in `progress.md`.
 
 ## ✅ Definition of done
 Three different questions produce correct verdicts. Every number in the explanation matches the computed figure exactly.
@@ -1921,6 +2001,13 @@ Since ADR-012 the comparison is **base vs tuned on identical weights** — same 
 5. Verify it reaches the **tunnel**, and confirm you can change `COLAB_TUNNEL_URL` in Streamlit Secrets and have the app pick it up **without a redeploy** — you will do this on the morning of the demo, because the URL changes when the notebook restarts
 6. Pre-load one demo run so the URL is never empty for a visitor *and* so the page still renders when no session is running
 
+> [!NOTE]
+> **Frontend amendment, 2026-08-16 (ADR-018).** There are two apps to deploy, and Streamlit Community Cloud only hosts the Streamlit one. Decide explicitly and record the decision:
+> * **`app/`** → Streamlit Community Cloud, `app/main.py`, as written above.
+> * **`web/`** → an ASGI host (Render / Fly / Railway / a container), `run_web.py` or `uvicorn web.main:app`. It needs the same secrets, and `WEB_DATA_MODE` decides what it boots into — **set it to `demo` for a public URL** so a paused Supabase project or a dead tunnel never produces an empty public page. The `?mode=live` toggle still reaches the real data for the demo itself.
+>
+> If only one gets deployed, deploy the one the demo uses and say so in the report — do not leave a reader to discover the other frontend exists only locally. `web/`'s live mode is also ~5 s cold against `ap-southeast-1` (known issue #53); a host in the same region is the only fix, and demo mode is unaffected because it never opens a connection.
+
 **`docs/demo_script.md`** — the five-minute walkthrough, timed:
 
 | Time | Beat |
@@ -1991,7 +2078,7 @@ flowchart TB
 
 | Layer | Does | Never does |
 |-------|------|-----------|
-| **Streamlit** | Renders DB rows, collects uploads | Computes anything, calls a model directly |
+| **Frontends** (`app/` Streamlit **and** `web/` FastAPI — ADR-018) | Render DB rows through `core.db.queries`; `app/` also collects uploads | Compute anything, call a model directly, hold a second data path, or invent a figure the database does not have |
 | **Extraction** | Files → text | Interprets meaning |
 | **LLM** | Prose → structured data; phrases explanations | **Arithmetic. Anomaly decisions. Coordinates.** |
 | **Engine** | All money math, pure functions | Network, database, model calls |

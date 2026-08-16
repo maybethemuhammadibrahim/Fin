@@ -43,6 +43,23 @@
         {{ macros.tag(sel.ground_tag, sel.ground_kind) }}
       </div>
       <div class="docpane">
+        {% if sel.page_image_url %}
+          {# Phase 7: the real page, rendered by PyMuPDF with the clause boxed.
+             The stylised page below is the fallback — demo mode always takes it,
+             because demo has no document bytes to render. #}
+          <figure class="pageshot">
+            <img src="{{ sel.page_image_url }}" alt="Contract page {{ sel.doc_meta or '' }}, with the quoted clause highlighted" loading="lazy">
+            <figcaption>
+              {{ macros.value(sel.doc_meta) }}
+              {% if sel.page_is_typeset %}
+                {# ADR-021. The page is a faithful typesetting of the filing's
+                   own text, not the filing as filed, and saying so is the
+                   condition on which it counts as evidence at all. #}
+                · typeset by FinSight from the filing's text — the original is HTML, not a PDF
+              {% endif %}
+            </figcaption>
+          </figure>
+        {% else %}
         <div class="page">
           <i class="margin-rule"></i>
           <div class="pagemeta">{{ macros.value(sel.doc_meta) }}</div>
@@ -60,6 +77,13 @@
           <div class="ln w86"></div>
           <div class="ln w68"></div>
         </div>
+        {% endif %}
+        {% if sel.page_image_url and sel.clause %}
+          {# The quote is repeated below the image on purpose: it is the string
+             the model returned verbatim, and it stays selectable and searchable
+             whatever the render did. #}
+          <blockquote class="clause-quote{% if not sel.highlighted %} is-ungrounded{% endif %}">{{ sel.clause }}</blockquote>
+        {% endif %}
         {% if sel.clause %}
           <p class="note-sm">{{ sel.ground_note }}</p>
         {% else %}

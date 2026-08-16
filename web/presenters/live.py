@@ -12,8 +12,11 @@ What is genuinely absent today, and where it lands:
 * agent verdicts and tool traces — `core/agents/` is a stub, Phase 8;
 * headline prose and the Decision Engine's answer — `core/ai/decision_analyzer.py`
   is a stub, Phase 9;
-* clause page coordinates — populated from Phase 6 onward, and nullable forever
-  after (ADR-005), so the viewer degrades rather than crashes;
+* clause page coordinates — Phase 7, and nullable forever after (ADR-005), so
+  the viewer degrades rather than crashes. Phase 6 writes the clause *quote* for
+  every finding it computes; only the page and box are still missing, and for a
+  contract sourced from EDGAR as HTML there is no page to point at at all
+  (known issue #28);
 * expenses — no table holds them, so no surplus can be computed. The working
   ledger shows revenue and findings and dashes the rest.
 
@@ -335,6 +338,8 @@ def _build_detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDeta
         clause_ref = None
         doc_meta = None
         ground = "none"
+        page_image_url = None
+        page_is_typeset = False
     else:
         clause_text = clause.clause_text
         clause_ref = clause.clause_type.replace("_", " ") if clause.clause_type else None
@@ -343,6 +348,14 @@ def _build_detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDeta
             parts.append(f"page {clause.source_page}")
         doc_meta = " — ".join(parts)
         ground = clause.locate_method if clause.locate_method in {"exact", "fuzzy"} else "none"
+        # Phase 7: the page itself, rendered by `/clause/{id}/page.png`. Offered
+        # whenever there is a document behind the clause — an ungrounded quote
+        # still gets its page, just without a box (ADR-005).
+        page_image_url = f"/clause/{clause.id}/page.png" if clause.document_id else None
+        # Read off the filename rather than fetching the document row: this is
+        # exactly how `pdf_renderer.ensure_pdf` decides, and over a 400 ms link
+        # an extra query for a caption is a query too many (known issue #53).
+        page_is_typeset = not (clause.document_filename or "").lower().endswith(".pdf")
 
     # -- the ledger side --------------------------------------------------
     start, end = _month_window(row.billing_date)
@@ -418,6 +431,8 @@ def _build_detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDeta
         c_received=money(totals.received_total) if totals else None,
         c_share=pct(totals.revenue_share) if totals else None,
         c_gap=fmt_gap(totals.gap_total) if totals else None,
+        page_image_url=page_image_url,
+        page_is_typeset=page_is_typeset,
     )
 
 

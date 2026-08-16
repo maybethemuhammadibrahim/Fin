@@ -1447,6 +1447,171 @@ open 'http://127.0.0.1:8000/?mode=live&fresh=1'   # bypass the read cache
 streamlit run app/main.py                          # still unaffected
 ```
 
+---
+
+## Phase 6 — Expected Timeline & Reconciliation
+**Completed:** 2026-08-16 · **Owners:** A / B
+
+Zero AI in this phase, as designed. Nothing here calls a model, reads the clock
+or opens a socket. The findings in the database stopped being seeded and started
+being computed, and **no template in either frontend changed to make that
+happen** — which is ADR-008 paying off exactly as it was supposed to.
+
+### Built by A
+- `core/engine/timeline_generator.py` — `ContractRules` → the expected billing timeline. Pure. `add_months` clamps to short months and never compounds the clamp (Jan 31 → Feb 28 → **Mar 31**); escalation compounds per anniversary by default; the order is escalation-then-discount with a **round to cents at each stage**, which is what reproduces ground truth exactly.
+- `tests/test_timeline.py` — 34 assertions, every expected amount hand-computed before the code ran, including the pitch's own worked example ($6,000 / 10% for 3 months / 8% anniversary / $15,000 milestone).
+
+### Built by B
+- `core/engine/reconciliation.py` — client-month aggregation (ADR-006), plus the attribution step the plan never named: a bank line says `REGAL ENT GROUP ACH INV-202502` and the client is *Regal Entertainment Group*. Scores by `client_matcher.similarity` **or** a token-prefix abbreviation rule, and **refuses** below 85 or within 6 points of a runner-up.
+- `core/engine/anomaly_classifier.py` — the four types as testable hypotheses, each returning the clause role that proves it and a plain-English reason built from computed figures.
+- `core/engine/pipeline.py` — **not in the plan's tree.** The only place engine output becomes rows: `persist_rules()` (a Phase 5 extraction → `contract_rules` + clauses + escalations/discounts/milestones) and `compute_run()` (→ `expected_timeline` + `anomalies`). Idempotent.
+- `app/components/reconcile_panel.py` + section 3 of `app/pages/1_integrity_engine.py` — the **first action in this app that computes rather than reads**.
+- `core/db/queries.count_contract_rules`, `tests/test_reconciliation.py` (27), `tests/test_pipeline.py` (13, on throwaway SQLite), `scripts/eval_engine.py`, `scripts/run_scenario.py`.
+
+### New interfaces added to interfaces.md
+- `timeline_generator.generate_timeline(...)`, `rate_for`, `add_months`, `months_between`, `unresolved_milestones`, `ClauseRefMap`
+- `reconciliation.reconcile/reconcile_detail/attribute_transactions/clean_description/name_score`, `ClientRef`, `Attribution`, `MonthBucket`, `ReconciliationResult`
+- `anomaly_classifier.classify/classify_gap`, `Classification`
+- `pipeline.compute_run/persist_rules/load_contract_plans`, `RunSummary`, `ContractPlan`
+- `queries.count_contract_rules`, `reconcile_panel.render_reconcile_panel/render_extract_panel`
+- Additive schema changes: `TimelineEntry.id`, `TransactionRow.id`, `TransactionRow.client_id`, and `Anomaly.expected_timeline_id` relaxed to `int | None` to match the DB column it always had.
+
+### Decisions recorded
+- ADR-019: a payment answers the billing it followed
+- ADR-020: attribution refuses rather than guesses
+- (No ADR needed for compounding escalation — see "known gaps", it is a documented default with a flag.)
+
+### Measured — the definition of done
+
+```
+easy       7/7 findings   $17,815.00 / $17,815.00   0 unattributed
+realistic  5/5 findings   $22,500.00 / $22,500.00   3 unattributed (the 3 planted noise rows)
+edge       0/0 findings   $0.00 / $0.00
+74 pytest assertions pass in 0.79s
+```
+
+Every expected amount, every anomaly type and every gap matches `ground_truth.json`
+to the cent, and `edge` — the clean-client scenario — produces **zero** findings.
+The same three scenarios then loaded into live Supabase (`runs` 12, 13, 14) and
+`compute_run` reproduced the same totals through the database.
+
+### Known gaps / deliberately deferred
+- **`escalation.after_months` is treated as recurring, not one-off.** A clause saying *"increase 8% on each anniversary"* compounds: 6,000 → 6,480 → 6,998.40. `data_sourcing/scenario_builder.py` applies its escalation **once**, so the two agree only because no scenario window contains a second anniversary. A three-year scenario would diverge, and the engine is the correct side. `compound_escalation=False` is there for a genuine one-off rise.
+- **Milestones are never billed automatically.** `ContractRules.Milestone` carries a condition ("on website launch"), not a date, and nothing resolves one into the other — `RunSummary.unresolved_milestones` names them instead. Resolving a condition to a date is a judgement, and guessing it would manufacture ghost invoices out of thin air. The $15,000 launch milestone in the pitch therefore needs `milestones.due_date` set by hand (or by Phase 8's agent) before it is checked.
+- **Upload → extraction → `contract_rules` is code-complete but has never run against a live GPU.** `render_extract_panel` calls Phase 5's `extract_rules` and `persist_rules`; both halves are tested separately (Phase 5 on a Colab T4, `persist_rules` in `tests/test_pipeline.py`), but the joined path has only been exercised with no endpoint running, where it fails cleanly. This is the honest remainder of known issue #41.
+- **`web/` still writes nothing** (known issue #52). Reconciliation runs from Streamlit only. The FastAPI app shows every computed figure and its buttons stay inert on purpose — ADR-018.
+- **No clause has a page or a box.** Scenario contracts are EDGAR HTML saved as `.txt` (known issue #28), so `locate_method` is NULL and the viewer degrades to the quote. Phase 7 owns the rendering; the missing PDFs are still uncosted.
+- **`scripts/seed_demo.py` was left alone.** The plan says to swap its anomaly rows for computed ones; `scripts/run_scenario.py` does that as a separate script instead, so the seeded run stays available as a fixed reference that no engine change can move. `seed_demo.scenario_dir` still raises `NotImplementedError` (known issue #35 is otherwise closed).
+- **Phase 1's 47 schema assertions are still not in pytest** (known issue #15). Phase 6 was said to own porting them; it added 74 engine and pipeline assertions instead and did not do that port. Still open.
+
+### How to verify this phase works
+
+```bash
+python -m data_sourcing.scenario_builder     # data/ is gitignored; rebuild first
+python scripts/eval_engine.py                # the definition of done, three scenarios
+pytest -q                                    # 74 assertions, no DB, no network
+python scripts/run_scenario.py realistic     # load + compute a real run in Supabase
+streamlit run app/main.py                    # section "3 · Reconcile" -> Reconcile now
+python run_web.py                            # the same computed run, live mode
+```
+
+---
+
+## Phase 7 — Clause Viewer (Real Highlighting)
+**Completed:** 2026-08-16 · **Owners:** A / B
+
+Click a finding, see the contract page with the clause boxed on it. The phase
+also settled the largest piece of debt on the board — known issue #28, *EDGAR
+serves HTML, not PDF, so there is nothing to highlight* — by typesetting a PDF
+from the filing's own text (ADR-021) rather than leaving the headline feature
+unavailable on the project's primary corpus.
+
+### Built by A
+- `core/extraction/clause_locator.py` — hardened. The box is now the **union** of
+  every line a match spans (Phase 5 kept `hits[0]`, boxing eleven words of a
+  four-line clause); the longest probe wins, shortening only on failure;
+  typography is folded before comparing (ligatures, curly quotes, en/em dashes,
+  non-breaking spaces, hyphenation across a line break); quotes wrapped in `...`
+  are trimmed; the fuzzy tier matches **page-wide** through a word-indexed page
+  and maps the winning window back to word rectangles.
+- `tests/test_clause_locator.py` — 16 assertions, PDFs built in memory, no
+  corpus and no committed binary. Three are regressions for wrong boxes this
+  phase actually produced.
+
+### Built by B
+- `core/extraction/pdf_renderer.py` — `render_highlighted` (PNG bytes, amber box,
+  `None` on every failure path), `typeset_pdf` (deterministic layout of a
+  text-only filing, ADR-021), `ensure_pdf` (real PDF or typeset one, cached by
+  content hash under `data/cache/pdf/`), `render_document_page` (the single entry
+  point both frontends call, returning the image **and** whether it was typeset).
+- `core/engine/pipeline.locate_run_clauses` — one pass per document, writing
+  `source_page` / `source_bbox` / `locate_method` back for every clause in a run.
+- `app/components/clause_viewer.py` — the real viewer, all three ADR-005 states
+  plus a fourth the plan does not name: no page to render at all.
+- `web/`: `GET /clause/{id}/page.png`, `FindingDetail.page_image_url` +
+  `page_is_typeset` filled in **both** presenters, the image swapped into
+  `_finding_detail.html` in place of the mockup's stylised page, and the CSS.
+- `tests/test_pdf_renderer.py` — 17 assertions.
+
+### New interfaces added to interfaces.md
+- `pdf_renderer.render_highlighted/typeset_pdf/ensure_pdf/render_document_page/page_count`
+- `clause_locator.locate_all/normalise_for_match`
+- `pipeline.locate_run_clauses`, `LocateSummary`
+- `web` route `GET /clause/{clause_id}/page.png`; `FindingDetail.page_image_url`, `.page_is_typeset`
+
+### Decisions recorded
+- ADR-021: a text-only filing is typeset into a PDF we generate, and labelled as such
+
+### Measured
+```
+20 of 20 clauses across runs 12/13/14 placed on a page — 18 exact, 2 fuzzy, 0 not found
+107 pytest assertions pass in 2.8s (34 timeline, 27 reconciliation, 13 pipeline,
+                                    16 clause locator, 17 pdf renderer)
+all three scenarios still reproduce ground_truth.json exactly
+clause page route: 4.9s cold, 1.2ms warm; 404 in demo mode and on an unknown id
+```
+Every box was checked against the text it actually sits on, not merely for being
+non-null.
+
+### Two wrong highlights this phase produced, and what stops them now
+Both were caught by *looking at the rendered page*, not by a test — worth
+remembering, because both passed every assertion that existed at the time.
+
+1. **A box around the digit `5` on a table of contents.** `fuzz.partial_ratio`
+   normalises by its *shorter* argument, so a block containing only "5" scores
+   **100** against any quote containing a 5. Now: a length floor, a shared-
+   vocabulary floor, and `_window_ratio` — the quote against a same-length slice.
+2. **A box on an unrelated paragraph about 3D advertising.** The clause was
+   quoted as `"...a monthly payment in addition to..."` and the document contains
+   no such dots, so the exact search failed and a loose fuzzy match won. Trimming
+   the ellipsis makes the same clause an **exact** hit.
+
+### Known gaps / deliberately deferred
+- **A typeset page is not the filing as filed.** It is a faithful layout of the
+  text `data_sourcing` extracted from EDGAR's HTML, so line breaks, tables and
+  page numbers are ours, not the original's. Both frontends say so on every such
+  page; the report must too. A real PDF corpus (CUAD) renders as itself.
+- **The union box can be wider than the quote.** It spans from the first line to
+  the last, so on a multi-line clause it includes whatever else shares those
+  lines. That is ordinary PDF highlighting behaviour and it is honest, but it is
+  not a word-perfect outline.
+- **The clause image is 4.9 s cold** — `documents.extracted_text` is a couple of
+  hundred kilobytes across a 400 ms link (known issue #53). Cached to 1.2 ms.
+  A page-level column or a nearer region would fix it; neither is code.
+- **Nothing re-locates automatically.** `locate_run_clauses` runs from
+  `scripts/run_scenario.py` and the Reconcile button. Editing a clause quote by
+  hand leaves stale coordinates until it is run again.
+- **`ocr_cloud.py` is still a stub** and the scanned-document path is still
+  untried on a real scan (stretch goal, Phase 11).
+
+### How to verify this phase works
+```bash
+pytest tests/test_clause_locator.py tests/test_pdf_renderer.py -q   # 33 assertions
+python scripts/run_scenario.py easy        # prints "8/8 clauses placed on a page"
+python run_web.py                          # /?mode=live -> click a finding -> the page, boxed
+streamlit run app/main.py                  # 5 - Evidence -> the same page, boxed
+```
+
 
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
@@ -1784,3 +1949,62 @@ Both presenters returning identical dataclasses is what makes this cheap rather 
 The no-fallback rule is the load-bearing half. The tempting version of this feature quietly shows a demo figure when the live one is missing, and it produces a page that looks finished and is fiction. Every other rule in this project — the LLM never produces a number, every anomaly traces to a clause, engine functions are pure — exists to make the figures defensible. A frontend that invents one when the database is quiet would undo all of it at the last inch. Hence: absent data is *displayed* as absent, and the reason is named on screen.
 
 What we gave up: two frontends drift, and they will. They are not kept in visual sync and are not meant to be. The mitigation is that they share the query layer, so they can drift in appearance but not in figures.
+
+---
+
+## ADR-019 — A payment answers the billing it followed
+
+**Status:** Accepted (2026-08-16, Phase 6) · **Refines ADR-006**
+
+**Context.** ADR-006 says to aggregate a client's calendar month and compare the total. Real payments do not respect calendar months, so the rule has always carried "±15 days of tolerance at the boundary" — and that phrase hides an assignment decision. A payment that lands inside two billings' windows has to go to exactly one of them, or a client who paid once is credited twice and a ghost invoice appears next to a surplus.
+
+Two obvious rules both fail, in opposite directions:
+
+* **Nearest billing date.** Billed on the 1st, paid on the 30th: the 30th is two days from *next* month's billing and twenty-nine from this one, so the money settles February and January reads as never billed.
+* **Same calendar month only.** Billed on the 30th, paid on the 3rd: the payment lands in the next month and settles a billing four weeks ahead of it, leaving the invoice it was actually paying unmatched.
+
+**Decision.** Candidates are the same client's billings in the same calendar month **or** within the tolerance either side. Among them, **a payment answers a billing that has already been issued**: the most recent billing on or before the payment date wins. Only a payment that precedes every candidate — a prepayment — attaches to the nearest future billing. Exact ties settle the older debt.
+
+Each transaction lands in exactly one bucket. No transaction is ever counted twice.
+
+**Consequences.** Both failing cases above come out right, and the rule is one sentence a user can be told: *money pays the last bill you sent*. What it gives up is the case of a client paying two months at once with a single transfer — that reads as one month settled and one ghost invoice. Phase 8's `check_split_payments` tool sees the whole window and is the right place to catch it, which is the same trade ADR-006 already made.
+
+---
+
+## ADR-020 — Attribution refuses rather than guesses
+
+**Status:** Accepted (2026-08-16, Phase 6)
+
+**Context.** Reconciliation needs to know whose payment a bank line is. The line says `REGAL ENT GROUP ACH INV-202502`; the client is *Regal Entertainment Group*. Fuzzy comparison of the normalised names scores that pair **62** — well below any sane threshold — because the abbreviation deletes most of the characters. Meanwhile a real statement also carries `BANK SVC FEE` and `INTEREST CREDIT`, which belong to nobody and will still score against *somebody*.
+
+Lowering the threshold until the abbreviations pass is the move that ruins the product: at that point the bank fee matches a client too, and a wrong merge reconciles one client's money against another's contract. Every figure downstream is then confidently wrong, with a clause attached to prove it.
+
+**Decision.** Two scoring paths, better of the two: `client_matcher.similarity` (punctuation- and suffix-blind) **or** a token-prefix abbreviation rule — every word in the description begins a word in the client's name, in order, covering at least two of them. Payment-rail words (`ACH`, `WIRE`, `PMT`, …) and reference numbers are stripped first: they say how money moved, never who sent it, and `REGAL ENT GROUP ACH` scores 62 while `REGAL ENT GROUP` scores 100.
+
+Then two refusals. A row scoring below **85** is left unattributed. A row whose best client is within **6 points** of the runner-up is left unattributed too — *Northwind Design* and *Northwind Digital* on a line that says only `NORTHWIND` is a coin toss, and a coin toss with a confident face on it is worse than an admission.
+
+Unattributed money is **counted and reported** (`RunSummary.unattributed`), never silently dropped and never quietly assigned.
+
+**Consequences.** On the realistic scenario every one of the 48 client payments is attributed across four name variants each, and all three planted noise rows are correctly attributed to nobody. The cost is that a genuinely ambiguous client payment is skipped, which understates that client's collected revenue — visible as a shortfall rather than as a wrong client. Phase 8's agent, and the human confirmation step in `app/components/client_confirm.py`, are the places that resolve one.
+
+---
+
+## ADR-021 — A text-only filing is typeset into a PDF we generate, and labelled as such
+
+**Status:** Accepted (2026-08-16, Phase 7) · **Resolves known issue #28** · **Extends ADR-005**
+
+**Context.** ADR-013 made SEC EDGAR the primary contract source, and EDGAR serves **HTML**. `data_sourcing` writes it to disk as `.txt`. Phase 7's headline feature — click a finding, see the clause highlighted on the page — is built on PyMuPDF's `page.search_for()`, which needs a PDF. So the product's most demonstrable feature did not work on the product's own corpus, and known issue #28 had been carrying that as "unsolved and uncosted" since Phase 3.
+
+Three options were open. **Accept page-level degradation permanently:** every computed finding shows a quote and no page, forever, and the clause viewer exists only for CUAD documents nobody's scenarios use. **Convert on the way into `data/corpus/`:** the conversion still has to happen, and now it happens once, invisibly, in a gitignored directory that has already vanished twice (known issues #33, #44). **Typeset on demand, from the text already stored on the document row.**
+
+**Decision.** `pdf_renderer.typeset_pdf` lays the extracted text out as a PDF: fixed page size, one base-14 font, hard-wrapped lines, a page number in the footer, no HTML parsing and no reflow that depends on a library version. Two runs over the same text produce the same page breaks — which is load-bearing, because a clause stored as "page 4" has to still be on page 4 tomorrow. The result is cached by content hash under `data/cache/pdf/`, so an edited extraction produces a new entry rather than a stale page (the lesson of known issue #20).
+
+**Every page carries the disclosure in three places**: printed in the PDF's own footer, in the Streamlit viewer's caption, and in the `web/` figure caption — *typeset by FinSight from the filing's text; the original is HTML, not a PDF*. `render_document_page` returns `is_typeset` alongside the image specifically so a caller cannot forget to say it.
+
+**Consequences.**
+
+Clause highlighting works on the real corpus: 20 of 20 clauses across three computed runs are now placed on a page, 18 exactly. The demo's strongest moment — *here is the sentence that proves you are owed $1,800* — is available on genuine SEC filings rather than only on the CUAD PDFs.
+
+What we gave up, and must keep saying out loud: **a typeset page is not the document as filed.** Its line breaks, its pagination and its page numbers are ours. Anyone comparing our "page 61" against the filing on EDGAR will not find them the same, and a reader who assumes otherwise has been misled by us, not by the data. That is the whole reason the disclosure is printed into the PDF itself and not only into the UI — the image outlives the page it was rendered on.
+
+This does not weaken ADR-005. A quote that cannot be found is still `failed`, still gets NULL coordinates, and still renders as a page with no box and a plain statement that we could not place it. Typesetting gives the locator something to search; it never invents a location.

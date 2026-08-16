@@ -1,0 +1,144 @@
+# TODO — what is not finished
+
+**Last updated:** 2026-08-16, at the close of Phase 7.
+
+A working list, not a memory file. `docs/progress.md` stays authoritative and
+append-only; `docs/state.json` stays the machine-readable status. This file
+exists so the open work is in one place instead of scattered across 57 numbered
+known issues, and it should be **edited freely** — tick things off, delete them,
+re-order them.
+
+Each item says where it lands. `#n` refers to `known_issues` in `docs/state.json`.
+
+---
+
+## Left over from Phase 7
+
+### 0. The scanned-document path has still never been tried on a real scan
+`core/extraction/ocr_cloud.py` is a stub and Surya-on-Colab has never run. This
+is the *stretch* goal in the definition of success, not a requirement — but if
+it is going to be demoed, it needs a genuinely scanned contract and a Colab
+session, and neither exists yet.
+
+---
+
+## Left over from Phase 6
+
+### 1. Upload → extract → `contract_rules` has never run end to end on a GPU  · `#41`
+`app/components/reconcile_panel.render_extract_panel()` calls Phase 5's
+`extract_rules()` and then `pipeline.persist_rules()`. Both halves are tested
+separately — extraction measured on a Colab T4 (2026-08-14), persistence covered
+by 13 assertions in `tests/test_pipeline.py` — but **the join has only ever run
+with no endpoint up**, where it fails cleanly and prints a readable message.
+
+*To close it:* start a notebook session, paste the tunnel URL on the Model
+endpoint page, upload one real contract, press the button, and check that
+`contract_rules` + `clause_references` rows appear and reconcile. Half an hour,
+and it needs a live GPU — which is the only reason it is still open.
+
+### 2. `web/` still writes nothing  · `#52`, `#56`
+Reconciliation runs from the Streamlit app only. Every button in the FastAPI
+frontend is inert by design (ADR-018) and its tooltips now name the other
+frontend rather than a phase.
+
+*If that changes:* the first write path added to `web/` **must** call
+`web.cache.clear()`, or a user sees a stale page for up to `WEB_CACHE_SECONDS`
+after their own click. `core.engine.pipeline.compute_run` carries the warning in
+its docstring.
+
+### 3. Undated milestones are never billed  · `#55`
+`ContractRules.Milestone` carries a condition ("on website launch"), not a date.
+`generate_timeline` leaves an undated milestone out and
+`RunSummary.unresolved_milestones` names it — deliberate, because guessing a due
+date manufactures ghost invoices. But the pitch's own **$15,000 launch
+milestone** is therefore never checked in a computed run.
+
+*Options, none chosen yet:* set `milestones.due_date` by hand in the UI; let
+Phase 8's agent resolve a condition against the document; or bill it at
+`contract_end` and mark it low-confidence.
+
+### 4. Escalation compounds in the engine, once in the scenario builder  · `#54`
+`timeline_generator` compounds per anniversary (6,000 → 6,480 → 6,998.40);
+`data_sourcing/scenario_builder.py` applies its rise exactly once. They agree
+today **only** because no scenario window contains a second anniversary.
+
+*The engine is the correct side* — the clauses say "on each anniversary". Do not
+"fix" the engine down to match. If a longer scenario is ever built, fix the
+builder, and use `compound_escalation=False` for a genuine one-off rise.
+
+### 5. Phase 1's 47 schema assertions are still not in pytest  · `#15`
+Phase 6 was said to own this port and did not do it — it added 74 engine and
+pipeline assertions instead. The schema verification therefore still is not
+repeatable in CI. `tests/test_pipeline.py` already creates all 12 tables on a
+throwaway SQLite file, which is the natural place to put them.
+
+### 6. `seed_demo.py --scenario` still raises `NotImplementedError`  · `#35`
+Left alone on purpose: `scripts/run_scenario.py` loads a scenario now, and the
+seeded `demo_v1` run stays a fixed reference that no engine change can move.
+Delete the parameter or implement it — but decide, rather than leaving a
+raising code path in a script people run.
+
+---
+
+## Debts that will block a later phase
+
+### 7. ~~EDGAR serves HTML, not PDF~~ — **done in Phase 7 (ADR-021)**  · `#28`
+Settled by typesetting the extracted text into a real, deterministic PDF rather
+than converting the corpus or accepting permanent degradation. 20 of 20 clauses
+across three computed runs are now placed on a page.
+
+**What is left of it, and it is a reporting duty, not a code task:** a typeset
+page is *not* the filing as filed — its line breaks, pagination and page numbers
+are ours, so "page 61" will not match the document on EDGAR. Both frontends and
+the PDF footer say so; **the report must say so too**.
+
+### 8. Corpus variety is adequate, not good  · `#27`, `#29`
+The EX-99 mutual-fund cluster is over-represented because `edgar_probe.py` used
+generic queries and read only page 1 of each result list. The broader search is
+designed and **has never been run**. 19 contracts in `review/` have never been
+read by a human; expect to lose about a quarter of them.
+
+*Do this before Phase 10*, not before Phase 7 — variety is load-bearing only for
+training and the base-vs-tuned claim.
+
+### 9. The training-pair drafting decision is still open  · `#31`
+Whether to use a vendor model offline to draft the 80–120 `ContractRules`
+training pairs. ADR-011 forbids vendor calls in the runtime path; drafting
+offline is standard distillation and defensible if disclosed, but it dents the
+self-hosting story. **Not decided.** Phase 10 cannot start until it is.
+
+### 10. Prompts have had one iteration and one measurement  · `#45`, `#48`, `#49`
+`PROMPT_VERSION v1` scored 10/10 valid and 80.0% grounding — but grounding passed
+*exactly* on the line at n=15, and 3 of the 10 contracts extracted zero clauses
+while still counting as valid. Re-run with `--limit 20` before either number is
+cited in the Phase 11 report, and add a "contracts with ≥1 grounded clause"
+metric.
+
+### 11. Grammar-constrained decoding has never been measured on vs off  · `#46`
+vLLM accepts `response_format=json_schema` and `llm_client` negotiates down
+automatically, but no valid-JSON-rate comparison exists. That row of the Phase 11
+table is empty.
+
+### 12. Deployment is two apps, and only one has a home  · plan §Phase 11
+Streamlit Community Cloud hosts `app/`. `web/` needs an ASGI host, the same
+secrets, and `WEB_DATA_MODE=demo` for a public URL so a paused Supabase project
+never produces an empty page. Decide, do it, and say in the report which one the
+demo used.
+
+---
+
+## Small fixes worth doing when passing
+
+| | Fix | Ref |
+|---|---|---|
+| 13 | `serve_model.py` polls a dead port for the full 15 minutes when vLLM's child dies at import. `wait_until_ready()` never checks `Popen.poll()`. One line; costs 15 minutes per failed start. | `#51` |
+| 14 | `pip install vllm` is unpinned and breaks Colab's preinstalled `torchaudio`. Worked around in a notebook cell, not fixed in code. Pin it before deployment. | `#50` |
+| 15 | No dependency pinning and no CI anywhere. Revisit before Phase 11. | `#5` |
+| 16 | The `.venv` on the Linux checkout is Python 3.14.6; Streamlit Cloud does not offer 3.14, so the parity guarantee does not hold. `uv venv --python 3.12` before deploying. | `#47` |
+| 17 | `.xlsx` is offered in the uploader's accepted types but only `.csv` is parsed. Fails cleanly with a message; nobody has built the path. | `#38` |
+| 18 | Deleting a run leaves its Storage objects behind, and content-addressing means every re-upload leaves its predecessor. Fine at demo scale; sweep before deployment. | `#21` |
+| 19 | `SUPABASE_SERVICE_KEY` must go into Streamlit Secrets at deploy time. It bypasses all RLS. | `#22` |
+| 20 | A client paying two months in one transfer reads as one month settled and one ghost invoice (ADR-019's accepted cost). Phase 8's `check_split_payments` is where it gets caught. | `#57` |
+| 21 | Nothing re-locates clauses automatically. Editing a quote by hand, or re-extracting a contract, leaves stale `source_page`/`source_bbox` until `locate_run_clauses` runs again (Reconcile button, or `scripts/run_scenario.py`). | `#62` |
+| 22 | A located bbox is the union of every line the match spans, so on a multi-line clause it covers whatever else shares those lines. Honest, but not a word-perfect outline — do not describe it as one. | `#60` |
+| 23 | The clause page image is ~4.9 s cold (a 200 KB `extracted_text` column across the 400 ms link), 1.2 ms warm. Not fixable in code from this repo. | `#61` |

@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0, 1, 2, 3, 4 and 5 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0–7 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 6's definition of done was measured on 2026-08-16**: all three scenarios reproduce `ground_truth.json` exactly (`easy` 7 findings / $17,815.00, `realistic` 5 / $22,500.00, `edge` 0 / $0.00) and 74 pytest assertions pass — see `scripts/eval_engine.py`. **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -585,34 +585,221 @@ def render_group_confirm(names: list[str], *, key: str = "client_groups"
 
 ## Phase 6 — Timeline & reconciliation
 
+The three declared signatures all hold. Everything added is **keyword-only**, so
+code written against the original three still compiles and still means the same
+thing.
+
 ```python
-# core/engine/timeline_generator.py                            [A]  ⬜
+# core/engine/timeline_generator.py                            [A]  ✅
 def generate_timeline(rules: ContractRules,
                       client_id: int,
-                      contract_rule_id: int) -> list[TimelineEntry]:
-    """PURE FUNCTION. No DB, no network, no LLM. Fully unit-testable."""
+                      contract_rule_id: int,
+                      *,
+                      window_start: date | None = None,
+                      window_end: date | None = None,
+                      horizon_months: int | None = None,
+                      clause_refs: ClauseRefMap | None = None,
+                      milestone_dates: dict[int, date] | None = None,
+                      compound_escalation: bool = True) -> list[TimelineEntry]:
+    """PURE FUNCTION. No DB, no network, no LLM, NO CLOCK. Returns [] (never
+       raises) when the contract has no start date or no amount."""
 
-# core/engine/reconciliation.py                                [B]  ⬜
+def rate_for(rules: ContractRules, billing_date: date, *, compound: bool = True
+             ) -> tuple[float, bool, float]:
+    """(expected_amount, applied_escalation, applied_discount_pct) for one
+       billing. The counterfactual the classifier asks its questions with."""
+
+def add_months(anchor: date, months: int) -> date      # clamps; never compounds the clamp
+def months_between(start: date, when: date) -> int     # calendar months, signed
+def unresolved_milestones(rules, milestone_dates=None) -> list[tuple[int, Milestone]]
+
+@dataclass(frozen=True)
+class ClauseRefMap:                    # which clause_references.id proves what
+    base_fee: int | None = None
+    escalation: int | None = None
+    discounts: dict[int, int]          # index into rules.discounts -> id
+    milestones: dict[int, int]
+
+# core/engine/reconciliation.py                                [B]  ✅
 def reconcile(expected: list[TimelineEntry],
               actuals: list[TransactionRow],
-              date_tolerance_days: int = 15) -> list[Anomaly]:
-    """PURE FUNCTION. Aggregates actuals per client-month (see ADR-006)."""
+              date_tolerance_days: int = 15,
+              *,
+              rules_by_contract: dict[int, ContractRules] | None = None,
+              tolerance_pct: float = 1.0) -> list[Anomaly]:
+    """PURE FUNCTION. Aggregates actuals per client-month (see ADR-006).
+       Without `rules_by_contract` every shortfall degrades to short_change —
+       honest, but uninformative."""
 
-# core/engine/anomaly_classifier.py                            [B]  ⬜
+def reconcile_detail(...) -> ReconciliationResult:
+    """reconcile() plus the clean months, the reasoning, and the money that
+       could not be attributed to anybody."""
+
+def attribute_transactions(actuals: list[TransactionRow],
+                           clients: list[ClientRef],
+                           *, threshold: int = 85, margin: int = 6
+                           ) -> list[Attribution]:
+    """Whose payment is this? REFUSES rather than guessing: below the threshold,
+       or within `margin` of a second client, the row is left unattributed."""
+
+def clean_description(description: str | None) -> str  # strips refs + rail noise
+def name_score(description: str, client_name: str) -> int
+def window_for(entries) -> tuple[date, date] | None
+def date_window(entries, tolerance_days: int = 15) -> tuple[date, date] | None
+
+@dataclass(frozen=True)
+class ClientRef:  client_id: int; name: str; aliases: tuple[str, ...] = ()
+@dataclass(frozen=True)
+class Attribution: transaction: TransactionRow; client_id: int | None; score: int; runner_up: int
+@dataclass
+class MonthBucket: expected: TimelineEntry; transactions: list[TransactionRow]  # .total
+@dataclass
+class ReconciliationResult:
+    anomalies: list[Anomaly]; buckets: list[MonthBucket]
+    classifications: list[Classification]          # paired 1:1 with anomalies
+    unmatched: list[TransactionRow]                # attributed, no billing window
+    unattributed: list[TransactionRow]             # nobody claimed it
+    # .total_gap
+
+# core/engine/anomaly_classifier.py                            [B]  ✅
 def classify(expected: TimelineEntry, actual: TransactionRow | None,
              rules: ContractRules) -> tuple[str, float]:
-    """Returns (anomaly_type, confidence_score)."""
+    """Returns (anomaly_type, confidence_score), or ("", 0.0) for a clean month.
+       `actual` is the client-month AGGREGATE (ADR-006), not one payment."""
+
+def classify_gap(expected: TimelineEntry, actual_total: float,
+                 rules: ContractRules, *, tolerance_pct: float = 1.0
+                 ) -> Classification | None:
+    """The real entry point. None = this month is fine (including overpayment)."""
+
+@dataclass(frozen=True)
+class Classification:
+    anomaly_type: str; confidence: float
+    clause_role: Literal["base_fee","escalation","discount"]   # which clause proves it
+    reason: str                                                # plain English, engine-written
 ```
+
+### Phase 6 additions outside the plan's tree
+
+```python
+# core/engine/pipeline.py                                      [B]  ✅  NOT IN THE PLAN
+#   The only place engine output becomes database rows. The pure functions above
+#   take no session; something has to read contract_rules out and write
+#   expected_timeline / anomalies back, and keeping it in one file is what stops
+#   a `session` argument leaking into the maths.
+def compute_run(session: Session, run_id: int, *,
+                window_start: date | None = None, window_end: date | None = None,
+                horizon_months: int | None = None, commit: bool = True) -> RunSummary:
+    """Rebuild this run's timeline and findings. IDEMPOTENT — deletes the run's
+       previous expected_timeline/anomalies first. The window defaults to the
+       span of the run's own transactions, never to today's date.
+       CALLED FROM web/? then call web.cache.clear() after (known issue #52)."""
+
+def persist_rules(session: Session, run_id: int, document_id: int | None,
+                  rules: ContractRules, *, document_text: str = "",
+                  client_id: int | None = None, replace: bool = True) -> int:
+    """A Phase 5 extraction -> contract_rules + clause_references + escalations +
+       discounts + milestones. Returns contract_rules.id. Closes known issue #41."""
+
+def load_contract_plans(session: Session, run_id: int) -> list[ContractPlan]:
+    """The DB rows rebuilt as the pure ContractRules shape, with the clause map."""
+
+@dataclass
+class RunSummary:
+    run_id: int; contracts: int; timeline_rows: int; anomalies: int
+    total_gap: float; by_type: dict[str, int]
+    attributed: int; unattributed: int; unmatched: int
+    skipped_contracts: list[str]; unresolved_milestones: list[str]
+
+# core/db/queries.py                                           [B]  ✅
+def count_contract_rules(session: Session, run_id: int) -> int:
+    """Does this run have anything to reconcile? Drives the Reconcile panel."""
+
+# app/components/reconcile_panel.py                            [B]  ✅
+def render_reconcile_panel(session, run_id: int, contract_count: int) -> bool:
+    """The first user action in this app that COMPUTES. True when rows changed."""
+def render_extract_panel(session, run_id, documents) -> bool:
+    """Phase 5's extractor over uploaded contracts. Needs a live endpoint."""
+```
+
+### Schema changes Phase 6 made to `core/ai/schemas.py`
+
+Additive and backward-compatible; nothing that existed had to change.
+
+| Change | Why |
+|---|---|
+| `TimelineEntry.id: int \| None = None` | The pure generator runs before the insert, so it emits `None`; `pipeline.py` fills it in on the way back out, which is what lets a pure `reconcile()` cite a real `expected_timeline_id`. |
+| `TransactionRow.id`, `TransactionRow.client_id` (both `int \| None = None`) | A CSV row has neither. `attribute_transactions` sets `client_id`; `pipeline.py` sets `id`. Reconciliation **refuses** to aggregate a row whose `client_id` is still `None`. |
+| `Anomaly.expected_timeline_id` is now `int \| None` | Matches the DB column, which was always nullable. It was declared `int` before any caller existed. |
 
 ---
 
 ## Phase 7 — Clause viewer
 
 ```python
-# core/extraction/pdf_renderer.py                              [B]  ⬜
-def render_highlighted(pdf_path: str, page: int,
-                       bbox: list[float] | None, dpi: int = 150) -> bytes:
-    """bbox=None renders the page with no highlight instead of failing."""
+# core/extraction/pdf_renderer.py                              [B]  ✅
+def render_highlighted(pdf_path: str | Path | bytes, page: int,
+                       bbox: list[float] | None, dpi: int = 150) -> bytes | None:
+    """bbox=None renders the page with no highlight instead of failing (ADR-005).
+       `page` is 1-INDEXED, matching clause_references.source_page. Returns None
+       — never raises — on an unreadable file or a page past the end."""
+
+def typeset_pdf(text: str, *, title: str = "", width_chars: int = 96) -> bytes:
+    """ADR-021: lay a text-only filing out as a real, searchable PDF.
+       DETERMINISTIC — same text, same page breaks, or every stored source_page
+       silently rots. Every page footer says it was typeset."""
+
+def ensure_pdf(*, storage_url: str | None, extracted_text: str | None,
+               filename: str = "", file_type: str | None = None
+               ) -> tuple[Path, bool] | None:
+    """(path, is_typeset). The stored PDF if there is one, else a typeset render.
+       Cached by content hash under data/cache/pdf/. None when the document has
+       neither."""
+
+def render_document_page(*, storage_url, extracted_text, filename, file_type,
+                         page: int | None, bbox: list[float] | None,
+                         dpi: int = 150) -> tuple[bytes, bool] | None:
+    """(png_bytes, is_typeset). THE entry point both frontends call, so a page
+       cannot look one way in Streamlit and another in web/. `is_typeset` travels
+       with the image because the caller must say so (ADR-021)."""
+
+def page_count(pdf_path: str | Path | bytes) -> int:      # 0 if unopenable
+
+# core/extraction/clause_locator.py                            [A]  ✅ (hardened at Phase 7)
+def locate_clause(pdf_path: str | Path | bytes, clause_text: str) -> ClauseLocation | None:
+    """exact -> fuzzy -> None. Now accepts bytes; the bbox is the UNION of every
+       line the match spans, not the first."""
+
+def locate_all(pdf_path: str | Path | bytes, clause_texts: list[str]
+               ) -> list[ClauseLocation | None]:
+    """Same results, same order, one open and one page index for the document."""
+
+def normalise_for_match(text: str) -> str
+    """Comparison form only — ligatures, curly quotes, dashes, hyphenation
+       across a line break. NEVER what the user is shown."""
+
+# core/engine/pipeline.py                                      [B]  ✅
+def locate_run_clauses(session: Session, run_id: int, *, commit: bool = True
+                       ) -> LocateSummary:
+    """Give every clause in the run a page and a box. One pass per document.
+       Typesets a non-PDF document first (ADR-021). A quote that still cannot be
+       found is recorded as locate_method="failed" with NULL coordinates."""
+
+@dataclass
+class LocateSummary:
+    run_id: int; clauses: int; exact: int; fuzzy: int; failed: int
+    typeset_documents: int; unrenderable: list[str]     # .grounded, .as_line()
+
+# app/components/clause_viewer.py                              [B]  ✅
+def render_clause_viewer(clause: ClauseRefRow | None,
+                         document: DocumentRow | None = None) -> None:
+    """The page image plus the quote. Four states: exact, fuzzy, not located,
+       and no page to render at all."""
+
+# web/ — the same page, over HTTP                              [B]  ✅
+GET /clause/{clause_id}/page.png    -> image/png, 404 in demo mode
+FindingDetail.page_image_url: str | None      # None => the mockup's stylised page
+FindingDetail.page_is_typeset: bool           # the template MUST disclose it
 ```
 
 ---

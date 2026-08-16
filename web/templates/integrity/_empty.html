@@ -20,13 +20,13 @@
       <b>Contracts</b>
       <span>PDF · typed or scanned · drop several at once</span>
       <button class="btn-solid" type="button" disabled
-              title="Upload lands with the extraction pipeline (Phase 6)">Choose contracts</button>
+              title="Uploading is done in the Streamlit app (streamlit run app/main.py) — web/ reads, it does not write">Choose contracts</button>
     </div>
     <div class="dropzone">
       <b>Invoices and statements</b>
       <span>CSV export from your bank, or PDF invoices</span>
       <button class="btn-solid" type="button" disabled
-              title="Upload lands with the extraction pipeline (Phase 6)">Choose files</button>
+              title="Uploading is done in the Streamlit app (streamlit run app/main.py) — web/ reads, it does not write">Choose files</button>
     </div>
   </div>
 
@@ -49,12 +49,14 @@
      so in the page rather than only in a tooltip. Everywhere else the disabled
      buttons sit beside data you can still read; here there is nothing else. #}
   <div class="absent">
-    <b>Upload is not wired yet</b>
-    The two buttons above are inert. Extraction — reading a contract and writing
-    <code>contract_rules</code> — lands in Phase 6; until then the screens are filled
-    from the database.
+    <b>Upload happens in the other frontend</b>
+    The two buttons above are inert. This app reads the database and never writes to
+    it (ADR-018); uploading a contract, extracting its rules and reconciling all live
+    in the Streamlit app — <code>streamlit run app/main.py</code>. Findings computed
+    there appear here as soon as they are written.
     {% if not chrome.is_demo %}
-      This run has no documents: seed a complete one with
+      This run has no documents. Load a complete computed run with
+      <code>python scripts/run_scenario.py realistic</code>, seed one with
       <code>python scripts/seed_demo.py</code>, or switch the state bar to Demo.
     {% endif %}
   </div>

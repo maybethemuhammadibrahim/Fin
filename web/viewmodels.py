@@ -295,6 +295,18 @@ class FindingDetail:
     c_share: str | None
     c_gap: str | None
 
+    # -- the rendered page (Phase 7) --
+    #: URL of the contract page as a PNG, highlighted where the clause was
+    #: located. `None` means fall back to the stylised page the mockup draws —
+    #: which is what **demo mode always does**, deliberately: demo has no
+    #: database and therefore no document bytes, and the ruled page is the
+    #: mockup's own content rather than a skeleton standing in for missing data.
+    page_image_url: str | None = None
+    #: True when that page was typeset by us from the filing's text because the
+    #: source is HTML, not a PDF (ADR-021). The template MUST say so — a page we
+    #: laid out is honest evidence only while it is labelled as one.
+    page_is_typeset: bool = False
+
     @property
     def ground_tag(self) -> str:
         return GROUND_COPY[self.ground][0]

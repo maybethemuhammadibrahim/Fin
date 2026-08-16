@@ -20,7 +20,7 @@
         {{ macros.stages(doc.stages) }}
         <span class="tag {% if doc.needs_attention %}tag-waiting{% else %}tag-out{% endif %}">{{ doc.status }}</span>
         <button class="btn-quiet" type="button" disabled
-                title="Acting on a document lands with the extraction pipeline (Phase 6)">{{ doc.action }}</button>
+                title="Acting on a document is done in the Streamlit app — web/ reads, it does not write">{{ doc.action }}</button>
       </div>
     {% endfor %}
   {% else %}
@@ -48,7 +48,7 @@
       </div>
       {% if view.column_map_note %}<p class="note-sm">{{ view.column_map_note }}</p>{% endif %}
       <button class="btn-solid panel-action" type="button" disabled
-              title="Writing a confirmed mapping back lands with the extraction pipeline (Phase 6)">Use this mapping</button>
+              title="Confirming a column mapping is done in the Streamlit app — web/ reads, it does not write">Use this mapping</button>
     {% else %}
       {{ macros.skeleton([100, 100, 100, 100]) }}
       {{ macros.absent('Nothing to confirm', view.notices.get('column_map')) }}
@@ -66,12 +66,12 @@
               <div class="meta">{{ macros.value(c.meta) }}</div>
             </div>
             <button class="btn-small{% if c.accent %} accent{% endif %}" type="button" disabled
-                    title="Recording a client match lands with the extraction pipeline (Phase 6)">{{ c.action }}</button>
+                    title="Confirming a client match is done in the Streamlit app — web/ reads, it does not write">{{ c.action }}</button>
           </div>
         {% endfor %}
       </div>
       <button class="btn-solid panel-action" type="button" disabled
-              title="Running reconciliation lands with the engine (Phase 6)">Confirm and reconcile</button>
+              title="Reconciliation is built (Phase 6) and runs from the Streamlit app — web/ reads, it does not write">Confirm and reconcile</button>
     {% else %}
       {{ macros.skeleton([88, 74, 80]) }}
       {{ macros.absent('Nothing to confirm', view.notices.get('clients')) }}

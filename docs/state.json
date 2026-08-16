@@ -1,469 +1,528 @@
 {
-  "project": "FinSight",
-  "updated": "2026-08-15",
-  "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
-  "current_phase": 6,
-  "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
-  "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
-  "phases": [
-    {
-      "n": 0,
-      "name": "Foundations",
-      "status": "done",
-      "work": {
-        "A": "skeleton+deps+gitignore",
-        "B": "config+config page+digest"
-      }
-    },
-    {
-      "n": 1,
-      "name": "Cloud Database",
-      "status": "done",
-      "work": {
-        "A": "models+database+init_db+reset_run",
-        "B": "queries+db_health page"
-      },
-      "note": "All 12 tables and 13 query helpers. The same 47 assertions pass identically on SQLite and on Supabase Postgres. ADR-005 nullability and all 6 CheckConstraints confirmed in information_schema. Tables exist and are empty — Phase 2 seeds them."
-    },
-    {
-      "n": 2,
-      "name": "Frontend Shell",
-      "status": "done",
-      "work": {
-        "A": "seed_demo+storage(supabase)+report_notes",
-        "B": "main+2 pages+6 components+state"
-      },
-      "note": "Full UI reading real Supabase rows; no hardcoded dict anywhere in app/. Seeded run: $26,908 across 7 findings, all 4 leak types, 3 of 5 clients. Dashboard totals match the seeder via two independent queries. Supabase Storage live on a private bucket with content-addressed keys."
-    },
-    {
-      "n": 3,
-      "name": "Online Data Sourcing",
-      "status": "done",
-      "work": {
-        "A": "fetch_contracts.py + filter_contracts.py (real, ported from the probe spike) + core/ai/schemas.py pulled forward",
-        "B": "fetch_invoices.py + scenario_builder.py"
-      },
-      "note": "Completed 2026-08-12. The spike's data/corpus/contracts_v0/ (44 contracts) did NOT exist on disk at phase start -- data/ is gitignored (data/** in .gitignore), so it never persisted past the spike session. Re-ran the real pipeline as data_sourcing/*.py against live EDGAR: 43 distinct contracts into data/corpus/contracts/ (19 ready, 6 filled, 18 review) -- matches the spike's 19/6/19 almost exactly on an independent sample, a second confirmation of ADR-013. Built 3 scenarios (easy/realistic/edge) from 7 hand-verified real contracts under data/scenarios/. One automated 'gold' match (Cellteck) turned out to be a false positive on hand read (18% loan interest, not a fee escalation) -- same class of trap as CUAD's bare `escalat`, now observed on EDGAR too."
-    },
-    {
-      "n": 4,
-      "name": "Text Extraction",
-      "status": "done",
-      "work": {
-        "A": "document_router+pdf_extractor+Document schema extension+files.py bugfix",
-        "B": "csv_parser+ocr_cloud+column_mapper+upload wiring"
-      },
-      "note": "Completed 2026-08-12. Uploads now route through document_router.extract() synchronously (PDFs/images) or through a human-confirmed column mapping (CSVs, ADR-010) that writes actual_transactions. Verified end-to-end via browser automation against a real CUAD PDF and a real Phase-3 scenario CSV (47/47 rows). csv_parser.sniff_columns() is a thefuzz heuristic, not an LLM call -- llm_client.py doesn't exist until Phase 5 (ADR-012). Two real bugs found and fixed during verification, not designed for up front: core/storage/files.py's file:// URI parsing was broken on Windows (load()/delete() always returned None locally), and a corrupt/non-PDF upload crashed with a raw pdfminer exception instead of failing cleanly."
-    },
-    {
-      "n": 5,
-      "name": "LLM Rule Extraction",
-      "status": "done",
-      "work": {
-        "A": "contract_extractor+clause_locator+client_matcher+schemas doc_type+eval_extraction",
-        "B": "serve_model(both hosts)+endpoints+llm_client+cache+prompts+endpoint page+client_confirm"
-      },
-      "note": "Completed 2026-08-14. Definition of done MEASURED on real hardware for the first time: a Colab T4 served base Qwen 2.5 3B via vLLM 0.27.1 behind a Cloudflare quick tunnel, and scripts/eval_extraction.py ran against it. valid ContractRules 10/10 (target >=8/10); text grounding 80.0% of 15 quotes (target >=80%); PDF page/bbox grounding 2/2 located on CUAD PDFs (1 exact, 1 fuzzy). All three pass, but read known issues #48 and #49 before trusting them -- grounding passed exactly on the line, and 3 of the 10 contracts extracted zero clauses yet still scored as valid. Two real serving bugs found only by running it (known issue #50): Colab secrets are unreachable from a `!python` subprocess, and pip install vllm upgrades torch past Colab's preinstalled torchaudio. Both documented in README.md."
-    },
-    {
-      "n": 6,
-      "name": "Timeline & Reconciliation",
-      "status": "in_progress",
-      "work": {
-        "A": "timeline_generator",
-        "B": "reconciliation+classifier"
-      }
-    },
-    {
-      "n": 7,
-      "name": "Clause Viewer",
-      "status": "not_started",
-      "work": {
-        "A": "locator hardening",
-        "B": "pdf_renderer+drill-down"
-      }
-    },
-    {
-      "n": 8,
-      "name": "Verification Agent",
-      "status": "not_started",
-      "work": {
-        "A": "agent tools",
-        "B": "LangGraph loop+badges"
-      }
-    },
-    {
-      "n": 9,
-      "name": "Decision Engine",
-      "status": "not_started",
-      "work": {
-        "A": "cashflow math",
-        "B": "question parser+chart"
-      }
-    },
-    {
-      "n": 10,
-      "name": "Fine-Tuning",
-      "status": "not_started",
-      "work": {
-        "A": "build_pairs",
-        "B": "Colab QLoRA; adapter into the already-running notebook"
-      }
-    },
-    {
-      "n": 11,
-      "name": "Evaluation & Deployment",
-      "status": "not_started",
-      "work": {
-        "A": "eval harness, base vs tuned",
-        "B": "deploy+demo script"
-      }
-    }
-  ],
-  "known_issues": [
-    {
-      "id": 1,
-      "phase": 0,
-      "text": "Memory files live in docs/, not memory/ as implementation_plan.md says, and there are 4 of them, not the 5 the plan names. docs/ wins; the plan text was not rewritten."
-    },
-    {
-      "id": 2,
-      "phase": 0,
-      "text": "pytest collects 0 tests — the three test files are docstring-only stubs until Phase 6."
-    },
-    {
-      "id": 3,
-      "phase": 0,
-      "text": "RESOLVED 2026-08-08 (Phase 2): app/pages/*.py are all built. The sidebar now shows Revenue Integrity, Decision Engine and DB Health, all rendering real rows."
-    },
-    {
-      "id": 5,
-      "phase": 0,
-      "text": "No dependency pinning and no CI. Revisit before Phase 11 deployment."
-    },
-    {
-      "id": 9,
-      "phase": 0,
-      "text": "UPDATED 2026-08-13 (Phase 5): the tunnel now exists, so COLAB_TUNNEL_URL is no longer structurally unreachable -- but it still shows a red cross whenever no notebook session is running, which is most of the time, because the URL rotates on every restart. That is honest, not broken. settings.validate() still raises when it is unset. Paste a fresh URL on the Model endpoint page (app/pages/8_model_endpoint.py) rather than editing .env and restarting. Original Phase 0 note: accepted as honest rather than demoting the variable to optional, which would move the loud failure out of startup and into llm_client."
-    },
-    {
-      "id": 10,
-      "phase": 0,
-      "text": "RESOLVED 2026-08-08: .venv rebuilt on Python 3.12.13 via uv, for Streamlit Cloud parity. All 16 deps install and import. The old 'py3.14 lacks pymupdf/psycopg2 wheels' warning was stale — they build fine on 3.14 too; the real reason for 3.12 is that Cloud does not offer 3.14."
-    },
-    {
-      "id": 13,
-      "phase": 1,
-      "text": "RESOLVED 2026-08-08: Supabase project created, DATABASE_URL set, 12/12 tables created in Postgres and all 47 assertions re-run there with identical results. ADR-005 nullability and the 6 CheckConstraints confirmed via information_schema. Residual: connection pooling under Streamlit reruns is only lightly exercised, and a free Supabase project pauses after ~1 week idle, failing like a bad password."
-    },
-    {
-      "id": 16,
-      "phase": 2,
-      "text": "RESOLVED 2026-08-08: private bucket `finsight-documents` created (public=False, verified) and core/storage/files.py runs on the Supabase backend via SUPABASE_SERVICE_KEY. The anon key cannot write to a private bucket (403 RLS); service_role bypasses RLS and never reaches a browser because Streamlit is server-side. 11 live assertions pass. Residual: no orphan-object cleanup when a run is deleted."
-    },
-    {
-      "id": 14,
-      "phase": 1,
-      "text": "Phase 1 added two things the plan's ER diagram omits: a `milestones` table (the diagram draws 11 tables while the plan text and models.py stub say 12; ContractRules.milestones and TimelineEntry.payment_type='milestone' both require it) and expected_timeline.source_clause_ref_id (declared by TimelineEntry in interfaces.md, missing from the diagram, needed so an anomaly can inherit its proving clause)."
-    },
-    {
-      "id": 15,
-      "phase": 1,
-      "text": "Phase 1's 47 verification assertions ran from a scratch script, not pytest — tests/ stays docstring-only until Phase 6 by plan. The verification is therefore not repeatable in CI. Phase 6 owns porting them."
-    },
-    {
-      "id": 12,
-      "phase": 4,
-      "text": "Import PyMuPDF as `import pymupdf`, NOT `import fitz` — the fitz alias emits a DeprecationWarning on the installed version. implementation_plan.md and project docs say 'fitz'. Affects clause_locator.py (Phase 4/5) and pdf_renderer.py (Phase 7)."
-    },
-    {
-      "id": 11,
-      "phase": 0,
-      "text": "PARTLY RESOLVED 2026-08-08: Supabase created; DATABASE_URL / SUPABASE_URL / SUPABASE_KEY are set and working. LLM_API_KEY generated locally. Still unset: HF_TOKEN (needed Phase 3) and the tunnel URL (Phase 5, see #9). Colab/Kaggle/HuggingFace/Streamlit Cloud accounts unverified. UPDATE 2026-08-13: LLM_API_KEY generated and set in .env on this machine; it must also be stored as a Colab secret and a Kaggle secret under exactly that name (docs/serving_setup.md). HF_TOKEN confirmed NOT needed -- Qwen/Qwen2.5-3B-Instruct is public and ungated."
-    },
-    {
-      "id": 6,
-      "phase": 0,
-      "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo — none built yet."
-    },
-    {
-      "id": 7,
-      "phase": 0,
-      "text": "Accounts needed are now Supabase, Colab, Kaggle, HuggingFace, Streamlit Cloud. Google AI Studio and Groq keys are NOT used. Created by hand; the config page is the only check."
-    },
-    {
-      "id": 8,
-      "phase": 5,
-      "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures — do not treat early Phase 5 quality as a failure."
-    },
-    {
-      "id": 17,
-      "phase": 4,
-      "text": "app/components/column_mapper.py is the one component in the tree Phase 2 did not build. It confirms an LLM-proposed CSV mapping (ADR-010), which does not exist until Phase 4."
-    },
-    {
-      "id": 18,
-      "phase": 2,
-      "text": "Anomaly row selection uses st.dataframe(selection_mode='single-row'), which streamlit AppTest cannot click. The drill-down was verified by injecting session_state; the widget itself is manual-only."
-    },
-    {
-      "id": 19,
-      "phase": 7,
-      "text": "The clause viewer shows page number, verbatim quote and locate_method but no rendered PDF page — pdf_renderer.py is a Phase 7 stub and seeded documents use seed:// URLs with no bytes behind them."
-    },
-    {
-      "id": 20,
-      "phase": 4,
-      "text": "Supabase's CDN ignores cache-control: re-uploading DIFFERENT bytes to the same object key returns the OLD content for up to an hour, and a deleted object stays readable. Verified (server-side size said 7 while download() returned the 3-byte original). Mitigated by content-addressed keys (<run_id>/<sha256[:12]>_<name>) so a key's bytes never change. NEVER build a bucket key by hand — use files.save_upload and the returned documents.storage_url."
-    },
-    {
-      "id": 21,
-      "phase": 11,
-      "text": "No orphan cleanup in Storage: deleting a run removes its documents rows but leaves the objects. Content-addressing means every edited re-upload also leaves its predecessor. Fine at demo scale (1 GB free tier); sweep before deployment."
-    },
-    {
-      "id": 22,
-      "phase": 11,
-      "text": "SUPABASE_SERVICE_KEY must go into Streamlit Secrets at deploy time, never the repo. It bypasses all RLS and has full DB access. SUPABASE_KEY (anon) is currently unused — files.py uses service_role and the DB goes through SQLAlchemy, not PostgREST."
-    },
-    {
-      "id": 23,
-      "phase": 3,
-      "text": "CUAD is inadequate as the primary contract source: 8 of 510 (1.6%) carry both a real recurring amount and a real escalation clause, and only 3 survive a hand read. ADR-013 demotes it to extraction-dev (Phase 5) and training volume (Phase 10). Do not build anomaly scenarios from CUAD alone."
-    },
-    {
-      "id": 24,
-      "phase": 3,
-      "text": "NEVER put bare `escalat` in a keep-list. Measured on CUAD: 81 contracts match it, 68 mean the DISPUTE escalation procedure ('escalate to senior management'), not a price rise. The plan's KEEP list in implementation_plan.py contains it. Filter on a real percentage or CPI reference tied to a fee instead."
-    },
-    {
-      "id": 25,
-      "phase": 3,
-      "text": "~24% of both CUAD and EDGAR redact financials with [***] under SEC confidential treatment. A contract can have a perfect escalation clause and still be unusable. Counter-intuitively the redacted pile is MORE varied (33 distinct clauses vs gold's 21, zero overlap) because boilerplate fee letters publish numbers while negotiated contracts hide them."
-    },
-    {
-      "id": 26,
-      "phase": 10,
-      "text": "Counting documents overstates the corpus ~2.5x. EDGAR's 51 gold documents carry only 21 distinct escalation clauses — one administrator (Ultimus) sends every fund trust the same fee letter. Dedupe on clause fingerprint AND filer, never filename. Report DISTINCT CLAUSES, not document count. Near-duplicates either side of a train/test split are the invisible leak that makes Phase 11 meaningless."
-    },
-    {
-      "id": 27,
-      "phase": 10,
-      "text": "Corpus variety is adequate (44) but not good: the EX-99 mutual-fund cluster is over-represented because edgar_probe.py used generic queries and read only PAGE 1 of each result list. Broader search designed but NOT RUN — industry-specific queries, pages 2-10, cap per filer. Do it before Phase 10, not Phase 3: variety is load-bearing only for training and the base-vs-tuned claim."
-    },
-    {
-      "id": 28,
-      "phase": 7,
-      "text": "EDGAR serves HTML, not PDF. Phase 7's clause viewer uses PyMuPDF page.search_for(), which needs a PDF. Either convert on the way into data/corpus/contracts/, or accept page-level degradation (ADR-005 already permits a null bbox). UNSOLVED and UNCOSTED — the main debt ADR-013 creates. PARTIALLY ADDRESSED 2026-08-13 by ADR-017: text-level grounding in contract_extractor now runs on EVERY document and drops hallucinated quotes, so correctness no longer depends on having a PDF. Only the page/bbox HIGHLIGHT still does. The HTML->PDF conversion remains unsolved and uncosted."
-    },
-    {
-      "id": 29,
-      "phase": 3,
-      "text": "19 of the 44 corpus contracts sit in data/corpus/contracts_v0/review/ — clause shape is right but no figure was found; the amount may live in an exhibit that was never filed. NOBODY HAS READ THEM. Expect to lose ~a quarter, landing near 40."
-    },
-    {
-      "id": 30,
-      "phase": 11,
-      "text": "Corpus contracts are large-company SEC filings; FinSight's stated customer is a 3-20 person studio. The legal prose is genuine but the domain is NOT the target domain. State this in the report rather than letting a reader infer otherwise. Also disclose which values were inserted by fill_blanks.py (recorded with seed in ground_truth_fills.json)."
-    },
-    {
-      "id": 31,
-      "phase": 10,
-      "text": "OPEN DECISION (ADR-014): whether to use a vendor model (e.g. DeepSeek credits) to DRAFT the 80-120 ContractRules training pairs offline. ADR-011 forbids vendor calls in the runtime path; the plan itself says draft with 'the best available model' then human-verify. Standard distillation, defensible if disclosed, but it dents the self-hosting story. NOT decided. Not needed for filling redactions — that is deterministic (ADR-014)."
-    },
-    {
-      "id": 32,
-      "phase": 3,
-      "text": "HF_TOKEN is NOT required to download CUAD — theatticusproject/cuad is public and downloads unauthenticated. Still unset in .env; wanted for rate limits and Phase 5/10 model pulls. CLI is `hf` (huggingface_hub 1.27); `huggingface-cli` is the deprecated alias, same situation as fitz/pymupdf in issue #12."
-    },
-    {
-      "id": 33,
-      "phase": 3,
-      "text": "RESOLVED 2026-08-12: data/corpus/contracts_v0/ (issue implied by the 2026-08-10 spike entry) did not exist on disk when Phase 3 started — data/** is gitignored and the spike's output never persisted. Re-ran the real pipeline (data_sourcing/fetch_contracts.py + filter_contracts.py) against live EDGAR instead of assuming the spike's files were still there. Lesson for future sessions: a progress.md entry describing files under data/ describes what existed in THAT session, not what exists now — always verify with a directory listing before building on it."
-    },
-    {
-      "id": 34,
-      "phase": 3,
-      "text": "Automated 'gold' (concrete-value) scoring still produces false positives that need a human read, even on EDGAR's higher-quality yield. Cellteck Inc.'s EX-99.1 scored concrete_escalation on an '18% per annum' clause that is loan interest, not a fee escalation — caught only when hand-verifying contracts for scenario_builder.py. Used the contract only for its genuine 30%-first-year discount clause. Same class of trap as ADR-013's bare `escalat` finding on CUAD (known_issue #24), now confirmed on EDGAR's automated gold tier too. Do not skip the hand-read step when scoring says 'gold'."
-    },
-    {
-      "id": 35,
-      "phase": 3,
-      "text": "data/scenarios/{easy,realistic,edge}/ are built and internally consistent (gap == expected-actual; total == sum of gaps, asserted directly against the written files) but nothing LOADS them into the database yet. scripts/seed_demo.py's scenario_dir parameter still raises NotImplementedError by its own Phase 2 design. Wiring a scenario on disk into a live run is not in Phase 3's definition of done; left for whichever later phase needs it (likely Phase 6, once timeline_generator/reconciliation are real)."
-    },
-    {
-      "id": 36,
-      "phase": 2,
-      "text": "RESOLVED 2026-08-12 (found in Phase 4): core/storage/files.py's load()/delete() stripped `file://` naively (storage_url[len(\"file://\"):]), which on Windows leaves a stray leading `/` before the drive letter (Path.as_uri() produces file:///C:/Users/... -- three slashes). WindowsPath then parses /C:/Users/... as a folder literally named `C:`, so is_file() was always False -- every local-backend load() call was silently broken. Phase 2's own 11 verification assertions only exercised the Supabase backend. Fixed with urllib.request.url2pathname + urlparse. Caught because Phase 4's CSV column-mapping step is the first code to call files.load() on a real local upload."
-    },
-    {
-      "id": 37,
-      "phase": 4,
-      "text": "RESOLVED 2026-08-12: a corrupt or non-PDF file uploaded with a .pdf extension crashed pdfplumber.open() with a raw PdfminerException ('No /Root object! - Is this really a PDF?'), which would have taken the whole Streamlit page down instead of landing as extraction_status='failed'. Fixed in core/extraction/pdf_extractor.py's new _open() wrapper, which both char_density() and extract_text_pdf() now use; raises ValueError with a readable message instead. Re-verified through the full upload-widget path (_extract_and_finalize) and live in the browser, not just the unit call."
-    },
-    {
-      "id": 38,
-      "phase": 4,
-      "text": "ACTUALS_TYPES (app/components/file_uploader.py, Phase 2) includes 'xlsx', but core/extraction/csv_parser.py only reads real CSVs (Phase 4). An .xlsx upload now fails cleanly with 'only .csv is parsed today -- xlsx support is not wired up yet' rather than crashing pandas.read_csv, but nobody has built the xlsx path. Not in Phase 4's definition of done (which only asks for a real actuals.csv); pick up whenever xlsx actuals actually matter."
-    },
-    {
-      "id": 39,
-      "phase": 0,
-      "text": "RESOLVED 2026-08-12: scripts/memory_digest.py read docs/state.json with the platform default encoding (json.loads(STATE_PATH.read_text())), which raised UnicodeDecodeError on Windows (cp1252) the moment state.json contained an em-dash. Fixed with an explicit encoding=\"utf-8\". Console output containing emoji (the checkmarks/crosses already in known_issues text) still needs PYTHONIOENCODING=utf-8 set to print on a default Windows terminal -- not fixed, workaround only, since changing the checkmark characters would touch unrelated content."
-    },
-    {
-      "id": 40,
-      "phase": 5,
-      "text": "RESOLVED 2026-08-14: Phase 5's definition of done is now MEASURED on a real Colab T4, not a stub. 10/10 valid ContractRules, 80.0% text grounding of 15 quotes, 2/2 PDF locations (1 exact 1 fuzzy). vLLM 0.27.1 installed and served on the T4; the fp16 dtype choice, the cloudflared URL parse and the /v1/models readiness poll all work. STILL UNTESTED on a GPU: the whole --backend transformers fallback path, and Kaggle (only Colab has been run). Superseded in part by #48/#49 -- the numbers pass but are thin."
-    },
-    {
-      "id": 41,
-      "phase": 5,
-      "text": "Extraction is NOT wired into the Streamlit upload flow. Uploading a contract still stops at extracted text; nothing writes contract_rules rows, and app/components/client_confirm.py's new render_group_confirm() therefore has no caller. Deliberate: Phase 6 owns persistence, because the timeline is the first thing that needs those rows. contract_extractor is reachable from scripts/eval_extraction.py only."
-    },
-    {
-      "id": 42,
-      "phase": 5,
-      "text": "core/ai/llm_client.complete() returns str|None, not the str docs/interfaces.md originally declared. The project convention -- a function that can legitimately fail returns None -- wins over the stale signature. interfaces.md now says so; anything written against the old shape must handle None."
-    },
-    {
-      "id": 43,
-      "phase": 5,
-      "text": "ExtractedDoc.doc_type gained a fifth value, \"text\", for the sourced EDGAR corpus (HTML written to disk as .txt -- neither PDF nor CSV). Nothing persists doc_type, so no migration. Calling those documents text_pdf to satisfy the old Literal would have been a lie in the data."
-    },
-    {
-      "id": 44,
-      "phase": 5,
-      "text": "SECOND RECURRENCE of known issue #33: data/corpus/ and data/scenarios/ were empty again at the start of Phase 5, on a different machine (Linux, .venv on py3.14; Phase 4 ran on Windows). data/** is gitignored, so nothing under it survives a machine change. The contract corpus was rebuilt with `python -m data_sourcing.filter_contracts --count 260` (253 exhibits -> 43 distinct: 19 ready / 6 filled / 18 review). data/scenarios/ has NOT been rebuilt -- rerun data_sourcing/scenario_builder.py when Phase 6 needs it."
-    },
-    {
-      "id": 45,
-      "phase": 5,
-      "text": "prompts.py has had exactly one iteration and STILL has not been tuned, but it has now been measured once (2026-08-14): PROMPT_VERSION v1 scored 10/10 valid and 80.0% grounding on 10 EDGAR contracts. The 3 dropped quotes were paraphrases -- the model was told 'character for character' and did not comply. That is the tuning work the plan budgets for, and it is still open; v1 is a measured baseline now, not a guess. Any edit here invalidates exactly its own cache entries (cache.key hashes the rendered prompt), so re-running the eval after a prompt change is cheap."
-    },
-    {
-      "id": 46,
-      "phase": 5,
-      "text": "Grammar-constrained decoding is used when the server accepts response_format=json_schema (vLLM does; the transformers fallback does not), and llm_client negotiates downwards automatically. But NO valid-JSON-rate comparison has been run with it on versus off, so that row of the Phase 11 eval table is empty. The client-side repair-retry is kept regardless (ADR-004)."
-    },
-    {
-      "id": 47,
-      "phase": 5,
-      "text": "The .venv on THIS machine (Linux) is Python 3.14.6, not the 3.12.13 known issue #10 records. Streamlit Community Cloud does not offer 3.14, so the deployment-parity guarantee #10 was created to give does not currently hold here. Everything installs and runs on 3.14; the risk is a wheel or behaviour difference discovered at deploy time. Rebuild with `uv venv --python 3.12` before Phase 11, or pin runtime.txt and find out early."
-    },
-    {
-      "id": 48,
-      "phase": 5,
-      "text": "Phase 5's grounding number PASSED EXACTLY ON THE LINE: 80.0%, being 12 grounded and 3 dropped of 15 quotes. One more paraphrase reads 73% and the phase fails. The sample is small enough to swing hard -- a 2-contract smoke run an hour earlier read 66.7%. Do not quote 80% as a stable capability of the model; it is one measurement at n=15. Re-run with --limit 20 before it is cited in the Phase 11 report."
-    },
-    {
-      "id": 49,
-      "phase": 5,
-      "text": "'valid ContractRules 10/10' is softer than it reads. 3 of the 10 contracts (Mammoth Energy, Regal Entertainment, Vantiv) extracted ZERO clauses -- 0 grounded, 0 dropped -- and an empty ContractRules is structurally valid, so it scores as a pass while proving nothing. The yield is also lopsided: AMERI Holdings EX-99.1 alone produced 7 of the 12 grounded quotes. Report the split, not just the headline. The same shape showed on the CUAD PDF pass: 5 contracts yielded 2 locatable quotes, 3 yielded none. Consider adding a 'contracts with >=1 grounded clause' metric in Phase 11."
-    },
-    {
-      "id": 50,
-      "phase": 5,
-      "text": "Two serving bugs that ONLY appear on real hardware, both fixed by notebook-cell workarounds recorded in README.md ('Starting a session'), neither fixed in code. (1) google.colab.userdata.get() reads secrets from the notebook KERNEL, so serve_model.py cannot see LLM_API_KEY when launched as `!python ...` -- it dies with \"'NoneType' object has no attribute 'kernel'\". Fix: read the secret in a cell, set os.environ, which serve_model.py already prefers. Kaggle's kaggle_secrets does NOT have this problem. (2) `pip install vllm` is unpinned and pulls a torch built for CUDA 13.0, leaving Colab's preinstalled torchaudio (CUDA 12.8) stale; transformers imports torchaudio unconditionally and the server never starts. Fix: pip uninstall torchaudio after installing vllm. Consider pinning vllm before deployment."
-    },
-    {
-      "id": 51,
-      "phase": 5,
-      "text": "When vLLM's child process dies at import time, serve_model.py does not notice: it prints 'waiting for the model to finish loading (up to 900s)' and polls a dead port for the full 15 minutes before falling back. wait_until_ready() polls /v1/models but never checks Popen.poll(). One-line fix available; not made because the phase was being measured, not edited. Costs 15 minutes per failed start."
-    },
-    {
-      "id": 52,
-      "phase": 6,
-      "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema. UPDATED 2026-08-15: web/ now caches database reads for WEB_CACHE_SECONDS (default 15) in web/cache.py. That is only safe BECAUSE nothing writes -- the first write path added to web/ must call web.cache.clear() or the UI will show stale figures for up to 15 seconds after a user's own action."
-    },
-    {
-      "id": 53,
-      "phase": 6,
-      "text": "A live web/ page cannot be made fast from this repo: the Supabase instance is in ap-southeast-1 and a single round trip measured 409 ms median (1127 ms for a fresh connection), so response time is query-count x 400 ms. Query count was cut 35 -> 9 (get_summary_stats 8 -> 3 round trips, get_client_totals 4 -> 1, plus a per-request memo), which took a cold page from 8.7 s to ~5 s; the read cache makes warm pages ~3 ms. The remaining ~5 s cold is network and needs a region change or a nearer pooler, not code. Demo mode renders in 4 ms and never touches the database. Do not 'optimise' the SQL -- it is not the SQL."
-    }
-  ],
-  "adrs": [
-    {
-      "id": "ADR-001",
-      "title": "No local GPU anywhere in the runtime path"
-    },
-    {
-      "id": "ADR-002",
-      "title": "One swappable LLM client behind a single env var",
-      "status": "amended by ADR-011 (provider list is now our own endpoints)"
-    },
-    {
-      "id": "ADR-003",
-      "title": "Supabase Postgres as the primary database"
-    },
-    {
-      "id": "ADR-004",
-      "title": "Pydantic + JSON mode + repair-retry, not Outlines"
-    },
-    {
-      "id": "ADR-005",
-      "title": "Code finds bounding boxes; the model never does"
-    },
-    {
-      "id": "ADR-006",
-      "title": "Reconcile on client-month aggregates"
-    },
-    {
-      "id": "ADR-007",
-      "title": "Contracts are sourced; actuals are derived"
-    },
-    {
-      "id": "ADR-008",
-      "title": "Top-down build order: shell and database first"
-    },
-    {
-      "id": "ADR-009",
-      "title": "Fine-tuning is a measured comparison, not a dependency",
-      "status": "superseded by ADR-012"
-    },
-    {
-      "id": "ADR-010",
-      "title": "CSV column mapping is LLM-proposed, human-confirmed"
-    },
-    {
-      "id": "ADR-011",
-      "title": "Self-hosted open-source inference only; no frontier API calls"
-    },
-    {
-      "id": "ADR-012",
-      "title": "Base model served from Phase 5; tuned adapter replaces it at Phase 10"
-    },
-    {
-      "id": "ADR-013",
-      "title": "SEC EDGAR is the primary contract source; CUAD is demoted"
-    },
-    {
-      "id": "ADR-014",
-      "title": "Redacted values are filled deterministically, never by a model"
-    },
-    {
-      "id": "ADR-015",
-      "title": "The serving notebook runs vLLM's OpenAI server, with a hand-written fallback"
-    },
-    {
-      "id": "ADR-016",
-      "title": "Colab and Kaggle are peers, swappable at runtime; failover on by default"
-    },
-    {
-      "id": "ADR-017",
-      "title": "A quote is grounded against the text always, and against a PDF when there is one"
-    },
-    {
-      "id": "ADR-018",
-      "title": "Two frontends over one database, and a demo/live toggle that never falls back"
-    }
-  ],
-  "inference": {
-    "policy": "self-hosted open-source only; NO frontier model API calls (ADR-011)",
-    "base_model": "Qwen/Qwen2.5-3B-Instruct",
-    "tuned_model": "finsight-qwen2.5-3b (from Phase 10)",
-    "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
-    "serving_live_from_phase": 5
+ "project": "FinSight",
+ "updated": "2026-08-16",
+ "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
+ "current_phase": 8,
+ "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
+ "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
+ "phases": [
+  {
+   "n": 0,
+   "name": "Foundations",
+   "status": "done",
+   "work": {
+    "A": "skeleton+deps+gitignore",
+    "B": "config+config page+digest"
+   }
   },
-  "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct) — SUPERSEDED, see known_issue #33: that directory was gitignored and gone by the time Phase 3 itself ran; Phase 3 rebuilt the real corpus at data/corpus/contracts/ (43 distinct) via data_sourcing/*.py. See progress.md 'Pre-Phase-3 spike' + Phase 3 entry + ADR-013/014."
+  {
+   "n": 1,
+   "name": "Cloud Database",
+   "status": "done",
+   "work": {
+    "A": "models+database+init_db+reset_run",
+    "B": "queries+db_health page"
+   },
+   "note": "All 12 tables and 13 query helpers. The same 47 assertions pass identically on SQLite and on Supabase Postgres. ADR-005 nullability and all 6 CheckConstraints confirmed in information_schema. Tables exist and are empty — Phase 2 seeds them."
+  },
+  {
+   "n": 2,
+   "name": "Frontend Shell",
+   "status": "done",
+   "work": {
+    "A": "seed_demo+storage(supabase)+report_notes",
+    "B": "main+2 pages+6 components+state"
+   },
+   "note": "Full UI reading real Supabase rows; no hardcoded dict anywhere in app/. Seeded run: $26,908 across 7 findings, all 4 leak types, 3 of 5 clients. Dashboard totals match the seeder via two independent queries. Supabase Storage live on a private bucket with content-addressed keys."
+  },
+  {
+   "n": 3,
+   "name": "Online Data Sourcing",
+   "status": "done",
+   "work": {
+    "A": "fetch_contracts.py + filter_contracts.py (real, ported from the probe spike) + core/ai/schemas.py pulled forward",
+    "B": "fetch_invoices.py + scenario_builder.py"
+   },
+   "note": "Completed 2026-08-12. The spike's data/corpus/contracts_v0/ (44 contracts) did NOT exist on disk at phase start -- data/ is gitignored (data/** in .gitignore), so it never persisted past the spike session. Re-ran the real pipeline as data_sourcing/*.py against live EDGAR: 43 distinct contracts into data/corpus/contracts/ (19 ready, 6 filled, 18 review) -- matches the spike's 19/6/19 almost exactly on an independent sample, a second confirmation of ADR-013. Built 3 scenarios (easy/realistic/edge) from 7 hand-verified real contracts under data/scenarios/. One automated 'gold' match (Cellteck) turned out to be a false positive on hand read (18% loan interest, not a fee escalation) -- same class of trap as CUAD's bare `escalat`, now observed on EDGAR too."
+  },
+  {
+   "n": 4,
+   "name": "Text Extraction",
+   "status": "done",
+   "work": {
+    "A": "document_router+pdf_extractor+Document schema extension+files.py bugfix",
+    "B": "csv_parser+ocr_cloud+column_mapper+upload wiring"
+   },
+   "note": "Completed 2026-08-12. Uploads now route through document_router.extract() synchronously (PDFs/images) or through a human-confirmed column mapping (CSVs, ADR-010) that writes actual_transactions. Verified end-to-end via browser automation against a real CUAD PDF and a real Phase-3 scenario CSV (47/47 rows). csv_parser.sniff_columns() is a thefuzz heuristic, not an LLM call -- llm_client.py doesn't exist until Phase 5 (ADR-012). Two real bugs found and fixed during verification, not designed for up front: core/storage/files.py's file:// URI parsing was broken on Windows (load()/delete() always returned None locally), and a corrupt/non-PDF upload crashed with a raw pdfminer exception instead of failing cleanly."
+  },
+  {
+   "n": 5,
+   "name": "LLM Rule Extraction",
+   "status": "done",
+   "work": {
+    "A": "contract_extractor+clause_locator+client_matcher+schemas doc_type+eval_extraction",
+    "B": "serve_model(both hosts)+endpoints+llm_client+cache+prompts+endpoint page+client_confirm"
+   },
+   "note": "Completed 2026-08-14. Definition of done MEASURED on real hardware for the first time: a Colab T4 served base Qwen 2.5 3B via vLLM 0.27.1 behind a Cloudflare quick tunnel, and scripts/eval_extraction.py ran against it. valid ContractRules 10/10 (target >=8/10); text grounding 80.0% of 15 quotes (target >=80%); PDF page/bbox grounding 2/2 located on CUAD PDFs (1 exact, 1 fuzzy). All three pass, but read known issues #48 and #49 before trusting them -- grounding passed exactly on the line, and 3 of the 10 contracts extracted zero clauses yet still scored as valid. Two real serving bugs found only by running it (known issue #50): Colab secrets are unreachable from a `!python` subprocess, and pip install vllm upgrades torch past Colab's preinstalled torchaudio. Both documented in README.md."
+  },
+  {
+   "n": 6,
+   "name": "Timeline & Reconciliation",
+   "status": "done",
+   "work": {
+    "A": "timeline_generator+test_timeline",
+    "B": "reconciliation+anomaly_classifier+pipeline+reconcile_panel+eval_engine+run_scenario+test_reconciliation+test_pipeline"
+   },
+   "note": "Completed 2026-08-16. Zero AI, as designed -- no model, no clock, no network in the engine. Definition of done MEASURED: all three scenarios reproduce ground_truth.json exactly (easy 7 findings/$17,815.00, realistic 5/$22,500.00, edge 0/$0.00 -- the clean scenario that proves the engine discriminates), via `python scripts/eval_engine.py`. 74 pytest assertions pass (34 timeline, 27 reconciliation, 13 pipeline-on-SQLite). The same three scenarios then loaded into live Supabase as runs 12/13/14 and compute_run reproduced the totals through the database; both frontends render them with zero template changes (ADR-008). New: core/engine/pipeline.py, which is NOT in the plan's directory tree and is the only place engine output becomes rows. Two ADRs: ADR-019 (a payment answers the billing it followed) and ADR-020 (attribution refuses rather than guesses). Read known issues #54-#57 before quoting any of this."
+  },
+  {
+   "n": 7,
+   "name": "Clause Viewer",
+   "status": "done",
+   "work": {
+    "A": "clause_locator hardening + test_clause_locator",
+    "B": "pdf_renderer+locate_run_clauses+clause_viewer+web /clause/{id}/page.png+test_pdf_renderer"
+   },
+   "note": "Completed 2026-08-16. Clicking a finding now shows the contract page with the clause boxed, in BOTH frontends. Resolves known issue #28 via ADR-021: EDGAR filings are HTML, so pdf_renderer.typeset_pdf lays the extracted text out as a real, searchable, deterministic PDF and every such page is LABELLED as typeset -- in the PDF footer, in the Streamlit caption and in the web/ figure caption. Measured: 20 of 20 clauses across runs 12/13/14 placed on a page (18 exact, 2 fuzzy, 0 not found), each box checked against the text it actually sits on. 107 pytest assertions pass (33 new). Two WRONG highlights were found by looking at rendered pages, not by tests -- see known issues #58 and #59; both are now regression-tested."
+  },
+  {
+   "n": 8,
+   "name": "Verification Agent",
+   "status": "in_progress",
+   "work": {
+    "A": "agent tools",
+    "B": "LangGraph loop+badges"
+   }
+  },
+  {
+   "n": 9,
+   "name": "Decision Engine",
+   "status": "not_started",
+   "work": {
+    "A": "cashflow math",
+    "B": "question parser+chart"
+   }
+  },
+  {
+   "n": 10,
+   "name": "Fine-Tuning",
+   "status": "not_started",
+   "work": {
+    "A": "build_pairs",
+    "B": "Colab QLoRA; adapter into the already-running notebook"
+   }
+  },
+  {
+   "n": 11,
+   "name": "Evaluation & Deployment",
+   "status": "not_started",
+   "work": {
+    "A": "eval harness, base vs tuned",
+    "B": "deploy+demo script"
+   }
+  }
+ ],
+ "known_issues": [
+  {
+   "id": 1,
+   "phase": 0,
+   "text": "Memory files live in docs/, not memory/ as implementation_plan.md says, and there are 4 of them, not the 5 the plan names. docs/ wins; the plan text was not rewritten."
+  },
+  {
+   "id": 2,
+   "phase": 0,
+   "text": "RESOLVED 2026-08-16 (Phase 6): pytest collects 74 assertions and they pass in 0.8s -- test_timeline.py (34), test_reconciliation.py (27), test_pipeline.py (13, on a throwaway SQLite file). test_clause_locator.py is still a docstring-only stub and lands with Phase 7."
+  },
+  {
+   "id": 3,
+   "phase": 0,
+   "text": "RESOLVED 2026-08-08 (Phase 2): app/pages/*.py are all built. The sidebar now shows Revenue Integrity, Decision Engine and DB Health, all rendering real rows."
+  },
+  {
+   "id": 5,
+   "phase": 0,
+   "text": "No dependency pinning and no CI. Revisit before Phase 11 deployment."
+  },
+  {
+   "id": 9,
+   "phase": 0,
+   "text": "UPDATED 2026-08-13 (Phase 5): the tunnel now exists, so COLAB_TUNNEL_URL is no longer structurally unreachable -- but it still shows a red cross whenever no notebook session is running, which is most of the time, because the URL rotates on every restart. That is honest, not broken. settings.validate() still raises when it is unset. Paste a fresh URL on the Model endpoint page (app/pages/8_model_endpoint.py) rather than editing .env and restarting. Original Phase 0 note: accepted as honest rather than demoting the variable to optional, which would move the loud failure out of startup and into llm_client."
+  },
+  {
+   "id": 10,
+   "phase": 0,
+   "text": "RESOLVED 2026-08-08: .venv rebuilt on Python 3.12.13 via uv, for Streamlit Cloud parity. All 16 deps install and import. The old 'py3.14 lacks pymupdf/psycopg2 wheels' warning was stale — they build fine on 3.14 too; the real reason for 3.12 is that Cloud does not offer 3.14."
+  },
+  {
+   "id": 13,
+   "phase": 1,
+   "text": "RESOLVED 2026-08-08: Supabase project created, DATABASE_URL set, 12/12 tables created in Postgres and all 47 assertions re-run there with identical results. ADR-005 nullability and the 6 CheckConstraints confirmed via information_schema. Residual: connection pooling under Streamlit reruns is only lightly exercised, and a free Supabase project pauses after ~1 week idle, failing like a bad password."
+  },
+  {
+   "id": 16,
+   "phase": 2,
+   "text": "RESOLVED 2026-08-08: private bucket `finsight-documents` created (public=False, verified) and core/storage/files.py runs on the Supabase backend via SUPABASE_SERVICE_KEY. The anon key cannot write to a private bucket (403 RLS); service_role bypasses RLS and never reaches a browser because Streamlit is server-side. 11 live assertions pass. Residual: no orphan-object cleanup when a run is deleted."
+  },
+  {
+   "id": 14,
+   "phase": 1,
+   "text": "Phase 1 added two things the plan's ER diagram omits: a `milestones` table (the diagram draws 11 tables while the plan text and models.py stub say 12; ContractRules.milestones and TimelineEntry.payment_type='milestone' both require it) and expected_timeline.source_clause_ref_id (declared by TimelineEntry in interfaces.md, missing from the diagram, needed so an anomaly can inherit its proving clause)."
+  },
+  {
+   "id": 15,
+   "phase": 1,
+   "text": "STILL OPEN after Phase 6. Phase 1's 47 schema assertions ran from a scratch script and are still not in pytest; Phase 6 was said to own the port and did not do it. It added 74 engine/pipeline assertions instead (tests/test_timeline.py, test_reconciliation.py, test_pipeline.py), so `pytest` no longer collects 0 tests, but the schema verification is still not repeatable in CI. tests/test_pipeline.py does create all 12 tables on throwaway SQLite, which is the natural place to put the port."
+  },
+  {
+   "id": 12,
+   "phase": 4,
+   "text": "Import PyMuPDF as `import pymupdf`, NOT `import fitz` -- the fitz alias emits a DeprecationWarning. implementation_plan.md and project docs say 'fitz'. Both files that use it (clause_locator.py, pdf_renderer.py) are written and both import pymupdf, so this is now a warning for FUTURE code only."
+  },
+  {
+   "id": 11,
+   "phase": 0,
+   "text": "PARTLY RESOLVED 2026-08-08: Supabase created; DATABASE_URL / SUPABASE_URL / SUPABASE_KEY are set and working. LLM_API_KEY generated locally. Still unset: HF_TOKEN (needed Phase 3) and the tunnel URL (Phase 5, see #9). Colab/Kaggle/HuggingFace/Streamlit Cloud accounts unverified. UPDATE 2026-08-13: LLM_API_KEY generated and set in .env on this machine; it must also be stored as a Colab secret and a Kaggle secret under exactly that name (docs/serving_setup.md). HF_TOKEN confirmed NOT needed -- Qwen/Qwen2.5-3B-Instruct is public and ungated."
+  },
+  {
+   "id": 6,
+   "phase": 0,
+   "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo — none built yet."
+  },
+  {
+   "id": 7,
+   "phase": 0,
+   "text": "Accounts needed are now Supabase, Colab, Kaggle, HuggingFace, Streamlit Cloud. Google AI Studio and Groq keys are NOT used. Created by hand; the config page is the only check."
+  },
+  {
+   "id": 8,
+   "phase": 5,
+   "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures — do not treat early Phase 5 quality as a failure."
+  },
+  {
+   "id": 17,
+   "phase": 4,
+   "text": "app/components/column_mapper.py is the one component in the tree Phase 2 did not build. It confirms an LLM-proposed CSV mapping (ADR-010), which does not exist until Phase 4."
+  },
+  {
+   "id": 18,
+   "phase": 2,
+   "text": "Anomaly row selection uses st.dataframe(selection_mode='single-row'), which streamlit AppTest cannot click. The drill-down was verified by injecting session_state; the widget itself is manual-only."
+  },
+  {
+   "id": 19,
+   "phase": 7,
+   "text": "RESOLVED 2026-08-16 (Phase 7): the clause viewer renders the actual page with an amber box over the clause, in both frontends, via pdf_renderer.render_document_page. Seeded runs whose documents use seed:// URLs with no bytes and no extracted text still show the quote alone -- the fourth state the plan does not name, handled explicitly."
+  },
+  {
+   "id": 20,
+   "phase": 4,
+   "text": "Supabase's CDN ignores cache-control: re-uploading DIFFERENT bytes to the same object key returns the OLD content for up to an hour, and a deleted object stays readable. Verified (server-side size said 7 while download() returned the 3-byte original). Mitigated by content-addressed keys (<run_id>/<sha256[:12]>_<name>) so a key's bytes never change. NEVER build a bucket key by hand — use files.save_upload and the returned documents.storage_url."
+  },
+  {
+   "id": 21,
+   "phase": 11,
+   "text": "No orphan cleanup in Storage: deleting a run removes its documents rows but leaves the objects. Content-addressing means every edited re-upload also leaves its predecessor. Fine at demo scale (1 GB free tier); sweep before deployment."
+  },
+  {
+   "id": 22,
+   "phase": 11,
+   "text": "SUPABASE_SERVICE_KEY must go into Streamlit Secrets at deploy time, never the repo. It bypasses all RLS and has full DB access. SUPABASE_KEY (anon) is currently unused — files.py uses service_role and the DB goes through SQLAlchemy, not PostgREST."
+  },
+  {
+   "id": 23,
+   "phase": 3,
+   "text": "CUAD is inadequate as the primary contract source: 8 of 510 (1.6%) carry both a real recurring amount and a real escalation clause, and only 3 survive a hand read. ADR-013 demotes it to extraction-dev (Phase 5) and training volume (Phase 10). Do not build anomaly scenarios from CUAD alone."
+  },
+  {
+   "id": 24,
+   "phase": 3,
+   "text": "NEVER put bare `escalat` in a keep-list. Measured on CUAD: 81 contracts match it, 68 mean the DISPUTE escalation procedure ('escalate to senior management'), not a price rise. The plan's KEEP list in implementation_plan.py contains it. Filter on a real percentage or CPI reference tied to a fee instead."
+  },
+  {
+   "id": 25,
+   "phase": 3,
+   "text": "~24% of both CUAD and EDGAR redact financials with [***] under SEC confidential treatment. A contract can have a perfect escalation clause and still be unusable. Counter-intuitively the redacted pile is MORE varied (33 distinct clauses vs gold's 21, zero overlap) because boilerplate fee letters publish numbers while negotiated contracts hide them."
+  },
+  {
+   "id": 26,
+   "phase": 10,
+   "text": "Counting documents overstates the corpus ~2.5x. EDGAR's 51 gold documents carry only 21 distinct escalation clauses — one administrator (Ultimus) sends every fund trust the same fee letter. Dedupe on clause fingerprint AND filer, never filename. Report DISTINCT CLAUSES, not document count. Near-duplicates either side of a train/test split are the invisible leak that makes Phase 11 meaningless."
+  },
+  {
+   "id": 27,
+   "phase": 10,
+   "text": "Corpus variety is adequate (44) but not good: the EX-99 mutual-fund cluster is over-represented because edgar_probe.py used generic queries and read only PAGE 1 of each result list. Broader search designed but NOT RUN — industry-specific queries, pages 2-10, cap per filer. Do it before Phase 10, not Phase 3: variety is load-bearing only for training and the base-vs-tuned claim."
+  },
+  {
+   "id": 28,
+   "phase": 7,
+   "text": "RESOLVED 2026-08-16 (Phase 7, ADR-021). EDGAR still serves HTML, but core/extraction/pdf_renderer.typeset_pdf now lays a document's extracted text out as a real PDF, deterministically, so page.search_for() works and a page can be rendered with the clause boxed. 20/20 clauses across three computed runs are placed. THE COST, which must be stated in the report: a typeset page is NOT the filing as filed -- its line breaks, pagination and page numbers are ours, so 'page 61' will not match the document on EDGAR. Disclosed in the PDF footer itself and in both frontends' captions. A real PDF corpus (CUAD) still renders as itself."
+  },
+  {
+   "id": 29,
+   "phase": 3,
+   "text": "19 of the 44 corpus contracts sit in data/corpus/contracts_v0/review/ — clause shape is right but no figure was found; the amount may live in an exhibit that was never filed. NOBODY HAS READ THEM. Expect to lose ~a quarter, landing near 40."
+  },
+  {
+   "id": 30,
+   "phase": 11,
+   "text": "Corpus contracts are large-company SEC filings; FinSight's stated customer is a 3-20 person studio. The legal prose is genuine but the domain is NOT the target domain. State this in the report rather than letting a reader infer otherwise. Also disclose which values were inserted by fill_blanks.py (recorded with seed in ground_truth_fills.json)."
+  },
+  {
+   "id": 31,
+   "phase": 10,
+   "text": "OPEN DECISION (ADR-014): whether to use a vendor model (e.g. DeepSeek credits) to DRAFT the 80-120 ContractRules training pairs offline. ADR-011 forbids vendor calls in the runtime path; the plan itself says draft with 'the best available model' then human-verify. Standard distillation, defensible if disclosed, but it dents the self-hosting story. NOT decided. Not needed for filling redactions — that is deterministic (ADR-014)."
+  },
+  {
+   "id": 32,
+   "phase": 3,
+   "text": "HF_TOKEN is NOT required to download CUAD — theatticusproject/cuad is public and downloads unauthenticated. Still unset in .env; wanted for rate limits and Phase 5/10 model pulls. CLI is `hf` (huggingface_hub 1.27); `huggingface-cli` is the deprecated alias, same situation as fitz/pymupdf in issue #12."
+  },
+  {
+   "id": 33,
+   "phase": 3,
+   "text": "RESOLVED 2026-08-12: data/corpus/contracts_v0/ (issue implied by the 2026-08-10 spike entry) did not exist on disk when Phase 3 started — data/** is gitignored and the spike's output never persisted. Re-ran the real pipeline (data_sourcing/fetch_contracts.py + filter_contracts.py) against live EDGAR instead of assuming the spike's files were still there. Lesson for future sessions: a progress.md entry describing files under data/ describes what existed in THAT session, not what exists now — always verify with a directory listing before building on it."
+  },
+  {
+   "id": 34,
+   "phase": 3,
+   "text": "Automated 'gold' (concrete-value) scoring still produces false positives that need a human read, even on EDGAR's higher-quality yield. Cellteck Inc.'s EX-99.1 scored concrete_escalation on an '18% per annum' clause that is loan interest, not a fee escalation — caught only when hand-verifying contracts for scenario_builder.py. Used the contract only for its genuine 30%-first-year discount clause. Same class of trap as ADR-013's bare `escalat` finding on CUAD (known_issue #24), now confirmed on EDGAR's automated gold tier too. Do not skip the hand-read step when scoring says 'gold'."
+  },
+  {
+   "id": 35,
+   "phase": 3,
+   "text": "RESOLVED 2026-08-16 (Phase 6): data/scenarios/ now loads into the database. `python scripts/run_scenario.py {easy|realistic|edge}` writes the run's INPUTS (clients, contracts, clause references, transactions) and then core/engine/pipeline.compute_run computes the timeline and findings -- nothing in expected_timeline or anomalies is authored by the script. Residual: scripts/seed_demo.py's scenario_dir parameter STILL raises NotImplementedError and was deliberately left alone, so the seeded demo_v1 run stays a fixed reference that no engine change can move."
+  },
+  {
+   "id": 36,
+   "phase": 2,
+   "text": "RESOLVED 2026-08-12 (found in Phase 4): core/storage/files.py's load()/delete() stripped `file://` naively (storage_url[len(\"file://\"):]), which on Windows leaves a stray leading `/` before the drive letter (Path.as_uri() produces file:///C:/Users/... -- three slashes). WindowsPath then parses /C:/Users/... as a folder literally named `C:`, so is_file() was always False -- every local-backend load() call was silently broken. Phase 2's own 11 verification assertions only exercised the Supabase backend. Fixed with urllib.request.url2pathname + urlparse. Caught because Phase 4's CSV column-mapping step is the first code to call files.load() on a real local upload."
+  },
+  {
+   "id": 37,
+   "phase": 4,
+   "text": "RESOLVED 2026-08-12: a corrupt or non-PDF file uploaded with a .pdf extension crashed pdfplumber.open() with a raw PdfminerException ('No /Root object! - Is this really a PDF?'), which would have taken the whole Streamlit page down instead of landing as extraction_status='failed'. Fixed in core/extraction/pdf_extractor.py's new _open() wrapper, which both char_density() and extract_text_pdf() now use; raises ValueError with a readable message instead. Re-verified through the full upload-widget path (_extract_and_finalize) and live in the browser, not just the unit call."
+  },
+  {
+   "id": 38,
+   "phase": 4,
+   "text": "ACTUALS_TYPES (app/components/file_uploader.py, Phase 2) includes 'xlsx', but core/extraction/csv_parser.py only reads real CSVs (Phase 4). An .xlsx upload now fails cleanly with 'only .csv is parsed today -- xlsx support is not wired up yet' rather than crashing pandas.read_csv, but nobody has built the xlsx path. Not in Phase 4's definition of done (which only asks for a real actuals.csv); pick up whenever xlsx actuals actually matter."
+  },
+  {
+   "id": 39,
+   "phase": 0,
+   "text": "RESOLVED 2026-08-12: scripts/memory_digest.py read docs/state.json with the platform default encoding (json.loads(STATE_PATH.read_text())), which raised UnicodeDecodeError on Windows (cp1252) the moment state.json contained an em-dash. Fixed with an explicit encoding=\"utf-8\". Console output containing emoji (the checkmarks/crosses already in known_issues text) still needs PYTHONIOENCODING=utf-8 set to print on a default Windows terminal -- not fixed, workaround only, since changing the checkmark characters would touch unrelated content."
+  },
+  {
+   "id": 40,
+   "phase": 5,
+   "text": "RESOLVED 2026-08-14: Phase 5's definition of done is now MEASURED on a real Colab T4, not a stub. 10/10 valid ContractRules, 80.0% text grounding of 15 quotes, 2/2 PDF locations (1 exact 1 fuzzy). vLLM 0.27.1 installed and served on the T4; the fp16 dtype choice, the cloudflared URL parse and the /v1/models readiness poll all work. STILL UNTESTED on a GPU: the whole --backend transformers fallback path, and Kaggle (only Colab has been run). Superseded in part by #48/#49 -- the numbers pass but are thin."
+  },
+  {
+   "id": 41,
+   "phase": 5,
+   "text": "PARTLY RESOLVED 2026-08-16 (Phase 6): core/engine/pipeline.persist_rules() writes a ContractRules into contract_rules + clause_references + price_escalations + discounts + milestones, and app/components/reconcile_panel.render_extract_panel() calls Phase 5's extract_rules over uploaded contracts and persists the result. BOTH HALVES ARE TESTED, THE JOIN IS NOT: persist_rules has 13 assertions in tests/test_pipeline.py and extract_rules was measured on a Colab T4, but upload -> extract -> persist has never run end to end against a live GPU. With no endpoint it fails cleanly with a readable message. Reconciliation itself needs no model and is fully live."
+  },
+  {
+   "id": 42,
+   "phase": 5,
+   "text": "core/ai/llm_client.complete() returns str|None, not the str docs/interfaces.md originally declared. The project convention -- a function that can legitimately fail returns None -- wins over the stale signature. interfaces.md now says so; anything written against the old shape must handle None."
+  },
+  {
+   "id": 43,
+   "phase": 5,
+   "text": "ExtractedDoc.doc_type gained a fifth value, \"text\", for the sourced EDGAR corpus (HTML written to disk as .txt -- neither PDF nor CSV). Nothing persists doc_type, so no migration. Calling those documents text_pdf to satisfy the old Literal would have been a lie in the data."
+  },
+  {
+   "id": 44,
+   "phase": 5,
+   "text": "SECOND RECURRENCE of known issue #33: data/corpus/ and data/scenarios/ were empty again at the start of Phase 5, on a different machine (Linux, .venv on py3.14; Phase 4 ran on Windows). data/** is gitignored, so nothing under it survives a machine change. The contract corpus was rebuilt with `python -m data_sourcing.filter_contracts --count 260` (253 exhibits -> 43 distinct: 19 ready / 6 filled / 18 review). data/scenarios/ has NOT been rebuilt -- rerun data_sourcing/scenario_builder.py when Phase 6 needs it."
+  },
+  {
+   "id": 45,
+   "phase": 5,
+   "text": "prompts.py has had exactly one iteration and STILL has not been tuned, but it has now been measured once (2026-08-14): PROMPT_VERSION v1 scored 10/10 valid and 80.0% grounding on 10 EDGAR contracts. The 3 dropped quotes were paraphrases -- the model was told 'character for character' and did not comply. That is the tuning work the plan budgets for, and it is still open; v1 is a measured baseline now, not a guess. Any edit here invalidates exactly its own cache entries (cache.key hashes the rendered prompt), so re-running the eval after a prompt change is cheap."
+  },
+  {
+   "id": 46,
+   "phase": 5,
+   "text": "Grammar-constrained decoding is used when the server accepts response_format=json_schema (vLLM does; the transformers fallback does not), and llm_client negotiates downwards automatically. But NO valid-JSON-rate comparison has been run with it on versus off, so that row of the Phase 11 eval table is empty. The client-side repair-retry is kept regardless (ADR-004)."
+  },
+  {
+   "id": 47,
+   "phase": 5,
+   "text": "The .venv on THIS machine (Linux) is Python 3.14.6, not the 3.12.13 known issue #10 records. Streamlit Community Cloud does not offer 3.14, so the deployment-parity guarantee #10 was created to give does not currently hold here. Everything installs and runs on 3.14; the risk is a wheel or behaviour difference discovered at deploy time. Rebuild with `uv venv --python 3.12` before Phase 11, or pin runtime.txt and find out early."
+  },
+  {
+   "id": 48,
+   "phase": 5,
+   "text": "Phase 5's grounding number PASSED EXACTLY ON THE LINE: 80.0%, being 12 grounded and 3 dropped of 15 quotes. One more paraphrase reads 73% and the phase fails. The sample is small enough to swing hard -- a 2-contract smoke run an hour earlier read 66.7%. Do not quote 80% as a stable capability of the model; it is one measurement at n=15. Re-run with --limit 20 before it is cited in the Phase 11 report."
+  },
+  {
+   "id": 49,
+   "phase": 5,
+   "text": "'valid ContractRules 10/10' is softer than it reads. 3 of the 10 contracts (Mammoth Energy, Regal Entertainment, Vantiv) extracted ZERO clauses -- 0 grounded, 0 dropped -- and an empty ContractRules is structurally valid, so it scores as a pass while proving nothing. The yield is also lopsided: AMERI Holdings EX-99.1 alone produced 7 of the 12 grounded quotes. Report the split, not just the headline. The same shape showed on the CUAD PDF pass: 5 contracts yielded 2 locatable quotes, 3 yielded none. Consider adding a 'contracts with >=1 grounded clause' metric in Phase 11."
+  },
+  {
+   "id": 50,
+   "phase": 5,
+   "text": "Two serving bugs that ONLY appear on real hardware, both fixed by notebook-cell workarounds recorded in README.md ('Starting a session'), neither fixed in code. (1) google.colab.userdata.get() reads secrets from the notebook KERNEL, so serve_model.py cannot see LLM_API_KEY when launched as `!python ...` -- it dies with \"'NoneType' object has no attribute 'kernel'\". Fix: read the secret in a cell, set os.environ, which serve_model.py already prefers. Kaggle's kaggle_secrets does NOT have this problem. (2) `pip install vllm` is unpinned and pulls a torch built for CUDA 13.0, leaving Colab's preinstalled torchaudio (CUDA 12.8) stale; transformers imports torchaudio unconditionally and the server never starts. Fix: pip uninstall torchaudio after installing vllm. Consider pinning vllm before deployment."
+  },
+  {
+   "id": 51,
+   "phase": 5,
+   "text": "When vLLM's child process dies at import time, serve_model.py does not notice: it prints 'waiting for the model to finish loading (up to 900s)' and polls a dead port for the full 15 minutes before falling back. wait_until_ready() polls /v1/models but never checks Popen.poll(). One-line fix available; not made because the phase was being measured, not edited. Costs 15 minutes per failed start."
+  },
+  {
+   "id": 52,
+   "phase": 6,
+   "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema. UPDATED 2026-08-15: web/ now caches database reads for WEB_CACHE_SECONDS (default 15) in web/cache.py. That is only safe BECAUSE nothing writes -- the first write path added to web/ must call web.cache.clear() or the UI will show stale figures for up to 15 seconds after a user's own action."
+  },
+  {
+   "id": 53,
+   "phase": 6,
+   "text": "A live web/ page cannot be made fast from this repo: the Supabase instance is in ap-southeast-1 and a single round trip measured 409 ms median (1127 ms for a fresh connection), so response time is query-count x 400 ms. Query count was cut 35 -> 9 (get_summary_stats 8 -> 3 round trips, get_client_totals 4 -> 1, plus a per-request memo), which took a cold page from 8.7 s to ~5 s; the read cache makes warm pages ~3 ms. The remaining ~5 s cold is network and needs a region change or a nearer pooler, not code. Demo mode renders in 4 ms and never touches the database. Do not 'optimise' the SQL -- it is not the SQL."
+  },
+  {
+   "id": 54,
+   "phase": 6,
+   "text": "Escalation COMPOUNDS in core/engine/timeline_generator.py (6,000 -> 6,480 -> 6,998.40 on a 'each anniversary' clause) but data_sourcing/scenario_builder.py applies its escalation exactly ONCE. They agree today only because no scenario window contains a second anniversary -- every contract starts in 2024 and the observation year is 2025. A three-year scenario would diverge, and the ENGINE is the correct side (the clauses say 'on each anniversary'). Pass compound_escalation=False for a genuine one-off rise. Do not 'fix' the engine to match the scenario builder."
+  },
+  {
+   "id": 55,
+   "phase": 6,
+   "text": "Milestones are NEVER billed automatically. ContractRules.Milestone carries a condition ('on website launch'), not a date, and nothing resolves one into the other -- generate_timeline leaves an undated milestone out and unresolved_milestones()/RunSummary.unresolved_milestones names it. Deliberate: guessing a due date manufactures ghost invoices. The pitch's own $15,000 launch milestone therefore needs milestones.due_date set by hand before it is ever checked. seed_demo.py sets one; a computed run does not."
+  },
+  {
+   "id": 56,
+   "phase": 6,
+   "text": "web/ still writes NOTHING after Phase 6 (extends known issue #52). Reconciliation runs from the Streamlit app only -- app/components/reconcile_panel.py. web/'s 'Confirm and reconcile' button remains inert by design (ADR-018) and its tooltips now say where the action actually lives instead of naming a phase. THE FIRST WRITE PATH ADDED TO web/ MUST CALL web.cache.clear(); core.engine.pipeline.compute_run carries that warning in its docstring."
+  },
+  {
+   "id": 57,
+   "phase": 6,
+   "text": "Reconciliation's date rule is ADR-019, not plain calendar-month grouping: a payment settles the most recent billing ON OR BEFORE its own date, within the same month or +/-15 days. One consequence to know before reading a demo: a client who pays two months at once with a single transfer reads as one month settled and one ghost_invoice. Phase 8's check_split_payments tool is where that gets caught -- the same trade ADR-006 already made."
+  },
+  {
+   "id": 58,
+   "phase": 7,
+   "text": "NEVER score a fuzzy clause match with fuzz.partial_ratio alone. It normalises by its SHORTER argument, so a text block containing only the character '5' scores 100 against any quote containing a 5 -- Phase 7 shipped a confident amber box around exactly that digit on a table-of-contents page before this was caught. clause_locator now requires (a) the block to be at least half the quote's length, (b) a 35% overlap of distinctive words, and (c) _window_ratio: fuzz.ratio against a SAME-LENGTH slice. Regression-tested in tests/test_clause_locator.py."
+  },
+  {
+   "id": 59,
+   "phase": 7,
+   "text": "Clause quotes are commonly wrapped in ellipses -- '...a monthly payment in addition to...' -- by a model and by a human transcriber alike, and the document contains no such dots. An exact PDF search for the quote as given therefore FAILS on a clause that is right there, and the fuzzy tier then picks something else. clause_locator strips leading/trailing ellipses and quotation marks before searching; that single change turned two wrong fuzzy boxes into exact hits on the Regal contract."
+  },
+  {
+   "id": 60,
+   "phase": 7,
+   "text": "A located bbox is the UNION of every line the match spans, so on a multi-line clause the box includes whatever else shares those lines. Ordinary PDF-highlighting behaviour and honest, but it is not a word-perfect outline -- do not describe it as one in the report."
+  },
+  {
+   "id": 61,
+   "phase": 7,
+   "text": "The clause page image costs ~4.9 s cold and 1.2 ms warm. The cost is documents.extracted_text -- a couple of hundred kilobytes for an EDGAR filing, pulled across the 400 ms ap-southeast-1 link (known issue #53) -- plus the render. Cached in web/cache.py and by the browser (Cache-Control private, max-age=600). Not fixable in code from this repo; a page-level text column or a nearer region would fix it."
+  },
+  {
+   "id": 62,
+   "phase": 7,
+   "text": "Nothing re-locates clauses automatically. pipeline.locate_run_clauses runs from scripts/run_scenario.py and from the Reconcile button in app/. Editing a clause quote by hand, or re-extracting a contract, leaves STALE source_page/source_bbox until it is run again."
+  }
+ ],
+ "adrs": [
+  {
+   "id": "ADR-001",
+   "title": "No local GPU anywhere in the runtime path"
+  },
+  {
+   "id": "ADR-002",
+   "title": "One swappable LLM client behind a single env var",
+   "status": "amended by ADR-011 (provider list is now our own endpoints)"
+  },
+  {
+   "id": "ADR-003",
+   "title": "Supabase Postgres as the primary database"
+  },
+  {
+   "id": "ADR-004",
+   "title": "Pydantic + JSON mode + repair-retry, not Outlines"
+  },
+  {
+   "id": "ADR-005",
+   "title": "Code finds bounding boxes; the model never does"
+  },
+  {
+   "id": "ADR-006",
+   "title": "Reconcile on client-month aggregates"
+  },
+  {
+   "id": "ADR-007",
+   "title": "Contracts are sourced; actuals are derived"
+  },
+  {
+   "id": "ADR-008",
+   "title": "Top-down build order: shell and database first"
+  },
+  {
+   "id": "ADR-009",
+   "title": "Fine-tuning is a measured comparison, not a dependency",
+   "status": "superseded by ADR-012"
+  },
+  {
+   "id": "ADR-010",
+   "title": "CSV column mapping is LLM-proposed, human-confirmed"
+  },
+  {
+   "id": "ADR-011",
+   "title": "Self-hosted open-source inference only; no frontier API calls"
+  },
+  {
+   "id": "ADR-012",
+   "title": "Base model served from Phase 5; tuned adapter replaces it at Phase 10"
+  },
+  {
+   "id": "ADR-013",
+   "title": "SEC EDGAR is the primary contract source; CUAD is demoted"
+  },
+  {
+   "id": "ADR-014",
+   "title": "Redacted values are filled deterministically, never by a model"
+  },
+  {
+   "id": "ADR-015",
+   "title": "The serving notebook runs vLLM's OpenAI server, with a hand-written fallback"
+  },
+  {
+   "id": "ADR-016",
+   "title": "Colab and Kaggle are peers, swappable at runtime; failover on by default"
+  },
+  {
+   "id": "ADR-017",
+   "title": "A quote is grounded against the text always, and against a PDF when there is one"
+  },
+  {
+   "id": "ADR-018",
+   "title": "Two frontends over one database, and a demo/live toggle that never falls back"
+  },
+  {
+   "id": "ADR-019",
+   "title": "A payment answers the billing it followed (refines ADR-006)"
+  },
+  {
+   "id": "ADR-020",
+   "title": "Attribution refuses rather than guesses"
+  },
+  {
+   "id": "ADR-021",
+   "title": "A text-only filing is typeset into a PDF we generate, and labelled as such"
+  }
+ ],
+ "inference": {
+  "policy": "self-hosted open-source only; NO frontier model API calls (ADR-011)",
+  "base_model": "Qwen/Qwen2.5-3B-Instruct",
+  "tuned_model": "finsight-qwen2.5-3b (from Phase 10)",
+  "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
+  "serving_live_from_phase": 5
+ },
+ "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct) — SUPERSEDED, see known_issue #33: that directory was gitignored and gone by the time Phase 3 itself ran; Phase 3 rebuilt the real corpus at data/corpus/contracts/ (43 distinct) via data_sourcing/*.py. See progress.md 'Pre-Phase-3 spike' + Phase 3 entry + ADR-013/014."
 }

@@ -51,6 +51,12 @@ class ContractRules(BaseModel):
 
 
 class TimelineEntry(BaseModel):
+    #: Phase 6: the `expected_timeline.id` this row was loaded from, or None when
+    #: it has not been persisted yet. timeline_generator is pure and runs BEFORE
+    #: the insert, so it always emits None; core/engine/pipeline.py fills it in on
+    #: the way back out of the database, which is what lets a pure `reconcile()`
+    #: put a real `expected_timeline_id` on an Anomaly.
+    id: int | None = None
     client_id: int
     contract_rule_id: int
     billing_date: date
@@ -65,7 +71,10 @@ class TimelineEntry(BaseModel):
 class Anomaly(BaseModel):
     anomaly_type: Literal["ghost_invoice", "forgotten_raise", "zombie_discount", "short_change"]
     client_id: int
-    expected_timeline_id: int
+    #: Phase 6: nullable, matching the DB column, which has always been nullable.
+    #: `reconcile()` is pure and can run on a timeline that was never persisted —
+    #: interfaces.md declared this `int` before anyone had written a caller.
+    expected_timeline_id: int | None
     actual_transaction_id: int | None
     clause_reference_id: int | None
     expected_amount: float
@@ -118,6 +127,14 @@ class TransactionRow(BaseModel):
     amount: float
     description: str | None = None
     source_type: Literal["invoice", "bank"] | None = None
+    #: Both added at Phase 6, both optional so csv_parser (Phase 4) is unchanged.
+    #: A row straight out of a CSV has neither: it is a date, an amount and a
+    #: bank description. `reconciliation.attribute_transactions()` fills in
+    #: `client_id`, and `pipeline.py` fills in `id` after the insert. Reconciliation
+    #: refuses to aggregate a row whose `client_id` is still None rather than
+    #: guessing which client it belonged to.
+    id: int | None = None
+    client_id: int | None = None
 
 
 class ColumnProposal(BaseModel):

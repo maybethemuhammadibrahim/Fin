@@ -380,6 +380,12 @@ def _detail(index: int) -> FindingDetail:
         c_received=f["c_received"],
         c_share=f["c_share"],
         c_gap=f["c_gap"],
+        # Phase 7 renders the real contract page in live mode. Demo mode has no
+        # database and therefore no document bytes, so it keeps the mockup's own
+        # stylised page — which is content, not a placeholder for missing data.
+        # ADR-018 says fill every field in both presenters; this is the fill.
+        page_image_url=None,
+        page_is_typeset=False,
     )
 
 

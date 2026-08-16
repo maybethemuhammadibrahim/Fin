@@ -1303,3 +1303,38 @@ button:disabled, .is-disabled { cursor: not-allowed; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Phase 7: the rendered contract page ──────────────────────────────────
+   Shown instead of the stylised .page block whenever the presenter has a real
+   page to point at. The image is the evidence; the caption is the disclosure
+   that goes with it (ADR-021). */
+.pageshot { margin: 0; }
+.pageshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--color-neutral-300);
+  background: var(--color-bg);
+}
+.pageshot figcaption {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-neutral-700);
+  margin-top: 8px;
+  word-break: break-word;
+}
+/* The verbatim quote, repeated under the image. Same amber as the box drawn on
+   the page, so the eye connects the two without being told. */
+.clause-quote {
+  font-size: 14.5px;
+  line-height: 1.55;
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  background: var(--color-accent-200);
+  border-left: 3px solid var(--color-accent);
+}
+.clause-quote.is-ungrounded {
+  background: transparent;
+  border-left: 3px solid var(--color-neutral-400);
+  color: var(--color-neutral-800);
+}

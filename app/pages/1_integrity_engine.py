@@ -10,11 +10,15 @@ Reads (all via `core/db/queries.py`):
   get_anomaly        -> the selected finding's detail
   get_clause_reference -> the clause viewer
 
-Writes: `documents` (upload component, Phase 2) and, since Phase 4,
-`actual_transactions` + `column_mappings` once a pending CSV's columns are
-confirmed. Every number rendered here is a database aggregate. There is no
-hardcoded dict anywhere on this page — that is the rule that makes Phase 6 a
-data change instead of an integration project (ADR-008).
+Writes: `documents` (upload component, Phase 2); `actual_transactions` +
+`column_mappings` once a pending CSV's columns are confirmed (Phase 4); and,
+since Phase 6, `contract_rules` + `expected_timeline` + `anomalies` through
+`app/components/reconcile_panel.py`, which calls `core/engine/pipeline.py`.
+
+Every number rendered here is a database aggregate. There is no hardcoded dict
+anywhere on this page — that is the rule that made Phase 6 a data change instead
+of an integration project (ADR-008): the findings table below did not change one
+line when its rows stopped being seeded and started being computed.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from app.components.file_uploader import (
     render_file_uploaders,
     render_pending_csv_mappings,
 )
+from app.components.reconcile_panel import render_extract_panel, render_reconcile_panel
 from app.components.summary_cards import (
     render_grounding_note,
     render_summary_cards,
@@ -41,8 +46,10 @@ from app.components.summary_cards import (
 )
 from core.db import database
 from core.db.queries import (
+    count_contract_rules,
     get_anomaly,
     get_clause_reference,
+    get_document,
     get_summary_stats,
     list_anomalies,
     list_clients,
@@ -120,18 +127,31 @@ st.divider()
 st.subheader("2 · Confirm clients")
 
 if render_client_confirm(clients):
-    st.success(
-        "Confirmed. Re-analysis runs the extraction and reconciliation "
-        "pipeline — wired up in Phases 5 and 6.",
-        icon="✅",
-    )
+    st.success("Confirmed. Reconcile below to rebuild this run's findings.", icon="✅")
+
+# ---------------------------------------------------------------------------
+# Reconcile — the first action in this app that computes rather than reads
+# ---------------------------------------------------------------------------
+
+st.divider()
+st.subheader("3 · Reconcile")
+
+with state.db() as session:
+    contract_count = count_contract_rules(session, run_id)
+    if render_reconcile_panel(session, run_id, contract_count):
+        state.clear_selected_anomaly()
+
+with st.expander("Extract contract rules from uploaded contracts (needs a live endpoint)"):
+    with state.db() as session:
+        if render_extract_panel(session, run_id, documents):
+            st.rerun()
 
 # ---------------------------------------------------------------------------
 # Findings
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.subheader("3 · Findings")
+st.subheader("4 · Findings")
 
 with state.db() as session:
     all_anomalies = list_anomalies(session, run_id)
@@ -161,7 +181,7 @@ st.caption("👆 Click any row to see the contract clause that proves it.")
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.subheader("4 · Evidence")
+st.subheader("5 · Evidence")
 
 selected_id = state.get_selected_anomaly()
 
@@ -175,6 +195,11 @@ else:
             if anomaly and anomaly.clause_reference_id
             else None
         )
+        # Phase 7: the viewer needs the document behind the clause to render its
+        # page — a stored PDF, or the extracted text typeset into one (ADR-021).
+        clause_document = (
+            get_document(session, clause.document_id) if clause and clause.document_id else None
+        )
 
     if anomaly is None:
         # The selection survived a run switch or a reseed. Not an error.
@@ -182,7 +207,7 @@ else:
         render_placeholder()
     else:
         render_anomaly_detail(anomaly)
-        render_clause_viewer(clause)
+        render_clause_viewer(clause, clause_document)
         if st.button("Clear selection"):
             state.clear_selected_anomaly()
             st.rerun()
