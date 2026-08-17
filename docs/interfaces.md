@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0–7 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 6's definition of done was measured on 2026-08-16**: all three scenarios reproduce `ground_truth.json` exactly (`easy` 7 findings / $17,815.00, `realistic` 5 / $22,500.00, `edge` 0 / $0.00) and 74 pytest assertions pass — see `scripts/eval_engine.py`. **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0–8 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 6's definition of done was measured on 2026-08-16**: all three scenarios reproduce `ground_truth.json` exactly (`easy` 7 findings / $17,815.00, `realistic` 5 / $22,500.00, `edge` 0 / $0.00) and 74 pytest assertions pass — see `scripts/eval_engine.py`. **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. **Phase 8's client-side logic (the graph, the hard cap, persistence) was measured offline on 2026-08-17** — 125 pytest assertions, 18 of them new; `scripts/eval_agent.py`, the live-model half, has **not** been run against a live GPU yet (read ADR-022 and the Phase 8 `progress.md` entry before citing agent quality — the plan's own worked example no longer reproduces against today's engine). Everything from Phase 9 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -432,13 +432,23 @@ def build_scenario(contract_paths: list[Path],
 
 ```python
 # core/extraction/document_router.py                           [A]  ✅
-def detect_type(file_path: str) -> Literal["text_pdf","scanned","image","csv"]: ...
+def detect_type(file_path: str) -> Literal["text_pdf","scanned","image","csv","text"]: ...
 def extract(file_path: str) -> ExtractedDoc:
     """Single entry point. Routes internally. ExtractedDoc.blocks is a list of
        {page_number, text, is_table}. Raises ValueError (readable message) on
        an unsupported type or an unreadable file -- never a raw library
        exception. csv routes to a raw-text passthrough; structured parsing is
-       csv_parser.parse_transactions, which needs a confirmed mapping first."""
+       csv_parser.parse_transactions, which needs a confirmed mapping first.
+
+       "text" (.txt) was ADDED 2026-08-17 by the post-Phase-8 audit. It returns
+       doc_type="text" with page_count=1 -- a text file has no pages, and the
+       pagination a clause box needs is assigned later, for display only, by
+       pdf_renderer.typeset_pdf (ADR-021). app/components/file_uploader.py had
+       been offering "txt" and "docx" as contract formats since Phase 2 while
+       this function rejected both; .txt is now really read and "docx" was
+       removed from the uploader (a docx reader needs a new dependency, which
+       needs an ADR). Callers must still catch ValueError -- file_uploader
+       turns it into extraction_status='failed' (known issue #37)."""
 
 # core/extraction/pdf_extractor.py                              [A]  ✅
 #   Not in the plan's original interfaces.md stub -- added because
@@ -480,6 +490,21 @@ def render_column_mapper(session, file_path: str, key_prefix: str) -> dict[str, 
 python training/serve_model.py [--self-test] [--backend auto|vllm|transformers]
                                [--model NAME] [--lora NAME=PATH] [--port 8000]
 
+# training/serve_modal.py   (deployed TO Modal, not run here)  [B] ✅ written  ⬜ NEVER DEPLOYED
+#   ADDED to this doc 2026-08-17 by the post-Phase-8 audit (ADR-023). It existed
+#   and worked for some time before that with NO entry in any memory file.
+#   The THIRD peer host, and the only one whose URL does not rotate. Same
+#   weights (Qwen 2.5 3B), same vLLM, same OpenAI-compatible routes, same
+#   LLM_API_KEY bearer, same LLM_MODEL name -- rented hardware, not a vendor
+#   model API, so ADR-011 is untouched. Weights are baked into the image at
+#   build time and vllm is PINNED to 0.27.1 (the unpinned install is what broke
+#   Colab, known issue #50).
+#   Knobs: MODAL_GPU (default L4), CONTAINER_IDLE_SECONDS (120), MODAL_BASE_URL.
+#   Costs real money per GPU-second while a request is in flight.
+modal secret create finsight-llm LLM_API_KEY=<from .env>   # the name is load-bearing
+modal deploy training/serve_modal.py                        # prints MODAL_BASE_URL
+def serve() -> None                                         # @modal.web_server(port=8000)
+
 # core/ai/endpoints.py                                         [B]  ✅  NEW in Phase 5 (ADR-016)
 #   The mutable half of the LLM config, resolved at CALL time. Layers
 #   data/endpoint_override.json (what the in-app switcher writes) over settings.
@@ -490,9 +515,18 @@ class Endpoint:   provider, label, env_var, base_url, source; .configured, .chat
 class Health:     ok, detail, latency_ms, models
 
 def active() -> Endpoint                    # who serves THIS call
-def get(provider: str) -> Endpoint
+def active_provider() -> str                # ADDED to this doc 2026-08-17 (ADR-023).
+    """Three layers, most deliberate first: the in-app switcher's override,
+       then USE_MODAL=true, then LLM_PROVIDER (defaulting to colab_tunnel).
+       USE_MODAL is NOT LLM_FAILOVER -- failover only reacts after something
+       has already broken; USE_MODAL decides where calls go in the first
+       place ("this is a live demo, use the paid host")."""
+def get(provider: str) -> Endpoint          # provider in {colab_tunnel, kaggle_tunnel, modal, custom}
 def list_endpoints() -> list[Endpoint]
 def fallback() -> Endpoint | None           # the other configured host, when LLM_FAILOVER
+                                            # TRIES MODAL FIRST (ADR-023): the notebooks are
+                                            # what die, so the peer worth reaching for when the
+                                            # active host just failed is the one with a stable URL.
 def set_active(provider: str) -> None
 def set_url(provider: str, url: str | None) -> None
 def set_model(name: str | None) -> None     # Phase 11's base-vs-tuned switch
@@ -807,34 +841,177 @@ FindingDetail.page_is_typeset: bool           # the template MUST disclose it
 ## Phase 8 — Verification agent
 
 ```python
-# core/agents/tools.py                                         [A]  ⬜
+# core/agents/tools.py                                         [A]  ✅
 def search_invoices(session, client_id: int, start: date, end: date) -> list[TransactionRow]: ...
-def read_contract_clause(session, clause_ref_id: int) -> str: ...
+def read_contract_clause(session, clause_ref_id: int | None) -> str: ...
 def search_bank_transactions(session, run_id: int, amount_min: float,
                              amount_max: float, start: date, end: date) -> list[TransactionRow]: ...
 def check_split_payments(session, client_id: int, target: float,
-                         start: date, end: date, tol: float = 0.02) -> list[list[TransactionRow]]: ...
+                         start: date, end: date, tol: float = 0.02) -> list[list[TransactionRow]]:
+    """`tol` is a FRACTION (0.02 = 2%), not a percentage. Returns
+       queries.TransactionRow — the same display-safe row both frontends
+       already use, not the Phase-3 schemas.TransactionRow."""
 
-# core/agents/verification_agent.py                            [B]  ⬜
-def verify_anomaly(anomaly: Anomaly) -> VerificationResult:
-    """LangGraph ReAct loop, max 5 iterations.
-       VerificationResult: verdict, explanation, tool_calls, confidence."""
+# core/agents/verification_agent.py                            [B]  ✅
+class AgentDecision(BaseModel):    # one ReAct turn's structured output
+    thought: str
+    action: Literal["search_invoices","search_bank_transactions",
+                    "check_split_payments","read_contract_clause","conclude"]
+    verdict: Literal["confirmed","false_positive","needs_review"] | None = None
+    explanation: str | None = None
+    widen_days: int | None = None          # the model never supplies an id —
+    amount_slack_pct: float | None = None  # only these search-widening knobs.
+    tolerance_pct: float | None = None     # every real identifier comes from
+                                            # AnomalyContext, built server-side.
+
+@dataclass(frozen=True)
+class AnomalyContext:  # anomaly_id, run_id, client_id, client_name,
+                        # anomaly_type, expected/actual/gap, billing_date,
+                        # clause_reference_id, clause_text, original_confidence
+    def summary(self) -> str: ...
+
+@dataclass
+class VerificationResult:
+    verdict: Literal["confirmed","false_positive","needs_review"] | None
+    #        ^ None means the agent could not reach the model at all —
+    #          the caller must leave the anomaly untouched, not write a verdict.
+    explanation: str
+    tool_calls: list[dict[str, str]]   # [{"call": "...", "result": "..."}] —
+                                        # this exact shape is what
+                                        # web/presenters/live.py::_tool_calls parses.
+    confidence: float | None
+    iterations: int
+
+def build_context(session, anomaly_row: AnomalyRow) -> AnomalyContext: ...
+def verify_anomaly(session, context: AnomalyContext) -> VerificationResult:
+    """A LangGraph StateGraph built fresh per call, max 5 iterations. On cap,
+       verdict is forced to "needs_review" WITHOUT a 6th model call. Never
+       raises — an agent crash returns VerificationResult(verdict=None, ...)."""
+
+# NOT in the plan's original signature — added the way pipeline.py was added
+# in Phase 6: the bridge from a pure per-anomaly function to real rows.
+def verify_run(session, run_id: int, *, only_status: str = "unverified",
+               limit: int | None = None, sleep_seconds: float = 1.0) -> VerifyRunSummary:
+    """The only place this phase writes to `anomalies`. An anomaly whose
+       verify_anomaly() returns verdict=None is counted in .skipped and left
+       completely untouched — still "unverified", exactly as before the call."""
+
+@dataclass
+class VerifyRunSummary:
+    run_id: int; checked: int; confirmed: int; false_positive: int
+    needs_review: int; skipped: int   # .as_line()
+
+# core/ai/prompts.py                                            [B]  ✅  additive
+AGENT_VERSION: str
+AGENT_SYSTEM: str
+def agent_user(context_summary: str, history: str) -> str
+
+# app/components/verify_panel.py                                [B]  ✅  NOT in the plan's tree
+def render_verify_panel(session, run_id: int, unverified_count: int) -> bool: ...
+
+# app/components/anomaly_table.py                                [B]  ✅
+def render_visibility_toggle(anomalies: list[AnomalyRow]) -> bool:
+    """'Show false positives' checkbox, default off, shown only once one exists."""
 ```
+
+> **⚠️ The plan's own Phase 8 worked example (a name-variant false positive on the `realistic` scenario) no longer reproduces.** `core.engine.reconciliation.attribute_transactions` (Phase 6) already fuzzy-matches client names at reconcile time, so the scenario's planted name variants are attributed correctly before the agent ever runs. See ADR-022 and the Phase 8 entry in `progress.md` for what proves the agent instead, and known issue #57's amendment for what `check_split_payments` still cannot do.
 
 ---
 
 ## Phase 9 — Decision engine
 
 ```python
-# core/engine/cashflow.py                                      [A]  ⬜
-def compute_baseline(session, run_id: int, months: int = 6) -> CashFlowBaseline: ...
-def apply_scenario(baseline: CashFlowBaseline, monthly_cost: float,
-                   recovered_monthly: float) -> ScenarioResult: ...
+# core/engine/cashflow.py                                      [A]  ✅
+#   Pure except for the two `session` functions at the bottom, which only shape a
+#   query result before delegating. Takes NO clock (the Phase 6 rule): projection
+#   labels are M1..Mn, never calendar months.
+@dataclass(frozen=True)
+class CashFlowBaseline:
+    months_observed: int; monthly_revenue: float
+    monthly_expenses: float | None      # None = UNKNOWN, never 0.0 (ADR-024)
+    monthly_surplus: float | None       # None whenever expenses are unknown
+    confidence: Literal["ok","low","none"]; reason: str
+    revenue_by_month: tuple[tuple[str, float], ...]
+    #: .expenses_known -> bool   .basis -> "surplus" | "revenue"
 
-# core/ai/decision_analyzer.py                                 [B]  ⬜
-def parse_question(q: str) -> ParsedQuestion:
-    """-> {what: str, monthly_cost: float, start_month: str|None}"""
-def explain_verdict(result: ScenarioResult, parsed: ParsedQuestion) -> str: ...
+@dataclass(frozen=True)
+class Recovery:
+    confirmed_count: int; confirmed_total: float
+    months_covered: int                 # the run's REAL window, not a hardcoded 12
+    monthly: float
+    unverified_count: int; unverified_total: float; false_positive_count: int
+
+@dataclass(frozen=True)
+class ScenarioResult:
+    baseline: CashFlowBaseline; recovery: Recovery; monthly_cost: float
+    corrected_surplus: float | None; after_decision: float | None
+    verdict: Literal["yes","no","unknown"]; rationale: str
+    projection: tuple[tuple[str, float, float], ...]     # (label, without, with)
+    cost_share_of_revenue: float | None
+    def allowed_figures(self) -> set[float]: ...
+        """Every number an explanation may contain. The contract behind the
+           plan's own warning; enforced at runtime by decision_analyzer."""
+
+# pure
+def baseline_from_monthly(revenue_by_month: dict[str, float],
+                          monthly_expenses: float | None = None,
+                          months: int = 6) -> CashFlowBaseline: ...
+def recovery_from_anomalies(confirmed_gaps: list[float], months_covered: int,
+                            unverified_gaps: list[float] | None = None,
+                            false_positive_count: int = 0) -> Recovery: ...
+def apply_scenario(baseline, monthly_cost: float, recovered_monthly: float,
+                   horizon: int = 12) -> ScenarioResult: ...      # as declared
+def evaluate(baseline, recovery: Recovery, monthly_cost: float,
+             horizon: int = 12) -> ScenarioResult: ...            # keeps the counts
+def months_spanned(dates: list[date]) -> int: ...
+
+# reads the database
+def compute_baseline(session, run_id: int, months: int = 6,
+                     monthly_expenses: float | None = None) -> CashFlowBaseline: ...
+    """`monthly_expenses` EXTENDS the declared signature — the interface assumed
+       an expense source in the schema and none exists (ADR-024)."""
+def compute_recovery(session, run_id: int) -> Recovery: ...       # confirmed only
+
+# core/ai/decision_analyzer.py                                 [B]  ✅
+@dataclass(frozen=True)
+class ParsedQuestion:
+    question: str; what: str; monthly_cost: float | None      # ALWAYS per month
+    cadence: Literal["monthly","annual","one_off"] | None
+    start_month: str | None
+    source: Literal["pattern","model","none"]
+    raw_amount: float | None; matched_text: str | None; warnings: tuple[str, ...]
+    #: .needs_confirmation -> bool   (True unless source == "pattern")
+    #: .has_cost -> bool
+
+@dataclass
+class ExplanationResult:
+    text: str; source: Literal["model","fallback"]
+    rejected_numbers: list[float]; attempts: int
+
+def extract_cost(question: str) -> tuple[float | None, str | None]: ...
+    """DETERMINISTIC, and the reason the model never owns the money: it returns
+       the amount AND the substring it matched, so the figure driving the verdict
+       is provably the user's own. Skips a year after a date preposition."""
+def detect_cadence(question: str) -> Cadence | None: ...
+def parse_locally(question: str) -> ParsedQuestion: ...    # no model at all
+def parse_question(question: str) -> ParsedQuestion: ...
+    """NEVER returns None and never raises — unlike the project convention, and
+       deliberately: parse_locally always has an answer, so failing would break
+       the page to guard against something that need not stop anything. The
+       pattern owns monthly_cost; the model supplies `what`/`start_month`, and an
+       amount only when the pattern found none (then needs_confirmation is True)."""
+def figures_for(result: ScenarioResult) -> list[str]: ...  # the model's whole numeric universe
+def offending_numbers(text: str, result: ScenarioResult) -> list[float]: ...
+def fallback_explanation(result, parsed=None) -> str: ...  # deterministic, always correct
+def explain_verdict(result, parsed=None, *, max_attempts: int = 2) -> ExplanationResult: ...
+    """WIDENED from `-> str`: the caller must be able to tell whether the model
+       wrote this or whether its attempt was REJECTED for quoting a figure it was
+       not given. Retries once, then falls back. `.text` is the old contract."""
+
+# core/ai/prompts.py                                          [B]  ✅
+DECISION_VERSION = "v1"; PARSE_SYSTEM; EXPLAIN_SYSTEM
+def parse_user(question: str) -> str: ...
+def explain_user(verdict: str, figures: list[str], rationale: str) -> str: ...
 ```
 
 ---

@@ -298,7 +298,9 @@ Both hosts are peers, not primary and backup (ADR-016). Pick either; the cells d
 
 **Before either:** store the shared secret in the host's secret manager under exactly the name `LLM_API_KEY` — Colab's **Secrets** panel (key icon, left sidebar) or Kaggle's **Add-ons → Secrets**. On Colab, also switch that secret's **Notebook access** toggle on; it is off by default.
 
-The current value is `finsight-GaK-on1sZuD1sH6Vs92cC6qTEStXPc9p`. It is a self-invented shared secret, not a vendor key — rotating it means changing it in three places: `.env`, the Colab secret, and the Kaggle secret.
+Read the current value out of your own `.env` — **it is deliberately not written down in this repo.** It is a self-invented shared secret rather than a vendor key, but it is the only thing standing between a public tunnel URL and anyone else's use of your GPU (and, with Modal, your billed GPU seconds). Rotating it means changing it in four places: `.env`, the Colab secret, the Kaggle secret, and the Modal secret.
+
+> **This file used to print the live key**, from Phase 5 until the 2026-08-17 audit found it, in a public repository. If you have not rotated it since, do that first — the old value is still in this repo's git history and cannot be un-published. Generate a new one with `python -c "import secrets; print('finsight-' + secrets.token_urlsafe(24))"`.
 
 **Colab** — Runtime → Change runtime type → **T4 GPU**, then one cell:
 
@@ -381,7 +383,7 @@ A browser tab opens; approve it. Nothing to copy or paste — it writes the cred
 **4. Give Modal the shared password.** Same one your notebooks use:
 
 ```bash
-modal secret create finsight-llm LLM_API_KEY=finsight-GaK-on1sZuD1sH6Vs92cC6qTEStXPc9p
+modal secret create finsight-llm LLM_API_KEY=<the value from your .env>
 ```
 
 The name `finsight-llm` matters — `training/serve_modal.py` looks for exactly that.

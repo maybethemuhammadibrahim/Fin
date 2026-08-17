@@ -72,7 +72,8 @@ def render_anomaly_table(anomalies: list[AnomalyRow]) -> int | None:
             "Gap": st.column_config.NumberColumn(format="$%.0f"),
             "Confidence": st.column_config.ProgressColumn(
                 min_value=0.0, max_value=1.0, format="%.2f",
-                help="From the rule engine. The agent adjusts it in Phase 8.",
+                help="From the rule engine, then adjusted by the verification "
+                     "agent once a finding has been verified.",
             ),
             "Evidence": st.column_config.TextColumn(
                 width="small", help="📄 means a contract clause backs this finding."
@@ -113,6 +114,24 @@ def render_filters(anomalies: list[AnomalyRow]) -> tuple[str | None, str | None]
     return chosen_type, chosen_status
 
 
+def render_visibility_toggle(anomalies: list[AnomalyRow]) -> bool:
+    """'Show false positives' checkbox. Phase 8.
+
+    Default off: a run the agent has checked should read as the leaks that
+    are still real, not as a table half-full of rows already ruled out. Only
+    shown when there is at least one false positive to hide, so the control
+    never appears before the agent has run.
+    """
+    if not any(a.status == "false_positive" for a in anomalies):
+        return True
+    return st.checkbox(
+        "Show false positives the agent already ruled out",
+        value=False,
+        help="Off by default once the verification agent has run — a ruled-out "
+        "finding is kept in the database with its reasoning, not deleted.",
+    )
+
+
 def render_anomaly_detail(anomaly: AnomalyRow) -> None:
     """The figures for one finding, above the clause viewer."""
     st.markdown(f"### {type_label(anomaly.anomaly_type)} — {anomaly.client_name}")
@@ -127,7 +146,16 @@ def render_anomaly_detail(anomaly: AnomalyRow) -> None:
         st.caption(f"Billing period: {anomaly.billing_date:%B %Y}")
 
     if anomaly.agent_reasoning:
-        with st.expander("🤖 Verification agent notes"):
+        with st.expander("🤖 Verification agent notes", expanded=True):
             st.write(anomaly.agent_reasoning)
+            if anomaly.verified_at:
+                st.caption(f"Checked {anomaly.verified_at:%b %d, %Y %H:%M UTC}")
+        if anomaly.agent_tool_calls:
+            with st.expander(f"🔧 Agent's investigation ({len(anomaly.agent_tool_calls)} step(s))"):
+                for step in anomaly.agent_tool_calls:
+                    call = step.get("call", "?") if isinstance(step, dict) else str(step)
+                    result = step.get("result", "") if isinstance(step, dict) else ""
+                    st.markdown(f"**`{call}`**")
+                    st.caption(result)
     elif anomaly.status == "unverified":
-        st.caption("Not yet checked by the verification agent — that lands in Phase 8.")
+        st.caption("Not yet checked by the verification agent — run it above, under \"4 · Verify findings\".")

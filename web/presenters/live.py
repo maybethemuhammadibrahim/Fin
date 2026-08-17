@@ -9,7 +9,10 @@ architecture is arranged to prevent.
 
 What is genuinely absent today, and where it lands:
 
-* agent verdicts and tool traces — `core/agents/` is a stub, Phase 8;
+* agent verdicts and tool traces — **built** (Phase 8), but `web/` cannot start a
+  verification run because it writes nothing (ADR-018). A finding shows its
+  verdict and tool trace as soon as something has written one; until then the
+  pane says so and names where the run is started (`app/`), not a phase;
 * headline prose and the Decision Engine's answer — `core/ai/decision_analyzer.py`
   is a stub, Phase 9;
 * clause page coordinates — Phase 7, and nullable forever after (ADR-005), so
@@ -28,11 +31,14 @@ averaging what the query returned.
 from __future__ import annotations
 
 import calendar
+import re
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from web import cache as web_cache
+from core.ai import decision_analyzer
+from core.engine import cashflow
 from core.db.queries import (
     AnomalyRow,
     RunRow,
@@ -78,19 +84,41 @@ TOLERANCE_DAYS = 15
 #: Which of the four Integrity screens is warranted by what the run holds.
 #: Order matters — a run with findings is `review` even while documents are
 #: still processing, because the findings are the thing worth looking at.
+#: Shown only while a finding has no verdict *and* no tool trace. The agent
+#: itself exists (Phase 8) — what is missing is a run over this finding, and
+#: `web/` cannot start one because it writes nothing (ADR-018, known issue #56).
+#: So this names where the run is started rather than naming a phase.
 NOTICE_AGENT = (
-    "The verification agent lands in Phase 8. Until then a finding carries no "
-    "tool trace and no agent verdict, so nothing is shown here rather than a "
-    "confidence score nobody computed."
+    "This finding has not been through the verification agent yet, so no tool "
+    "trace and no agent verdict are shown here — better than a confidence score "
+    "nobody computed. Run \"Verify findings\" in the Streamlit app to fill it in; "
+    "this frontend is read-only."
 )
+#: The analyser exists (Phase 9). What this frontend cannot do is *ask* it: it has
+#: no POST route, because it writes nothing (ADR-018), and a verdict needs both a
+#: question and a monthly running-cost figure that only a form can collect. So
+#: this names the surface that can answer, rather than a phase — the lesson from
+#: the 2026-08-17 audit, which found four strings still promising Phase 8.
 NOTICE_DECISION = (
-    "The Decision Engine's analyser lands in Phase 9. The working below is real "
-    "— it comes from your transactions and your confirmed findings — but no "
-    "verdict is drawn from it yet."
+    "The working below is real — computed by the same engine the Streamlit app uses. "
+    "A verdict needs two things this read-only frontend cannot collect: your question "
+    'and your monthly running costs. Ask it on the Decision Engine page of the '
+    "Streamlit app."
 )
 NOTICE_EXPENSES = (
-    "No expense figures exist in the database, so the surplus and the verdict "
-    "cannot be computed. Only what arrived is shown."
+    "No table holds expenses (ADR-024), so a surplus cannot be computed from the "
+    "database. Add your monthly running costs to the box above and the verdict "
+    "becomes a real yes or no; without them, only a share of revenue can be stated."
+)
+#: Nothing asked yet. Not an error — the page is waiting, and the working below is
+#: already real, so it says that rather than dressing the space as a failure.
+NOTICE_ASK = (
+    "Ask a question above and this becomes a verdict. The working below is already "
+    "computed from your own records."
+)
+NOTICE_NO_AMOUNT = (
+    "No amount was found in that question, so there is nothing to test against. "
+    "Name a figure — for example “a $5,000 a month designer”."
 )
 
 
@@ -597,12 +625,28 @@ def integrity(
 # ---------------------------------------------------------------------------
 
 
-def decision(session: Session, run_id: int | None, question: str | None = None) -> DecisionView:
-    """The working the database can support, and an honest blank where it cannot.
+def decision(
+    session: Session,
+    run_id: int | None,
+    question: str | None = None,
+    monthly_expenses: float | None = None,
+) -> DecisionView:
+    """The Decision Engine, answered. Phase 9.
 
-    No verdict is produced. `core/ai/decision_analyzer.py` is a stub, and the
-    surplus it would need cannot be computed without expenses, which no table
-    holds. The revenue line and the findings line are real.
+    **This is the one action `web/` performs, and it is still a read** — the
+    reason it does not breach ADR-018. Asking a question computes a verdict from
+    rows and from two numbers the user typed into the URL; it writes nothing, so
+    there is nothing for `web.cache.clear()` to invalidate (known issue #56 is
+    about *write* paths and remains true).
+
+    Two inputs arrive as query parameters rather than from the database: the
+    question, and `monthly_expenses` — because no table holds expenses (ADR-024).
+    With no expense figure the verdict is deliberately `unknown` and the page
+    reports the commitment as a share of revenue instead of inventing a surplus.
+
+    Every figure here is computed by `core/engine/cashflow.py`. The model, if one
+    is answering, only phrases them — and `decision_analyzer.explain_verdict`
+    rejects its prose outright if it quotes a number it was not given.
     """
     suggestions = [
         "Can I afford 3,000 a month more rent from July?",
@@ -622,49 +666,261 @@ def decision(session: Session, run_id: int | None, question: str | None = None) 
             notices={"decision": NOTICE_DECISION, "working": "No run selected."},
         )
 
+    # Phase 9: the arithmetic is the engine's, not this presenter's. It used to
+    # average revenue and divide the confirmed total by a hardcoded 12 right here
+    # — money math in a view layer, and wrong for any run not spanning a year.
+    # `compute_recovery` divides by the months the run actually covers.
     stats = _stats(session, run_id)
     months = revenue_by_month(session, run_id)
-    avg_revenue = round(sum(months.values()) / len(months), 2) if months else None
-    confirmed = [a for a in _anomalies(session, run_id) if a.status == "confirmed"]
-    confirmed_total = round(sum(a.gap for a in confirmed), 2) if confirmed else 0.0
-    monthly_recovery = round(confirmed_total / 12, 2) if confirmed_total else None
+    baseline = cashflow.baseline_from_monthly(
+        months, monthly_expenses=monthly_expenses, months=max(len(months), 1)
+    )
+    recovery = cashflow.compute_recovery(session, run_id)
 
     working = [
         WorkRow(
             "Average monthly revenue",
-            f"{plural(len(months), 'month')} of matched payments" if months else "no payments on file",
-            money(avg_revenue),
+            f"{plural(baseline.months_observed, 'month')} of matched payments"
+            if months
+            else "no payments on file",
+            money(baseline.monthly_revenue) if months else None,
         ),
         WorkRow("Average monthly expenses", "not recorded anywhere", None, accent=True),
         WorkRow("Surplus today", "needs expenses", None, bold=True),
         WorkRow(
             "Confirmed findings",
-            f"{len(confirmed)} of {stats.anomaly_count} · see Findings",
-            money(confirmed_total),
+            f"{recovery.confirmed_count} of {stats.anomaly_count} · see Findings",
+            money(recovery.confirmed_total),
         ),
-        WorkRow("Spread across the year", "divided by 12", money(monthly_recovery)),
+        WorkRow(
+            "As a monthly run-rate",
+            f"over {plural(recovery.months_covered, 'month')} of billings"
+            if recovery.months_covered
+            else "no billing window",
+            money(recovery.monthly) if recovery.monthly else None,
+        ),
         WorkRow("Surplus once collected", "needs expenses", None, bold=True),
-        WorkRow("Cost of the question", "nothing asked yet", None, accent=True),
+        WorkRow("Cost of the question", "ask in the Streamlit app", None, accent=True),
         WorkRow("Left over each month", None, None, final=True),
     ]
+
+    caveat = (
+        "This answers questions about affording a recurring cost. It cannot answer "
+        "questions about one client, a past period, or a change to your prices."
+    )
+
+    # Nothing asked yet: show the working, and no verdict. Not a failure state —
+    # the page is waiting, and says so rather than filling the space.
+    if not (question or "").strip():
+        return DecisionView(
+            question="",
+            suggestions=suggestions,
+            answered=False,
+            verdict_word=None,
+            verdict_qual=None,
+            lead_html=None,
+            after=None,
+            bars=[],
+            axis=[],
+            working=working,
+            caveat=caveat,
+            notices={"decision": NOTICE_ASK, "expenses": NOTICE_EXPENSES},
+        )
+
+    parsed = decision_analyzer.parse_question(question)
+
+    if not parsed.has_cost:
+        return DecisionView(
+            question=question or "",
+            suggestions=suggestions,
+            answered=False,
+            verdict_word=None,
+            verdict_qual=None,
+            lead_html=None,
+            after=None,
+            bars=[],
+            axis=[],
+            working=working,
+            caveat=caveat,
+            notices={"decision": NOTICE_NO_AMOUNT, "expenses": NOTICE_EXPENSES},
+        )
+
+    result = cashflow.evaluate(baseline, recovery, monthly_cost=parsed.monthly_cost or 0.0)
+    explanation = decision_analyzer.explain_verdict(result, parsed)
+
+    # The working table gains the three lines a question makes computable.
+    working = _decision_working(stats, baseline, recovery, result, months)
+
+    if result.verdict == "unknown":
+        # Honest per ADR-024: a share of revenue is a fact; a Yes/No would not be.
+        share = (
+            f"{result.cost_share_of_revenue * 100:.1f}% of monthly revenue"
+            if result.cost_share_of_revenue is not None
+            else "no revenue on file to compare against"
+        )
+        return DecisionView(
+            question=question or "",
+            suggestions=suggestions,
+            answered=True,
+            verdict_word="Can't say",
+            verdict_qual=share,
+            lead_html=_emphasise(explanation.text),
+            after=_provenance(explanation, parsed),
+            bars=_bars(result),
+            axis=_axis(result),
+            working=working,
+            caveat=caveat,
+            notices={"expenses": NOTICE_EXPENSES},
+        )
+
+    left = money(result.after_decision)
+    without = money(round((baseline.monthly_surplus or 0.0) - result.monthly_cost, 2))
 
     return DecisionView(
         question=question or "",
         suggestions=suggestions,
-        answered=False,
-        verdict_word=None,
-        verdict_qual=None,
-        lead_html=None,
-        after=None,
-        bars=[],
-        axis=[],
+        answered=True,
+        verdict_word="Yes" if result.verdict == "yes" else "No",
+        verdict_qual=f"{left} a month left over — {without} if you recover nothing",
+        lead_html=_emphasise(explanation.text),
+        after=_provenance(explanation, parsed),
+        bars=_bars(result),
+        axis=_axis(result),
         working=working,
-        caveat=(
-            "This page will answer questions about affording a recurring cost. It cannot "
-            "answer questions about one client, a past period, or a change to your prices."
-        ),
-        notices={"decision": NOTICE_DECISION, "expenses": NOTICE_EXPENSES},
+        caveat=caveat,
+        notices={},
     )
+
+
+def _decision_working(stats, baseline, recovery, result, months) -> list[WorkRow]:
+    """The working table once a question has been asked."""
+    rows = [
+        WorkRow(
+            "Average monthly revenue",
+            f"{plural(baseline.months_observed, 'month')} of matched payments"
+            if months
+            else "no payments on file",
+            money(baseline.monthly_revenue) if months else None,
+        ),
+    ]
+    if baseline.monthly_expenses is not None:
+        rows.append(
+            WorkRow("Average monthly expenses", "the figure you gave", f"({money(baseline.monthly_expenses)})", accent=True)
+        )
+        rows.append(WorkRow("Surplus today", None, money(baseline.monthly_surplus), bold=True))
+    else:
+        rows.append(WorkRow("Average monthly expenses", "not recorded anywhere", None, accent=True))
+        rows.append(WorkRow("Surplus today", "needs expenses", None, bold=True))
+
+    rows.append(
+        WorkRow(
+            "Confirmed findings",
+            f"{recovery.confirmed_count} of {stats.anomaly_count} · see Findings",
+            money(recovery.confirmed_total),
+        )
+    )
+    rows.append(
+        WorkRow(
+            "As a monthly run-rate",
+            f"over {plural(recovery.months_covered, 'month')} of billings"
+            if recovery.months_covered
+            else "no billing window",
+            money(recovery.monthly) if recovery.monthly else None,
+        )
+    )
+    if result.corrected_surplus is not None:
+        rows.append(WorkRow("Surplus once collected", None, money(result.corrected_surplus), bold=True))
+    else:
+        rows.append(WorkRow("Surplus once collected", "needs expenses", None, bold=True))
+
+    rows.append(
+        WorkRow("Cost of the commitment", "taken from your question", f"({money(result.monthly_cost)})", accent=True)
+    )
+    rows.append(
+        WorkRow(
+            "Left over each month",
+            None,
+            money(result.after_decision) if result.after_decision is not None else None,
+            final=True,
+        )
+    )
+    return rows
+
+
+def _emphasise(text: str) -> str:
+    """Wrap every money figure in the prose in <b>, as the design does.
+
+    The template takes `lead_html` as safe HTML, so the text is escaped here
+    first — the prose can come from a language model, and an unescaped `<` from
+    one would be an injection straight into the page.
+    """
+    from html import escape
+
+    return re.sub(r"(\$[\d,]+(?:\.\d{2})?|\d+(?:\.\d+)?%)", r"<b>\1</b>", escape(text))
+
+
+def _provenance(explanation, parsed) -> str:
+    """The line under the answer: who wrote the sentence, and what was excluded.
+
+    Says outright when the model's prose was thrown away for quoting a figure it
+    was not given — that rejection is a feature and hiding it would waste it.
+    """
+    bits = []
+    if explanation.source == "model":
+        bits.append("The sentences above were written by the model around figures it was given; it produced none of them.")
+    elif explanation.rejected_numbers:
+        bits.append(
+            f"The model's answer was discarded — it quoted "
+            f"{plural(len(explanation.rejected_numbers), 'figure')} it was not given — so "
+            f"FinSight wrote this itself."
+        )
+    else:
+        bits.append("No model endpoint answered, so FinSight wrote this itself.")
+
+    if parsed.matched_text:
+        bits.append(f"The amount was read from your own words (“{parsed.matched_text}”), not guessed.")
+    if parsed.needs_confirmation and parsed.has_cost:
+        bits.append("The amount was inferred rather than found verbatim — check it.")
+    return " ".join(bits)
+
+
+def _bars(result) -> list[Bar]:
+    """Twelve months of monthly surplus, two series, as CSS heights.
+
+    Monthly rather than cumulative, matching the chart's own heading. The surplus
+    is flat in this model, so the bars are flat too — and the *gap* between the
+    pairs is the recovered money, which is the thing the chart exists to show.
+    Negative months are floored at a visible sliver rather than drawn upside
+    down; the working table carries the sign.
+    """
+    if not result.projection:
+        return []
+
+    per_month_with = (result.corrected_surplus if result.corrected_surplus is not None else result.baseline.monthly_revenue + result.recovery.monthly) - result.monthly_cost
+    per_month_without = (
+        result.baseline.monthly_surplus if result.baseline.monthly_surplus is not None else result.baseline.monthly_revenue
+    ) - result.monthly_cost
+
+    ceiling = max(per_month_with, per_month_without, 1.0)
+
+    def height(value: float) -> str:
+        return f"{max(round(value / ceiling * 100), 2) if value > 0 else 2}%"
+
+    return [Bar(height(per_month_without), height(per_month_with)) for _ in result.projection]
+
+
+def _axis(result) -> list[str]:
+    """Five labels across the twelve bars.
+
+    `M1..Mn`, never calendar months: `cashflow` takes no clock, so it does not
+    know what month it is, and inventing "Sep" here would put a date on the page
+    that nothing computed.
+    """
+    labels = [label for label, _, _ in result.projection]
+    if len(labels) < 5:
+        return labels
+    picks = [0, len(labels) // 4, len(labels) // 2, (3 * len(labels)) // 4, len(labels) - 1]
+    return [labels[i] for i in picks]
 
 
 # ---------------------------------------------------------------------------

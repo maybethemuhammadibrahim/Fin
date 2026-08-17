@@ -10,6 +10,8 @@ thing this product could get wrong.
 
 from __future__ import annotations
 
+import dataclasses
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
@@ -71,7 +73,23 @@ def decision_page(request: Request) -> HTMLResponse:
         run = next((r for r in runs if str(r.id) == requested), None) or (runs[0] if runs else None)
         run_id = run.id if run else None
 
-        view = live.decision(session, run_id, question=question)
+        # No table holds expenses (ADR-024), so the figure arrives in the URL.
+        # Bad input is ignored rather than raised on: a stray character in a
+        # query string must not 500 the page, it must fall back to "can't say".
+        raw_expenses = request.query_params.get("exp")
+        try:
+            monthly_expenses = float(raw_expenses) if raw_expenses not in (None, "") else None
+        except ValueError:
+            monthly_expenses = None
+        if monthly_expenses is not None and monthly_expenses < 0:
+            monthly_expenses = None
+
+        view = live.decision(
+            session, run_id, question=question, monthly_expenses=monthly_expenses
+        )
+        # DecisionView is frozen, so echo the figure back with `replace` rather
+        # than assigning — the view models are immutable on purpose.
+        view = dataclasses.replace(view, expenses_value=monthly_expenses)
         state = live.derive_state(session, run_id)
         chrome = chrome_mod.build(
             data_mode="live",

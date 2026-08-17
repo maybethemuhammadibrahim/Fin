@@ -12,8 +12,8 @@
 > template lives in `CLAUDE.md`. Part 2 gets one ADR per *real* choice — where a competent
 > person would plausibly have chosen the other thing, not for defaults nobody argued about.
 
-**Current phase:** 4 — done
-**Last entry:** Phase 4 — Document Ingestion & Text Extraction (2026-08-12)
+**Current phase:** 8 — done
+**Last entry:** Phase 8 — Verification Agent (2026-08-17)
 
 ---
 
@@ -1613,6 +1613,430 @@ streamlit run app/main.py                  # 5 - Evidence -> the same page, boxe
 ```
 
 
+## Phase 8 — Verification Agent
+
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+A LangGraph ReAct loop re-checks every flagged anomaly — reads the proving
+clause, searches for a misattributed bank transaction, checks whether a
+missing amount is actually several partial transactions — and writes a
+verdict (`confirmed` / `false_positive` / `needs_review`) plus a readable
+trace back to the row. Both frontends already reserved the space for this
+(Phase 2's status badges, `web/`'s `NOTICE_AGENT`); this phase is the write
+path that fills it, not new UI surface.
+
+**Before writing any code, the phase prompt's own worked example was traced
+against the current codebase and found to no longer hold** — see "Known gaps"
+below. The rest of the phase was built to the full architecture regardless,
+and proven a different way.
+
+### Built by A
+- `core/agents/tools.py` — the four DB-reading tools (`search_invoices`,
+  `read_contract_clause`, `search_bank_transactions`, `check_split_payments`).
+  No LLM, no writes, each independently callable. `check_split_payments`
+  brute-forces `itertools.combinations` (size 1–3) over one client's
+  transactions in a window — cheap and exhaustive because it only ever runs
+  on the handful of transactions behind one already-flagged anomaly (ADR-006).
+- `tests/test_agent_tools.py` — 13 assertions, temp SQLite, no agent and no
+  model: window/amount filtering, a real 2-transaction split found, tolerance
+  respected, nothing found when nothing sums.
+
+### Built by B
+- `core/agents/verification_agent.py` — `AgentDecision` (the model's
+  structured per-turn output), `AnomalyContext`, `VerificationResult`,
+  `build_context`, `verify_anomaly` (a small `langgraph.graph.StateGraph`
+  built per call, closing over the session and context rather than
+  threading them through a serialisable state), `verify_run` (the only place
+  this phase writes to `anomalies`, mirroring how `pipeline.py` is the only
+  place engine output becomes rows). The hard cap (5) is enforced by the
+  **reason** node itself refusing to call the model once `iteration >= 5`,
+  not by a prompt asking it to stop.
+- `core/ai/prompts.py` — `AGENT_SYSTEM` / `AGENT_VERSION` / `agent_user`,
+  same one-instruction-per-line, worked-example style as `EXTRACTION_SYSTEM`
+  (known issues #45/#48/#49 apply to a 3B model here too). The model never
+  supplies an id — only the optional search-widening knobs
+  (`widen_days`, `amount_slack_pct`, `tolerance_pct`); every identifier a
+  tool call needs comes from `AnomalyContext`.
+- `app/components/verify_panel.py` — the "Verify findings" button, same
+  shape as `reconcile_panel`: endpoint caption, spinner, an honest summary
+  that reports a skip as a skip rather than hiding it.
+- `app/components/anomaly_table.py` — `render_visibility_toggle` ("show false
+  positives", off by default, only rendered once one exists); a tool-trace
+  expander next to the existing (Phase 2) `agent_reasoning` expander.
+  `STATUS_LABELS` needed no change — Phase 2 already had the four badges.
+- `app/pages/1_integrity_engine.py` — new "4 · Verify findings" step between
+  Reconcile and Findings; Findings/Evidence renumbered to 5/6; the visibility
+  toggle wired into the displayed list.
+- `tests/test_verification_agent.py` — 5 assertions, temp SQLite,
+  `llm_client.complete_json` monkeypatched to canned `AgentDecision`
+  sequences (no network, no model — the Phase-5-style "prove the client-side
+  logic without a GPU" half): confirmed path with a real tool trace,
+  false-positive path when a split payment covers the gap, the hard cap
+  forcing `needs_review` with the mock asserted called exactly 5 times (no
+  6th call), an unreachable model leaving the row **completely untouched**
+  (`status` still `"unverified"`, `verified_at` still `None`), and the
+  written `agent_tool_calls` JSON round-tripped through
+  `web.presenters.live._tool_calls` into real `ToolCall`s — a cross-check
+  against the other frontend's parser, not an assumption about its shape.
+- `scripts/eval_agent.py` — the live-endpoint half (Phase-5-style
+  `eval_extraction.py` counterpart). Two parts: `verify_run` over the real
+  `realistic` run in the database, and a synthetic false-positive fixture
+  built with the real engine (`pipeline.persist_rules` / `compute_run`, no
+  scenario file) — see "Known gaps" for why the fixture exists at all and
+  what it actually proves.
+
+### `web/` — no code changed
+`presenters/live.py` and `_finding_detail.html` already read `agent_reasoning`
+/ `agent_tool_calls` and drop `NOTICE_AGENT` the moment those fields are
+non-empty. Confirmed by loading the demo run through the Streamlit app after
+a (failed, no endpoint) verify attempt and by `test_verification_agent.py`'s
+round-trip through `_tool_calls` directly — the reserved space needed nothing
+from this phase. The two verdict buttons in `_finding_detail.html` ("Add to
+recoverable" / "Rule it out") remain inert; this phase did not wire a second
+write path into `web/` (ADR-018 — the agent runs from `app/`, same as
+reconciliation in Phase 6).
+
+### New interfaces added to interfaces.md
+- `core.agents.tools.{search_invoices,read_contract_clause,search_bank_transactions,check_split_payments}`
+- `core.agents.verification_agent.{AgentDecision,AnomalyContext,VerificationResult,VerifyRunSummary,build_context,verify_anomaly,verify_run}`
+  — `verify_run` and `VerifyRunSummary` are **not** in `interfaces.md`'s
+  original Phase 8 section, the same kind of addition `pipeline.py` was in
+  Phase 6: the bridge from a pure per-anomaly function to real database rows.
+- `core.ai.prompts.{AGENT_SYSTEM,AGENT_VERSION,agent_user}`
+- `app.components.verify_panel.render_verify_panel`
+- `app.components.anomaly_table.render_visibility_toggle`
+
+### Decisions recorded
+- ADR-022: the false-positive proof lives in a synthetic fixture, not the shipped scenario
+
+### Measured
+```
+125 pytest assertions pass (107 existing + 18 new: 13 tool, 5 agent-graph), all offline
+demo_v1 run loaded live in Streamlit: "Verify findings" clicked with no endpoint
+  configured -> graceful failure banner, all 7 anomalies still "unverified"
+  afterwards (nothing lost) -- verified by browser, not assumed from the code
+```
+**`scripts/eval_agent.py` has NOT been run against a live GPU in this session**
+— no Colab/Kaggle tunnel was available (same situation known issue #40 first
+recorded in Phase 5). The graph's control-flow correctness is proven by
+`test_verification_agent.py` regardless of model quality; whether the *real*
+3B model reasons well enough to actually flip the synthetic fixture to
+`false_positive` is unmeasured. Re-run `python scripts/eval_agent.py` against
+a live endpoint before citing agent quality in the final report.
+
+### Known gaps / deliberately deferred
+- **The plan's own demo moment no longer reproduces.** Phase 8's worked
+  example (`docs/implementation_plan.md`) is the agent flipping a
+  name-variant false positive ("StarterLabs" vs "Starter Labs") to
+  `false_positive`. Tracing the actual `realistic` scenario against today's
+  code shows `core.engine.reconciliation.attribute_transactions` already does
+  fuzzy client-name attribution at reconcile time — a Phase 6 addition that
+  postdates the Phase 8 narrative in the plan. Every name variant in the
+  shipped scenario is already correctly attributed before the agent ever
+  runs; there is no false positive left in that data for it to find. This
+  was found by reading the code and the scenario's `ground_truth.json`
+  before writing any Phase 8 code, not discovered by a failing demo.
+- **`check_split_payments` does not close known issue #57 as optimistically
+  worded.** The known issue says the tool is "where that gets caught" for a
+  client paying two months in one transfer. It cannot: the tool finds
+  combinations of *several* transactions that *sum to* one target; a single
+  transfer that is a *multiple* of one billing's amount is a different shape
+  entirely (nothing to combine — one transaction, no combination sums to a
+  fraction of itself within tolerance). Closing #57 for real needs a tool
+  that compares a client's actual total against *several* neighbouring
+  months at once, which does not exist. `#57` is amended below rather than
+  silently left to look solved.
+- **The eval fixture proves a different, real gap instead**: an attribution
+  miss caused by a description too garbled for fuzzy matching to claim
+  (`search_bank_transactions` is deliberately not client-scoped, for exactly
+  this). This is faithful to the *spirit* of the plan's original demo — the
+  engine's mechanical view misses a payment a human would recognise — without
+  overstating what today's tools can actually find.
+- **The confidence-adjustment policy is a stated heuristic, not a tuned
+  one.** `confirmed -> max(original, 0.9)`, `false_positive -> min(original,
+  0.1)`, `needs_review` unchanged. Disclosed in
+  `verification_agent._confidence_for`'s docstring rather than hidden in
+  arithmetic; nothing calibrates these two numbers against outcomes.
+- **`web/` still writes nothing** (ADR-018 unchanged). The agent runs from
+  `app/`'s "4 · Verify findings" only.
+- **Sequential, `sleep_seconds`-paced calls only** — no batching, no async.
+  Fine at the scale ADR-006 already commits to (already-flagged anomalies
+  only, a handful per run), matches the API-budget note in `CLAUDE.md`.
+
+### How to verify this phase works
+```bash
+pytest tests/test_agent_tools.py tests/test_verification_agent.py -q   # 18 assertions, no GPU
+pytest -q                                                              # 125 total
+python scripts/eval_agent.py                                          # needs a live endpoint
+streamlit run app/main.py    # Revenue Integrity -> 4 - Verify findings
+python run_web.py --live     # same run's findings -> agent panel, no code changed to show it
+```
+
+
+## Audit — Phases 0–8 re-verified, and three things they had not recorded
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+Not a phase. Everything claimed by Phases 0–8 was re-run from a clean checkout
+on Windows before Phase 9 was started, and three real defects were found — one
+of them a **working feature that appeared in no memory file at all**, which is
+exactly the failure the memory ritual exists to prevent.
+
+### What was re-measured, and held
+```
+pytest -q                     125 passed (~19s)
+scripts/eval_engine.py        easy 7/$17,815.00 · realistic 5/$22,500.00 · edge 0/$0.00 — all exact
+scripts/verify_llm_stack.py   21/21 client-side assertions, stub server, no GPU
+scripts/run_scenario.py ×3    same three figures against a real database; 20/20 clauses placed
+GET /clause/{id}/page.png     20/20 render as real PNGs (18 exact, 2 fuzzy) — the Phase 7 claim,
+                              re-checked through the HTTP route rather than the locator alone
+every web/ route, both modes  all 200; 19/19 finding detail panes; 4/4 dashboards
+all 5 Streamlit pages         render via AppTest with zero uncaught exceptions
+document_router.extract       real PDFs 9.6k–10.7k chars over 5 pages; CSV column sniffing
+                              correct on all four scenario actuals.csv files
+```
+Database invariants were asserted directly rather than trusted: **no anomaly
+without a `clause_reference`**, `gap == expected − actual` to the cent on every
+finding in all four runs, only the four leak types, all four demonstrated
+somewhere, and per-run totals tying to $26,908 / $22,500 / $17,815.
+
+### Fixed by B — the live `LLM_API_KEY` was committed to a public repository
+**The most serious thing this audit found, and it was found by accident** while
+checking whether `README.md`'s Modal section agreed with the new ADR. The live
+shared secret was printed verbatim in three places across two tracked files —
+`README.md` twice (the "Starting a session" note and the `modal secret create`
+command) and `docs/serving_setup.md` once — and has been in git history since
+Phase 5 (commits `5523704`, `3c2bc15`). `github.com/maybethemuhammadibrahim/Fin`
+is **public**: confirmed against the GitHub API, `"visibility": "public"`.
+
+This breaks hard rule #8 in `CLAUDE.md` ("No secrets in git"), and it is not a
+harmless one. That key is the *only* control on a public Cloudflare tunnel — the
+threat `docs/serving_setup.md` describes in its own words two lines above where
+it then printed the key ("The tunnel URL is public — anyone who finds it could
+use your GPU quota"). With ADR-023's Modal host it is stronger than that: Modal
+bills per second of GPU time, so the exposure stops being quota and becomes
+money.
+
+All three occurrences are replaced with a pointer to the reader's own `.env`,
+plus a note in both files saying the key *used* to be printed there, so nobody
+re-adds it. **Redaction is not the fix — rotation is**, and only the key's owner
+can do it: the old value is in public history and cannot be un-published.
+`git filter-repo` on published history was deliberately **not** run here (it
+rewrites every commit and requires a force-push) and is pointless before
+rotation anyway. Recorded as known issue #66.
+
+### Fixed by B — Modal was undocumented (ADR-023)
+`training/serve_modal.py`, a `modal` provider in `core/ai/endpoints.py`,
+`MODAL_BASE_URL`, `USE_MODAL` and a Modal-first `fallback()` order all existed
+and worked, with 22 mentions in `README.md` and **zero** in `progress.md`,
+`interfaces.md`, `state.json`, `todo.md` or `CLAUDE.md`. A third peer endpoint
+amends ADR-016 ("Colab and Kaggle are peers"), so it needed an ADR and did not
+have one. Recorded now as **ADR-023**, with the interfaces and the config
+variables written down; `CLAUDE.md` no longer says there are two hosts.
+
+### Fixed by B — Phase 8 shipped, but the UI still called it future work
+The *mechanism* was correct and stayed untouched: `NOTICE_AGENT` is dropped the
+moment a finding has a verdict, confirmed against a verified finding and an
+unverified one. Only the copy shown in the **not-yet-verified** state was stale,
+and it said the agent "lands in Phase 8" — of a phase that had closed.
+- `web/presenters/live.py` — `NOTICE_AGENT` now says the finding has not been
+  verified *yet* and names where to run it (`app/`), the same pattern known
+  issue #56 already applied to the reconcile tooltips. Its module docstring no
+  longer calls `core/agents/` a stub.
+- `web/templates/integrity/_finding_detail.html` — four button tooltips no
+  longer name Phase 8; two say `web/` is read-only (ADR-018) and two say that
+  overriding the agent by hand is not built in *either* frontend.
+- `app/components/anomaly_table.py` — the Confidence help text said the agent
+  adjusts it "in Phase 8"; it does adjust it, so the text is now present tense.
+- `web/viewmodels.py` — the `notices` comment now says to name the surface that
+  fills a gap, never a phase number, and says why.
+
+### Fixed by A — the uploader advertised two formats that always failed
+`app/components/file_uploader.py` had offered `txt` and `docx` as contract
+formats since Phase 2, while `document_router.detect_type()` rejected both —
+every such upload landed as `extraction_status='failed'` with "unsupported file
+type". It failed *cleanly* (no crash, known issue #37's `ValueError` contract
+holds), but the UI promised formats that could never work. Same class as known
+issue #38's `xlsx`, and unlike #38 it was not recorded anywhere.
+- `core/extraction/document_router.py` — a real `.txt` branch returning
+  `doc_type="text"`, the schema value that has existed since Phase 5 for exactly
+  this shape (known issue #43) and that nothing could previously produce.
+  `page_count=1` because a text file has no pages; pagination is assigned later,
+  for display only, by `pdf_renderer.typeset_pdf` (ADR-021). Verified on six real
+  EDGAR contracts (25k–144k chars each) and on empty/whitespace files, which
+  return `page_count=0` and a `"file is empty"` warning.
+- `app/components/file_uploader.py` — `docx` **removed** rather than
+  implemented: reading it needs a new dependency, and a stack addition needs an
+  ADR (tech-stack rule in `CLAUDE.md`). `xlsx` is left alone and #38 stays open.
+
+### Fixed by A — Phase 1's schema assertions are finally in pytest (closes #15)
+`tests/test_schema.py` — the 12 tables, ADR-005's nullable
+`source_page`/`source_bbox`, all six `CheckConstraint`s, the four-leak-type
+constraint and the `milestones` table / `source_clause_ref_id` column that known
+issue #14 records as absent from the plan's ER diagram. Open since Phase 1, where
+the assertions lived in a scratch script; Phase 6 was said to own the port and
+did not do it.
+
+### New interfaces added to interfaces.md
+- `training/serve_modal.py` — `serve()`, deployed with `modal deploy`
+- `core.ai.endpoints.active_provider() -> str` (the `USE_MODAL` layer)
+- `core.extraction.document_router.detect_type` — now returns `"text"` too
+
+### Decisions recorded
+- ADR-023: Modal is a third peer inference host, not a departure from ADR-011
+
+### Known gaps / deliberately deferred
+- **`fastapi` was missing from the `.venv` on this machine**, so `python
+  run_web.py` could not start at all, though `requirements.txt` has always
+  listed it. Installed (0.141.1, no downgrades). Nothing in the repo was wrong;
+  recorded because it cost real time to diagnose and because issue #5 (no
+  dependency pinning, no CI) is what let an incomplete environment go unnoticed.
+- **Both GPU-dependent measurements are still unrun** (#40/#65/#41).
+  `data/eval/` holds only `phase6_engine.json`. `eval_agent.py` fails cleanly
+  with "paste a fresh tunnel URL" — confirmed, not assumed. Agent *quality* and
+  extraction *quality* remain unmeasured, and upload → extract → persist has
+  still never run against a live GPU.
+- **No `.env` on this machine**, so everything above ran on the SQLite
+  fallback. Phase 1's Postgres claims and the Supabase runs 12/13/14 cited by
+  Phases 6–7 could not be checked here at all. `test_schema.py` runs on either
+  backend, which is part of why it was worth writing.
+- **The `.venv` is Python 3.13.15** — a third value after #10's 3.12 and #47's
+  3.14. Streamlit Cloud parity is still unverified on any machine.
+- **Streamlit's `use_container_width` is past its stated removal date**
+  (2025-12-31) and still in 15 call sites across `app/`. Warning-only today.
+  Not swept here: it is unrelated to anything Phase 8 touched, and a
+  15-site rename belongs in its own commit. Logged in `docs/todo.md`.
+- The four `docx`-shaped questions this did *not* answer: no xlsx actuals path
+  (#38), no orphan Storage cleanup (#21), no CI (#5), no dependency pins (#5).
+
+### How to verify this audit's fixes
+```bash
+pytest -q                                  # 125 + the new schema assertions
+pytest tests/test_schema.py -q             # closes known issue #15, runs on SQLite or Postgres
+python -c "from core.extraction.document_router import detect_type; print(detect_type('a.txt'))"
+python run_web.py --live                   # an unverified finding's agent panel names app/, not a phase
+```
+
+
+## Phase 9 — Decision Engine (Page 2)
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+A plain-English question produces a Yes/No backed by the user's own numbers. The
+model appears at both ends and never in the middle: it reads the sentence, and it
+phrases figures it is forbidden to change. Everything between is
+`core/engine/cashflow.py`.
+
+### Built by A
+- `core/engine/cashflow.py` — `CashFlowBaseline`, `Recovery`, `ScenarioResult`;
+  pure `baseline_from_monthly` / `recovery_from_anomalies` / `apply_scenario` /
+  `evaluate` / `months_spanned`; and the two database-reading functions
+  `compute_baseline` / `compute_recovery`, which do nothing but shape a query
+  result before delegating — so the maths is tested without a session, the same
+  split Phase 6 used for `pipeline.py`. **Takes no clock**: projection labels are
+  `M1..Mn`, because the engine cannot know what month it is and will not pretend.
+- `tests/test_cashflow.py` — 35 assertions.
+- `scripts/eval_decision.py` — Phase 9's definition of done, six cases.
+
+### Built by B
+- `core/ai/decision_analyzer.py` — `ParsedQuestion`, `ExplanationResult`,
+  `extract_cost`, `detect_cadence`, `parse_locally`, `parse_question`,
+  `figures_for`, `offending_numbers`, `fallback_explanation`, `explain_verdict`.
+- `core/ai/prompts.py` — `PARSE_SYSTEM`, `EXPLAIN_SYSTEM`, `parse_user`,
+  `explain_user`, `DECISION_VERSION = "v1"`.
+- `app/pages/2_decision_engine.py` — rewritten: the question, the running-costs
+  input, the verdict, the working, the projection, and an expander stating
+  exactly what the model did and did not do.
+- `web/presenters/live.py` — the Decision working now comes from `cashflow`
+  instead of arithmetic done in the presenter, and both notices were reworded.
+
+### The three departures from the plan, and why
+1. **The amount is read by regex; the model is the fallback.** The plan has the
+   LLM parse `{what, monthly_cost, start_month}`. But `monthly_cost` *is* a
+   number the user sees and it drives the verdict — a 3B model reading `$5,000`
+   as `50000` flips a YES to a NO with nothing on screen looking wrong.
+   `extract_cost` is deterministic and returns the substring it matched, so the
+   page can show that the figure is the user's own. `test_the_pattern_owns_the_
+   money_even_when_the_model_disagrees` pins it. The model still supplies `what`
+   and `start_month` (prose, harmless), and an amount only when the pattern found
+   none — and then `needs_confirmation` is True and the page asks, which is
+   ADR-010's LLM-proposed / human-confirmed shape.
+2. **`recovered_monthly` divides by the run's real window, not 12.** The plan
+   writes `sum(gap) / 12`. `compute_recovery` derives the window from
+   `expected_timeline`'s own billing dates via `months_spanned`. On a six-month
+   run the plan's formula halves the run-rate, which is enough to flip a verdict:
+   `eval_decision.py`'s sixth case is exactly that, and it reads YES at $600/month
+   and NO at the plan's $300.
+3. **`explain_verdict` refuses its own bad output.** The plan says a number in
+   the explanation that is not in its input "is a bug ... worth writing an
+   assertion". An assertion catches it in CI; `offending_numbers` catches it in
+   production. The explanation is checked against `ScenarioResult.allowed_figures()`,
+   retried once, then replaced by `fallback_explanation`. A missing paragraph of
+   prose is a far smaller failure than a confident wrong figure.
+
+### New interfaces added to interfaces.md
+- `core.engine.cashflow.*` (the three dataclasses and eight functions above)
+- `core.ai.decision_analyzer.*` — note `explain_verdict` returns
+  `ExplanationResult`, **widened from the declared `-> str`**, because the caller
+  must be able to tell whether the model wrote the prose or whether its attempt
+  was rejected. `.text` is the old contract.
+- `core.ai.prompts.{PARSE_SYSTEM,EXPLAIN_SYSTEM,parse_user,explain_user}`
+
+### Decisions recorded
+- ADR-024: the Decision Engine asks the user for expenses rather than inventing a surplus
+
+### Measured
+```
+pytest -q                       233 passed (155 + 78 new: 35 cashflow, 43 analyser)
+scripts/eval_decision.py        6/6 cases, correct verdict AND correct after-figure,
+                                0 invented numbers in any explanation
+  affordable outright                 yes   $7,600.00
+  affordable only after recovery      yes   $  500.00   <- the product's whole point
+  not affordable at all               no    $-3,500.00
+  annual figure, converted once       yes   $7,000.00   ($72,000/yr -> $6,000/mo)
+  no expenses supplied                unknown          <- refuses, per ADR-024
+  six-month run not divided by 12     yes   $  100.00
+app/pages/2_decision_engine.py  driven through AppTest in four states, 0 exceptions;
+                                run 2: $99,743.26 + $1,875.00 - $5,000.00 = $96,618.26
+                                run 1: correctly EXCLUDES $26,908 of unverified findings
+web/ /decision, both modes      200; working table now engine-computed
+```
+**The live model has NOT phrased an explanation on a GPU.** Every figure above,
+and every verdict, is computed by Python and needs no model at all — but the
+prose in all six eval cases came from `fallback_explanation`, because no
+Colab/Kaggle/Modal endpoint was answering (the same situation as #40/#65).
+`python scripts/eval_decision.py --live` is the command; run it before citing
+the model's phrasing quality. What *is* proven offline is the thing that matters
+more: the guard rejects an invented figure
+(`test_an_invented_number_is_rejected_at_runtime_not_just_in_ci`).
+
+### Known gaps / deliberately deferred
+- **The surplus depends on one user-typed number** (ADR-024). Disclose it: FinSight
+  computes what you are owed and what you earn; you tell it what you spend. An
+  expenses table is the proper fix and is not built.
+- **A verdict is not reproducible from `run_id` alone** and nothing persists one,
+  because it depends on that input. Two people can correctly get different answers
+  for the same run.
+- **`web/` still writes nothing.** Its question box has no POST route (ADR-018) and
+  its Decision page names the Streamlit app rather than a phase.
+- **`start_month` is parsed and displayed but does not shift the projection.** The
+  engine takes no clock, so "starting in September" cannot be placed on a timeline
+  without one; the projection is relative (M1..Mn) and the month is shown as read.
+  Honest, and it is why the label is not a calendar month.
+- **The confidence rule is a threshold, not a model.** Fewer than 3 months of
+  revenue is flagged `low`; nothing weights the projection by how sparse it is.
+- **`cost_share_of_revenue` is the only figure the revenue basis offers.** No
+  runway, no burn, no seasonality — all of which need expenses.
+
+### How to verify this phase works
+```bash
+pytest tests/test_cashflow.py tests/test_decision_analyzer.py -q   # 78, offline
+python scripts/eval_decision.py            # the definition of done, no DB, no GPU
+python scripts/eval_decision.py --run-id 2 # same, plus a real run's figures
+python scripts/eval_decision.py --live     # needs an endpoint; NEVER RUN yet
+streamlit run app/main.py                  # Decision Engine -> ask, Analyse
+python run_web.py --live                   # /decision shows the working, no verdict
+```
+
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
@@ -2008,3 +2432,57 @@ Clause highlighting works on the real corpus: 20 of 20 clauses across three comp
 What we gave up, and must keep saying out loud: **a typeset page is not the document as filed.** Its line breaks, its pagination and its page numbers are ours. Anyone comparing our "page 61" against the filing on EDGAR will not find them the same, and a reader who assumes otherwise has been misled by us, not by the data. That is the whole reason the disclosure is printed into the PDF itself and not only into the UI — the image outlives the page it was rendered on.
 
 This does not weaken ADR-005. A quote that cannot be found is still `failed`, still gets NULL coordinates, and still renders as a page with no box and a plain statement that we could not place it. Typesetting gives the locator something to search; it never invents a location.
+
+---
+
+## ADR-022 — Phase 8's false-positive proof lives in a synthetic fixture, not the shipped scenario
+
+**Status:** Accepted (2026-08-17, Phase 8)
+
+**Context.** `docs/implementation_plan.md`'s Phase 8 worked example is the verification agent flipping a name-variant false positive ("StarterLabs" vs "Starter Labs") to `false_positive` on the `realistic` scenario. Before writing any Phase 8 code, that example was traced against the actual codebase: `core.engine.reconciliation.attribute_transactions` (built in Phase 6, months after the plan's Phase 8 narrative was written) already does fuzzy client-name attribution — thefuzz, threshold 85 — at reconcile time. Every name variant `data_sourcing/scenario_builder.py` plants into the `realistic` scenario (`"VISIONHYDROGEN CORP WIRE"`, `"REGAL ENT GROUP ACH"`, and so on) is therefore already correctly attributed **before the agent ever runs**. There is no false positive left in that scenario's ground truth for Phase 8 to catch. The mechanical engine got smarter than the demo assumed, in a phase that shipped before this one.
+
+Three options were open. **Extend `data_sourcing/scenario_builder.py`** with a new planted case the engine genuinely still gets wrong (e.g. a client paying two months in one transfer, known issue #57) — but `scenario_builder.py` and `data/scenarios/*/ground_truth.json` are cited by name, with exact figures, in Phase 6's `progress.md` entry, `docs/interfaces.md`, and `scripts/eval_engine.py`'s own definition of done (`easy` 7/$17,815.00, `realistic` 5/$22,500.00, `edge` 0/$0.00, all reproduced *exactly*). Touching it risks those numbers without re-running and re-documenting three separate places, for a phase that does not own that file. **Report the demo as no longer reproducible and stop there** — technically honest, but it abandons the one thing Phase 8's own definition of done asks to be shown working. **Build the agent to the full architecture regardless, and prove both halves a different way that touches neither the scenario file nor its measured ground truth.**
+
+**Decision.** The third option. `scripts/eval_agent.py` runs two independent checks: Part 1 runs `verify_run` over the real `realistic` run's genuine (already-attributed, still-genuine) anomalies, live against the database — proof the agent handles real leaks correctly without inventing false positives on data that has none. Part 2 builds a small fixture with the real engine functions (`core.engine.pipeline.persist_rules` / `compute_run`, not `scenario_builder`) — one contract, one billing, one payment recorded under a description too garbled for fuzzy matching to attribute (`"REF 84X2Q AUTOPAY SETTLEMENT"` against `"Fixture Co"`) — a genuine `ghost_invoice` by construction, verified to reproduce before the agent is asked to touch it. `verify_run` is then asked to explain it, live against the real model. Neither part edits a file this phase does not own.
+
+**Consequences.** The proof is honest about what changed: `docs/progress.md`'s Phase 8 entry says outright that the plan's own worked example no longer holds, and why, rather than letting a reader assume the shipped scenario still demonstrates it. The synthetic fixture is deliberately a *different* false-positive shape (an attribution miss from a garbled description, not a name variant two spaces apart) — chosen because it is the shape today's `search_bank_transactions` tool can actually resolve, not because it is the closest available stand-in for the original narrative. Known issue #57's cross-month case remains genuinely open; `check_split_payments`, as scoped by `interfaces.md`'s own signature (combinations that *sum to* a target), cannot resolve a single transaction that is a *multiple* of one — that is now recorded plainly rather than implied solved by this phase existing.
+
+---
+
+## ADR-023 — Modal is a third peer inference host, not a departure from ADR-011
+
+**Status:** Accepted (2026-08-17, recorded retroactively by the post-Phase-8 audit) · **Amends [ADR-016](#adr-016--colab-and-kaggle-are-peers-not-primary-and-backup)** — there are three peers now, not two.
+
+**Context.** This ADR is written **after** the code it describes. `training/serve_modal.py`, a `modal` provider in `core/ai/endpoints.py`, `MODAL_BASE_URL`, `USE_MODAL`, and a Modal-first `fallback()` order were all built and working, documented in `README.md` (22 mentions) and `.env.example` — and mentioned in **no memory file whatsoever**: not `progress.md`, not `interfaces.md`, not `state.json`, not `todo.md`, not `CLAUDE.md`. `CLAUDE.md` still stated flatly that there are two hosts and that they are peers. A fresh session reading the memory files would have contradicted the running code on its first suggestion, which is precisely the cost the ritual in `CLAUDE.md` exists to avoid. Recording it late is the fix; the lesson is that the code shipped without the five-minute end-of-phase step.
+
+The forcing constraint the code was solving is real and already recorded as known issue #6: a notebook endpoint's URL rotates on every restart, the host idles out, a cold start is ~8 minutes of `pip install` plus a weight download, and a dead session takes the whole app down. ADR-016 made Colab and Kaggle peers so that one could cover the other, but they share every one of those properties — two hosts with the same failure mode are not a mitigation, they are the same bet twice.
+
+**Decision.** Modal is a **third peer**, configured exactly like the other two (`MODAL_BASE_URL` alongside `COLAB_TUNNEL_URL` and `KAGGLE_TUNNEL_URL`, selected by `LLM_PROVIDER` or the in-app radio, resolved at call time through the same `data/endpoint_override.json` layer). It serves the same open-source Qwen 2.5 3B under the same vLLM, behind the same OpenAI-compatible routes, with the same `LLM_API_KEY` header and the same `LLM_MODEL` name. Two things make it *not* merely a fourth entry in a list:
+
+1. **`endpoints.fallback()` tries Modal first**, ahead of the notebooks. Failover runs at the moment the active host has already failed, and the peer most likely to answer is the one whose address is stable. It costs money per call, which is the right thing to spend exactly then.
+2. **`USE_MODAL=true` is a separate switch from `LLM_FAILOVER`**, resolved *above* `LLM_PROVIDER` in `endpoints.active_provider()`. `LLM_FAILOVER` only reacts after something breaks; `USE_MODAL` is the "this is a live demo, go straight to the paid host" decision, made before anything has broken.
+
+**This is not a violation of ADR-011.** ADR-011 forbids calling a third-party *model* API — sending our data to someone else's weights and buying their inference. Modal rents hardware: the weights are the same open-source checkpoint we serve from Colab, downloaded by our own image build, running under vLLM configured by our own file. Swapping a free T4 for a rented L4 changes who owns the GPU, not who owns the model, and Phase 11's base-vs-tuned comparison stays one variable (`LLM_MODEL`) because Phase 10's adapter loads here the same way it loads in the notebook. The distinction that matters for the report's self-hosting claim is *whose weights*, not *whose electricity*.
+
+**Consequences (ADR-023).** The demo stops depending on a URL that rotates, which is the single largest operational risk in the project (#6) and one the two notebook peers could not reduce. Weights are baked into the Modal image at build time, so a cold start loads 3B onto a card instead of downloading 6 GB, and `vllm==0.27.1` is **pinned** — the unpinned install is what broke Colab's preinstalled `torchaudio` (#50). What we give up: it is the first component that costs money per call, billed per second of GPU time while a request is in flight, with `scaledown_window` trading idle cost against cold-start latency — so an idle deployment is free but a quiet period is paid for in latency. It also adds a fourth account to the list in known issue #7, and a `modal secret create finsight-llm LLM_API_KEY=...` step that has no equivalent in the notebook flow. **Modal has not been deployed or measured from this repo** — the file is written and the client-side plumbing is exercised by `verify_llm_stack.py`'s stub server, but no `modal deploy` has run, so its cold-start and per-call figures are unknown and must not be quoted in the report until they are measured.
+
+---
+
+## ADR-024 — The Decision Engine asks the user for expenses rather than inventing a surplus
+
+**Status:** Accepted (2026-08-17, Phase 9)
+
+**Context.** `implementation_plan.md`'s Phase 9 computes `current_surplus = avg_revenue - avg_expenses`. FinSight can compute the first term: `actual_transactions` holds real client receipts and `revenue_by_month` already aggregates them. **It has no second term.** No table in the schema holds operating costs — `actual_transactions.source_type` is `invoice | bank`, amounts are unsigned, and every row is money *arriving*. Payroll, rent and software have never entered the system, because nothing in the product's pipeline reads them. The plan's own frontend amendment flags this and asks for a deliberate decision rather than a workaround.
+
+This matters more than a missing column usually would, because the pitch's headline promise — *"can I afford a $5,000/month hire?"* — is a question about surplus, not revenue. Answering it requires a number the database does not have.
+
+Three options were open. **Assume an expense figure** (a percentage of revenue, an industry ratio) — rejected outright: it manufactures the one number the entire verdict turns on, and unlike a mis-drawn clause box (#58, found by looking at a rendered page) a wrong surplus is invisible. Nobody can see that $4,500 should have been $1,200. It is the exact failure mode ADR-008's "the UI reads only the database" and the LLM-does-no-arithmetic rule exist to prevent, arriving through a different door. **Add an expenses table plus an upload and column-mapping path** — correct long-term, and genuinely the right answer eventually, but it is a phase of work (13th table, upload zone, ADR-010 mapping flow, seed data, `test_schema.py` update) and it is not in Phase 9's owner split; taking it on would delay the verdict Phase 9 exists to deliver. **Ask the user.**
+
+**Decision.** The user supplies monthly running costs, as one number, on the Streamlit page. Nothing is stored and no schema changes. Consequences of that choice, all deliberate:
+
+1. **`monthly_expenses` is `float | None`, and `None` means unknown — never `0.0`.** `0.0` would assert the business breaks exactly even, a completely different and false claim. `CashFlowBaseline.monthly_surplus` is therefore also `None` whenever expenses are unknown, and `.basis` reports `"revenue"` rather than `"surplus"`.
+2. **With no expense figure, the engine refuses a Yes/No.** `verdict` is `"unknown"` and `cost_share_of_revenue` is reported instead — the commitment as a share of corrected monthly revenue, which is true, useful, and not an affordability claim. The page says so in as many words.
+3. **Every figure on the page is therefore either computed from the database or typed by the user.** Nothing is assumed. That property is what makes the verdict defensible, and it is the same standard ADR-014 applied to redacted contract values (seeded deterministic Python, never a model's guess).
+4. **`web/` cannot ask the question at all** and does not pretend to. It has no POST route because it writes nothing (ADR-018), and a verdict needs both a question and an expense figure — two things only a form can collect. Its Decision page shows the real engine-computed working and names the Streamlit app as the place to get an answer.
+
+**Consequences.** The Decision Engine's headline claim is now conditional on one user-supplied number, which must be disclosed in the report: FinSight computes what you are owed and what you earn, and *you* tell it what you spend. In exchange, no figure it prints is invented. The gap is honest and visible rather than papered over, and closing it properly — an expenses source — is a well-defined piece of future work rather than a hidden assumption. A second, smaller consequence: because the surplus depends on an input rather than stored data, two people asking the same question of the same run can get different verdicts. That is correct (they have different cost bases) but it means a verdict is not reproducible from `run_id` alone, so nothing persists one.

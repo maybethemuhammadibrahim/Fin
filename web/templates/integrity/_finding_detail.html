@@ -27,9 +27,9 @@
     <div class="detail-actions">
       <div class="calc">{{ macros.value(sel.calc) }}</div>
       <button class="btn-outline" type="button" disabled
-              title="Writing a verdict back lands with the verification agent (Phase 8)">Not an issue</button>
+              title="This frontend is read-only (ADR-018). Run &quot;Verify findings&quot; in the Streamlit app to have the verification agent write a verdict back.">Not an issue</button>
       <button class="btn-solid" type="button" disabled
-              title="Writing a verdict back lands with the verification agent (Phase 8)">Add to recoverable</button>
+              title="This frontend is read-only (ADR-018). Run &quot;Verify findings&quot; in the Streamlit app to have the verification agent write a verdict back.">Add to recoverable</button>
     </div>
   </header>
 
@@ -150,9 +150,9 @@
           {% if sel.needs_review %}
             <div class="ctx-actions">
               <button class="btn-solid" type="button" disabled
-                      title="Recording your own verdict lands in Phase 8">Confirm it myself</button>
+                      title="Overriding the agent by hand is not built in either frontend yet — the agent wrote this verdict itself.">Confirm it myself</button>
               <button class="btn-outline" type="button" disabled
-                      title="Recording your own verdict lands in Phase 8">Rule it out</button>
+                      title="Overriding the agent by hand is not built in either frontend yet — the agent wrote this verdict itself.">Rule it out</button>
             </div>
           {% endif %}
         {% else %}

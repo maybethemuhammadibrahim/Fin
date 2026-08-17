@@ -14,11 +14,20 @@
 
 <section class="ask rule-b" aria-labelledby="ask-label">
   <p class="eyebrow" id="ask-label">Ask about a recurring cost</p>
+  {# GET, not POST, and that is not an oversight: answering a question computes
+     from rows plus two typed numbers and writes NOTHING, so it stays inside
+     ADR-018 and the whole answer is a shareable URL. `exp` exists because no
+     table holds expenses (ADR-024) — without it the verdict is honestly
+     "can't say" rather than a Yes computed against an assumed cost base. #}
   <form class="askbar" method="get" action="{{ url_for('decision') }}">
     {{ carry_fields | safe }}
     <input class="q" type="text" name="q" autocomplete="off"
            value="{{ view.question }}"
            placeholder="Can I afford a senior designer at 5,000 a month from September?">
+    <input class="exp" type="number" name="exp" min="0" step="100" inputmode="decimal"
+           value="{{ view.expenses_value or '' }}"
+           title="Your monthly running costs — payroll, rent, software. Nothing in FinSight knows this figure, so a surplus cannot be computed without it (ADR-024)."
+           placeholder="Monthly costs">
     <button type="submit">Answer it</button>
   </form>
   <div class="suggestions">
