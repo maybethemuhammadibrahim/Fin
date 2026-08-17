@@ -12,8 +12,8 @@
 > template lives in `CLAUDE.md`. Part 2 gets one ADR per *real* choice — where a competent
 > person would plausibly have chosen the other thing, not for defaults nobody argued about.
 
-**Current phase:** 4 — done
-**Last entry:** Phase 4 — Document Ingestion & Text Extraction (2026-08-12)
+**Current phase:** 8 — done
+**Last entry:** Phase 8 — Verification Agent (2026-08-17)
 
 ---
 
@@ -1613,6 +1613,166 @@ streamlit run app/main.py                  # 5 - Evidence -> the same page, boxe
 ```
 
 
+## Phase 8 — Verification Agent
+
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+A LangGraph ReAct loop re-checks every flagged anomaly — reads the proving
+clause, searches for a misattributed bank transaction, checks whether a
+missing amount is actually several partial transactions — and writes a
+verdict (`confirmed` / `false_positive` / `needs_review`) plus a readable
+trace back to the row. Both frontends already reserved the space for this
+(Phase 2's status badges, `web/`'s `NOTICE_AGENT`); this phase is the write
+path that fills it, not new UI surface.
+
+**Before writing any code, the phase prompt's own worked example was traced
+against the current codebase and found to no longer hold** — see "Known gaps"
+below. The rest of the phase was built to the full architecture regardless,
+and proven a different way.
+
+### Built by A
+- `core/agents/tools.py` — the four DB-reading tools (`search_invoices`,
+  `read_contract_clause`, `search_bank_transactions`, `check_split_payments`).
+  No LLM, no writes, each independently callable. `check_split_payments`
+  brute-forces `itertools.combinations` (size 1–3) over one client's
+  transactions in a window — cheap and exhaustive because it only ever runs
+  on the handful of transactions behind one already-flagged anomaly (ADR-006).
+- `tests/test_agent_tools.py` — 13 assertions, temp SQLite, no agent and no
+  model: window/amount filtering, a real 2-transaction split found, tolerance
+  respected, nothing found when nothing sums.
+
+### Built by B
+- `core/agents/verification_agent.py` — `AgentDecision` (the model's
+  structured per-turn output), `AnomalyContext`, `VerificationResult`,
+  `build_context`, `verify_anomaly` (a small `langgraph.graph.StateGraph`
+  built per call, closing over the session and context rather than
+  threading them through a serialisable state), `verify_run` (the only place
+  this phase writes to `anomalies`, mirroring how `pipeline.py` is the only
+  place engine output becomes rows). The hard cap (5) is enforced by the
+  **reason** node itself refusing to call the model once `iteration >= 5`,
+  not by a prompt asking it to stop.
+- `core/ai/prompts.py` — `AGENT_SYSTEM` / `AGENT_VERSION` / `agent_user`,
+  same one-instruction-per-line, worked-example style as `EXTRACTION_SYSTEM`
+  (known issues #45/#48/#49 apply to a 3B model here too). The model never
+  supplies an id — only the optional search-widening knobs
+  (`widen_days`, `amount_slack_pct`, `tolerance_pct`); every identifier a
+  tool call needs comes from `AnomalyContext`.
+- `app/components/verify_panel.py` — the "Verify findings" button, same
+  shape as `reconcile_panel`: endpoint caption, spinner, an honest summary
+  that reports a skip as a skip rather than hiding it.
+- `app/components/anomaly_table.py` — `render_visibility_toggle` ("show false
+  positives", off by default, only rendered once one exists); a tool-trace
+  expander next to the existing (Phase 2) `agent_reasoning` expander.
+  `STATUS_LABELS` needed no change — Phase 2 already had the four badges.
+- `app/pages/1_integrity_engine.py` — new "4 · Verify findings" step between
+  Reconcile and Findings; Findings/Evidence renumbered to 5/6; the visibility
+  toggle wired into the displayed list.
+- `tests/test_verification_agent.py` — 5 assertions, temp SQLite,
+  `llm_client.complete_json` monkeypatched to canned `AgentDecision`
+  sequences (no network, no model — the Phase-5-style "prove the client-side
+  logic without a GPU" half): confirmed path with a real tool trace,
+  false-positive path when a split payment covers the gap, the hard cap
+  forcing `needs_review` with the mock asserted called exactly 5 times (no
+  6th call), an unreachable model leaving the row **completely untouched**
+  (`status` still `"unverified"`, `verified_at` still `None`), and the
+  written `agent_tool_calls` JSON round-tripped through
+  `web.presenters.live._tool_calls` into real `ToolCall`s — a cross-check
+  against the other frontend's parser, not an assumption about its shape.
+- `scripts/eval_agent.py` — the live-endpoint half (Phase-5-style
+  `eval_extraction.py` counterpart). Two parts: `verify_run` over the real
+  `realistic` run in the database, and a synthetic false-positive fixture
+  built with the real engine (`pipeline.persist_rules` / `compute_run`, no
+  scenario file) — see "Known gaps" for why the fixture exists at all and
+  what it actually proves.
+
+### `web/` — no code changed
+`presenters/live.py` and `_finding_detail.html` already read `agent_reasoning`
+/ `agent_tool_calls` and drop `NOTICE_AGENT` the moment those fields are
+non-empty. Confirmed by loading the demo run through the Streamlit app after
+a (failed, no endpoint) verify attempt and by `test_verification_agent.py`'s
+round-trip through `_tool_calls` directly — the reserved space needed nothing
+from this phase. The two verdict buttons in `_finding_detail.html` ("Add to
+recoverable" / "Rule it out") remain inert; this phase did not wire a second
+write path into `web/` (ADR-018 — the agent runs from `app/`, same as
+reconciliation in Phase 6).
+
+### New interfaces added to interfaces.md
+- `core.agents.tools.{search_invoices,read_contract_clause,search_bank_transactions,check_split_payments}`
+- `core.agents.verification_agent.{AgentDecision,AnomalyContext,VerificationResult,VerifyRunSummary,build_context,verify_anomaly,verify_run}`
+  — `verify_run` and `VerifyRunSummary` are **not** in `interfaces.md`'s
+  original Phase 8 section, the same kind of addition `pipeline.py` was in
+  Phase 6: the bridge from a pure per-anomaly function to real database rows.
+- `core.ai.prompts.{AGENT_SYSTEM,AGENT_VERSION,agent_user}`
+- `app.components.verify_panel.render_verify_panel`
+- `app.components.anomaly_table.render_visibility_toggle`
+
+### Decisions recorded
+- ADR-022: the false-positive proof lives in a synthetic fixture, not the shipped scenario
+
+### Measured
+```
+125 pytest assertions pass (107 existing + 18 new: 13 tool, 5 agent-graph), all offline
+demo_v1 run loaded live in Streamlit: "Verify findings" clicked with no endpoint
+  configured -> graceful failure banner, all 7 anomalies still "unverified"
+  afterwards (nothing lost) -- verified by browser, not assumed from the code
+```
+**`scripts/eval_agent.py` has NOT been run against a live GPU in this session**
+— no Colab/Kaggle tunnel was available (same situation known issue #40 first
+recorded in Phase 5). The graph's control-flow correctness is proven by
+`test_verification_agent.py` regardless of model quality; whether the *real*
+3B model reasons well enough to actually flip the synthetic fixture to
+`false_positive` is unmeasured. Re-run `python scripts/eval_agent.py` against
+a live endpoint before citing agent quality in the final report.
+
+### Known gaps / deliberately deferred
+- **The plan's own demo moment no longer reproduces.** Phase 8's worked
+  example (`docs/implementation_plan.md`) is the agent flipping a
+  name-variant false positive ("StarterLabs" vs "Starter Labs") to
+  `false_positive`. Tracing the actual `realistic` scenario against today's
+  code shows `core.engine.reconciliation.attribute_transactions` already does
+  fuzzy client-name attribution at reconcile time — a Phase 6 addition that
+  postdates the Phase 8 narrative in the plan. Every name variant in the
+  shipped scenario is already correctly attributed before the agent ever
+  runs; there is no false positive left in that data for it to find. This
+  was found by reading the code and the scenario's `ground_truth.json`
+  before writing any Phase 8 code, not discovered by a failing demo.
+- **`check_split_payments` does not close known issue #57 as optimistically
+  worded.** The known issue says the tool is "where that gets caught" for a
+  client paying two months in one transfer. It cannot: the tool finds
+  combinations of *several* transactions that *sum to* one target; a single
+  transfer that is a *multiple* of one billing's amount is a different shape
+  entirely (nothing to combine — one transaction, no combination sums to a
+  fraction of itself within tolerance). Closing #57 for real needs a tool
+  that compares a client's actual total against *several* neighbouring
+  months at once, which does not exist. `#57` is amended below rather than
+  silently left to look solved.
+- **The eval fixture proves a different, real gap instead**: an attribution
+  miss caused by a description too garbled for fuzzy matching to claim
+  (`search_bank_transactions` is deliberately not client-scoped, for exactly
+  this). This is faithful to the *spirit* of the plan's original demo — the
+  engine's mechanical view misses a payment a human would recognise — without
+  overstating what today's tools can actually find.
+- **The confidence-adjustment policy is a stated heuristic, not a tuned
+  one.** `confirmed -> max(original, 0.9)`, `false_positive -> min(original,
+  0.1)`, `needs_review` unchanged. Disclosed in
+  `verification_agent._confidence_for`'s docstring rather than hidden in
+  arithmetic; nothing calibrates these two numbers against outcomes.
+- **`web/` still writes nothing** (ADR-018 unchanged). The agent runs from
+  `app/`'s "4 · Verify findings" only.
+- **Sequential, `sleep_seconds`-paced calls only** — no batching, no async.
+  Fine at the scale ADR-006 already commits to (already-flagged anomalies
+  only, a handful per run), matches the API-budget note in `CLAUDE.md`.
+
+### How to verify this phase works
+```bash
+pytest tests/test_agent_tools.py tests/test_verification_agent.py -q   # 18 assertions, no GPU
+pytest -q                                                              # 125 total
+python scripts/eval_agent.py                                          # needs a live endpoint
+streamlit run app/main.py    # Revenue Integrity -> 4 - Verify findings
+python run_web.py --live     # same run's findings -> agent panel, no code changed to show it
+```
+
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
@@ -2008,3 +2168,17 @@ Clause highlighting works on the real corpus: 20 of 20 clauses across three comp
 What we gave up, and must keep saying out loud: **a typeset page is not the document as filed.** Its line breaks, its pagination and its page numbers are ours. Anyone comparing our "page 61" against the filing on EDGAR will not find them the same, and a reader who assumes otherwise has been misled by us, not by the data. That is the whole reason the disclosure is printed into the PDF itself and not only into the UI — the image outlives the page it was rendered on.
 
 This does not weaken ADR-005. A quote that cannot be found is still `failed`, still gets NULL coordinates, and still renders as a page with no box and a plain statement that we could not place it. Typesetting gives the locator something to search; it never invents a location.
+
+---
+
+## ADR-022 — Phase 8's false-positive proof lives in a synthetic fixture, not the shipped scenario
+
+**Status:** Accepted (2026-08-17, Phase 8)
+
+**Context.** `docs/implementation_plan.md`'s Phase 8 worked example is the verification agent flipping a name-variant false positive ("StarterLabs" vs "Starter Labs") to `false_positive` on the `realistic` scenario. Before writing any Phase 8 code, that example was traced against the actual codebase: `core.engine.reconciliation.attribute_transactions` (built in Phase 6, months after the plan's Phase 8 narrative was written) already does fuzzy client-name attribution — thefuzz, threshold 85 — at reconcile time. Every name variant `data_sourcing/scenario_builder.py` plants into the `realistic` scenario (`"VISIONHYDROGEN CORP WIRE"`, `"REGAL ENT GROUP ACH"`, and so on) is therefore already correctly attributed **before the agent ever runs**. There is no false positive left in that scenario's ground truth for Phase 8 to catch. The mechanical engine got smarter than the demo assumed, in a phase that shipped before this one.
+
+Three options were open. **Extend `data_sourcing/scenario_builder.py`** with a new planted case the engine genuinely still gets wrong (e.g. a client paying two months in one transfer, known issue #57) — but `scenario_builder.py` and `data/scenarios/*/ground_truth.json` are cited by name, with exact figures, in Phase 6's `progress.md` entry, `docs/interfaces.md`, and `scripts/eval_engine.py`'s own definition of done (`easy` 7/$17,815.00, `realistic` 5/$22,500.00, `edge` 0/$0.00, all reproduced *exactly*). Touching it risks those numbers without re-running and re-documenting three separate places, for a phase that does not own that file. **Report the demo as no longer reproducible and stop there** — technically honest, but it abandons the one thing Phase 8's own definition of done asks to be shown working. **Build the agent to the full architecture regardless, and prove both halves a different way that touches neither the scenario file nor its measured ground truth.**
+
+**Decision.** The third option. `scripts/eval_agent.py` runs two independent checks: Part 1 runs `verify_run` over the real `realistic` run's genuine (already-attributed, still-genuine) anomalies, live against the database — proof the agent handles real leaks correctly without inventing false positives on data that has none. Part 2 builds a small fixture with the real engine functions (`core.engine.pipeline.persist_rules` / `compute_run`, not `scenario_builder`) — one contract, one billing, one payment recorded under a description too garbled for fuzzy matching to attribute (`"REF 84X2Q AUTOPAY SETTLEMENT"` against `"Fixture Co"`) — a genuine `ghost_invoice` by construction, verified to reproduce before the agent is asked to touch it. `verify_run` is then asked to explain it, live against the real model. Neither part edits a file this phase does not own.
+
+**Consequences.** The proof is honest about what changed: `docs/progress.md`'s Phase 8 entry says outright that the plan's own worked example no longer holds, and why, rather than letting a reader assume the shipped scenario still demonstrates it. The synthetic fixture is deliberately a *different* false-positive shape (an attribution miss from a garbled description, not a name variant two spaces apart) — chosen because it is the shape today's `search_bank_transactions` tool can actually resolve, not because it is the closest available stand-in for the original narrative. Known issue #57's cross-month case remains genuinely open; `check_split_payments`, as scoped by `interfaces.md`'s own signature (combinations that *sum to* a target), cannot resolve a single transaction that is a *multiple* of one — that is now recorded plainly rather than implied solved by this phase existing.

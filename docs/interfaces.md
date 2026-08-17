@@ -5,7 +5,7 @@
 >
 > **Changing a signature that already appears here requires telling the other person.** Silently changing it is the single fastest way to break each other's work.
 
-**Status:** Phases 0–7 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 6's definition of done was measured on 2026-08-16**: all three scenarios reproduce `ground_truth.json` exactly (`easy` 7 findings / $17,815.00, `realistic` 5 / $22,500.00, `edge` 0 / $0.00) and 74 pytest assertions pass — see `scripts/eval_engine.py`. **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. Everything from Phase 6 down is still the *planned* contract. Mark each `✅` as it lands.
+**Status:** Phases 0–8 complete and marked ✅ (Phase 3's shared schemas are pulled forward — see below). **Phase 6's definition of done was measured on 2026-08-16**: all three scenarios reproduce `ground_truth.json` exactly (`easy` 7 findings / $17,815.00, `realistic` 5 / $22,500.00, `edge` 0 / $0.00) and 74 pytest assertions pass — see `scripts/eval_engine.py`. **Phase 5's definition of done was measured on a live Colab T4 on 2026-08-14** — 10/10 valid `ContractRules`, 80.0% text grounding, 2/2 PDF locations, all passing; read known issues #48/#49 first, the numbers pass on thin samples. The `--backend transformers` fallback and **Kaggle** have still never run on a GPU. **Phase 8's client-side logic (the graph, the hard cap, persistence) was measured offline on 2026-08-17** — 125 pytest assertions, 18 of them new; `scripts/eval_agent.py`, the live-model half, has **not** been run against a live GPU yet (read ADR-022 and the Phase 8 `progress.md` entry before citing agent quality — the plan's own worked example no longer reproduces against today's engine). Everything from Phase 9 down is still the *planned* contract. Mark each `✅` as it lands.
 
 ---
 
@@ -807,19 +807,80 @@ FindingDetail.page_is_typeset: bool           # the template MUST disclose it
 ## Phase 8 — Verification agent
 
 ```python
-# core/agents/tools.py                                         [A]  ⬜
+# core/agents/tools.py                                         [A]  ✅
 def search_invoices(session, client_id: int, start: date, end: date) -> list[TransactionRow]: ...
-def read_contract_clause(session, clause_ref_id: int) -> str: ...
+def read_contract_clause(session, clause_ref_id: int | None) -> str: ...
 def search_bank_transactions(session, run_id: int, amount_min: float,
                              amount_max: float, start: date, end: date) -> list[TransactionRow]: ...
 def check_split_payments(session, client_id: int, target: float,
-                         start: date, end: date, tol: float = 0.02) -> list[list[TransactionRow]]: ...
+                         start: date, end: date, tol: float = 0.02) -> list[list[TransactionRow]]:
+    """`tol` is a FRACTION (0.02 = 2%), not a percentage. Returns
+       queries.TransactionRow — the same display-safe row both frontends
+       already use, not the Phase-3 schemas.TransactionRow."""
 
-# core/agents/verification_agent.py                            [B]  ⬜
-def verify_anomaly(anomaly: Anomaly) -> VerificationResult:
-    """LangGraph ReAct loop, max 5 iterations.
-       VerificationResult: verdict, explanation, tool_calls, confidence."""
+# core/agents/verification_agent.py                            [B]  ✅
+class AgentDecision(BaseModel):    # one ReAct turn's structured output
+    thought: str
+    action: Literal["search_invoices","search_bank_transactions",
+                    "check_split_payments","read_contract_clause","conclude"]
+    verdict: Literal["confirmed","false_positive","needs_review"] | None = None
+    explanation: str | None = None
+    widen_days: int | None = None          # the model never supplies an id —
+    amount_slack_pct: float | None = None  # only these search-widening knobs.
+    tolerance_pct: float | None = None     # every real identifier comes from
+                                            # AnomalyContext, built server-side.
+
+@dataclass(frozen=True)
+class AnomalyContext:  # anomaly_id, run_id, client_id, client_name,
+                        # anomaly_type, expected/actual/gap, billing_date,
+                        # clause_reference_id, clause_text, original_confidence
+    def summary(self) -> str: ...
+
+@dataclass
+class VerificationResult:
+    verdict: Literal["confirmed","false_positive","needs_review"] | None
+    #        ^ None means the agent could not reach the model at all —
+    #          the caller must leave the anomaly untouched, not write a verdict.
+    explanation: str
+    tool_calls: list[dict[str, str]]   # [{"call": "...", "result": "..."}] —
+                                        # this exact shape is what
+                                        # web/presenters/live.py::_tool_calls parses.
+    confidence: float | None
+    iterations: int
+
+def build_context(session, anomaly_row: AnomalyRow) -> AnomalyContext: ...
+def verify_anomaly(session, context: AnomalyContext) -> VerificationResult:
+    """A LangGraph StateGraph built fresh per call, max 5 iterations. On cap,
+       verdict is forced to "needs_review" WITHOUT a 6th model call. Never
+       raises — an agent crash returns VerificationResult(verdict=None, ...)."""
+
+# NOT in the plan's original signature — added the way pipeline.py was added
+# in Phase 6: the bridge from a pure per-anomaly function to real rows.
+def verify_run(session, run_id: int, *, only_status: str = "unverified",
+               limit: int | None = None, sleep_seconds: float = 1.0) -> VerifyRunSummary:
+    """The only place this phase writes to `anomalies`. An anomaly whose
+       verify_anomaly() returns verdict=None is counted in .skipped and left
+       completely untouched — still "unverified", exactly as before the call."""
+
+@dataclass
+class VerifyRunSummary:
+    run_id: int; checked: int; confirmed: int; false_positive: int
+    needs_review: int; skipped: int   # .as_line()
+
+# core/ai/prompts.py                                            [B]  ✅  additive
+AGENT_VERSION: str
+AGENT_SYSTEM: str
+def agent_user(context_summary: str, history: str) -> str
+
+# app/components/verify_panel.py                                [B]  ✅  NOT in the plan's tree
+def render_verify_panel(session, run_id: int, unverified_count: int) -> bool: ...
+
+# app/components/anomaly_table.py                                [B]  ✅
+def render_visibility_toggle(anomalies: list[AnomalyRow]) -> bool:
+    """'Show false positives' checkbox, default off, shown only once one exists."""
 ```
+
+> **⚠️ The plan's own Phase 8 worked example (a name-variant false positive on the `realistic` scenario) no longer reproduces.** `core.engine.reconciliation.attribute_transactions` (Phase 6) already fuzzy-matches client names at reconcile time, so the scenario's planted name variants are attributed correctly before the agent ever runs. See ADR-022 and the Phase 8 entry in `progress.md` for what proves the agent instead, and known issue #57's amendment for what `check_split_payments` still cannot do.
 
 ---
 

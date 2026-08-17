@@ -1,6 +1,6 @@
 # TODO — what is not finished
 
-**Last updated:** 2026-08-16, at the close of Phase 7.
+**Last updated:** 2026-08-17, at the close of Phase 8.
 
 A working list, not a memory file. `docs/progress.md` stays authoritative and
 append-only; `docs/state.json` stays the machine-readable status. This file
@@ -9,6 +9,40 @@ known issues, and it should be **edited freely** — tick things off, delete the
 re-order them.
 
 Each item says where it lands. `#n` refers to `known_issues` in `docs/state.json`.
+
+---
+
+## Left over from Phase 8
+
+### 0a. `scripts/eval_agent.py` has never been run against a live GPU  · `#65`
+Written and self-tested (it fails cleanly with a clear message when no
+endpoint is configured — confirmed by running it), but the live-model half of
+Phase 8's own definition of done is unmeasured. The offline half
+(`tests/test_verification_agent.py`, 5 assertions) proves the graph's control
+flow regardless of model quality.
+
+*To close it:* start a Colab or Kaggle session, paste the tunnel URL on the
+Model endpoint page, then `python scripts/eval_agent.py`. Ten minutes, and it
+needs a live GPU — same shape as leftover #1 above.
+
+### 0b. `check_split_payments` does not close known issue #57  · `#57`, `#63`
+The tool finds combinations of *several* transactions summing to one target.
+A single transfer that bundles two months into one payment — #57's actual
+shape — is a *multiple* of one billing's amount, not a sum of several. No
+tool compares a client's total against several neighbouring months at once
+yet.
+
+*Options, none chosen:* a fifth tool that widens the aggregation window
+itself and asks "does this and the next month's total match two expected
+billings"; or accept the gap and disclose it (current state).
+
+### 0c. `web/`'s two verdict buttons stay inert  · `#52`, `#56`
+"Add to recoverable" / "Rule it out" in `_finding_detail.html` were reserved
+for Phase 8 but not wired — the agent runs from `app/`'s "4 · Verify
+findings" only, matching how reconciliation stayed `app/`-only in Phase 6.
+
+*If that changes:* it is `web/`'s first write path, and must call
+`web.cache.clear()` (same warning `compute_run` already carries).
 
 ---
 
@@ -138,7 +172,7 @@ demo used.
 | 17 | `.xlsx` is offered in the uploader's accepted types but only `.csv` is parsed. Fails cleanly with a message; nobody has built the path. | `#38` |
 | 18 | Deleting a run leaves its Storage objects behind, and content-addressing means every re-upload leaves its predecessor. Fine at demo scale; sweep before deployment. | `#21` |
 | 19 | `SUPABASE_SERVICE_KEY` must go into Streamlit Secrets at deploy time. It bypasses all RLS. | `#22` |
-| 20 | A client paying two months in one transfer reads as one month settled and one ghost invoice (ADR-019's accepted cost). Phase 8's `check_split_payments` is where it gets caught. | `#57` |
+| 20 | A client paying two months in one transfer reads as one month settled and one ghost invoice (ADR-019's accepted cost). **Still open after Phase 8** — `check_split_payments` only finds several transactions that sum to one target; a single transfer that's a *multiple* of one billing's amount is a different shape it cannot recognise. See `#57`, amended by `#63`. | `#57` `#63` |
 | 21 | Nothing re-locates clauses automatically. Editing a quote by hand, or re-extracting a contract, leaves stale `source_page`/`source_bbox` until `locate_run_clauses` runs again (Reconcile button, or `scripts/run_scenario.py`). | `#62` |
 | 22 | A located bbox is the union of every line the match spans, so on a multi-line clause it covers whatever else shares those lines. Honest, but not a word-perfect outline — do not describe it as one. | `#60` |
 | 23 | The clause page image is ~4.9 s cold (a 200 KB `extracted_text` column across the 400 ms link), 1.2 ms warm. Not fixable in code from this repo. | `#61` |

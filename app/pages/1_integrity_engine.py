@@ -30,6 +30,7 @@ from app.components.anomaly_table import (
     render_anomaly_detail,
     render_anomaly_table,
     render_filters,
+    render_visibility_toggle,
 )
 from app.components.clause_viewer import render_clause_viewer, render_placeholder
 from app.components.client_confirm import render_client_confirm
@@ -44,6 +45,7 @@ from app.components.summary_cards import (
     render_summary_cards,
     render_type_breakdown,
 )
+from app.components.verify_panel import render_verify_panel
 from core.db import database
 from core.db.queries import (
     count_contract_rules,
@@ -147,11 +149,23 @@ with st.expander("Extract contract rules from uploaded contracts (needs a live e
             st.rerun()
 
 # ---------------------------------------------------------------------------
+# Verify — the agent's turn to compute, right after the engine's
+# ---------------------------------------------------------------------------
+
+st.divider()
+st.subheader("4 · Verify findings")
+
+with state.db() as session:
+    unverified = len(list_anomalies(session, run_id, status="unverified"))
+    if render_verify_panel(session, run_id, unverified):
+        st.rerun()
+
+# ---------------------------------------------------------------------------
 # Findings
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.subheader("4 · Findings")
+st.subheader("5 · Findings")
 
 with state.db() as session:
     all_anomalies = list_anomalies(session, run_id)
@@ -161,9 +175,13 @@ if not all_anomalies:
     st.stop()
 
 chosen_type, chosen_status = render_filters(all_anomalies)
+show_false_positives = render_visibility_toggle(all_anomalies)
 
 with state.db() as session:
     anomalies = list_anomalies(session, run_id, status=chosen_status, anomaly_type=chosen_type)
+
+if not show_false_positives:
+    anomalies = [a for a in anomalies if a.status != "false_positive"]
 
 st.caption(
     f"Showing {len(anomalies)} of {len(all_anomalies)} findings · "
@@ -181,7 +199,7 @@ st.caption("👆 Click any row to see the contract clause that proves it.")
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.subheader("5 · Evidence")
+st.subheader("6 · Evidence")
 
 selected_id = state.get_selected_anomaly()
 
