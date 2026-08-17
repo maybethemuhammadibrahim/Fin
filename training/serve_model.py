@@ -364,14 +364,30 @@ def _request(url: str, api_key: str, payload: dict | None = None, timeout: int =
         return None
 
 
-def wait_until_ready(port: int, api_key: str, timeout: int) -> bool:
-    """Poll /v1/models until the weights are loaded. Cold start is minutes."""
+def wait_until_ready(
+    port: int, api_key: str, timeout: int, process: subprocess.Popen | None = None
+) -> bool:
+    """Poll /v1/models until the weights are loaded. Cold start is minutes.
+
+    `process`, when given, is the server child. It is checked on every pass:
+    without it, a vLLM that dies at import time (the CUDA/torchaudio clash in
+    known issue #50 does exactly that) left this function polling a port nobody
+    was listening on for the full 900-second timeout before falling back —
+    fifteen minutes to be told about a failure that had already happened and
+    already printed its traceback. Known issue #51.
+    """
     log(f"waiting for the model to finish loading (up to {timeout}s)")
     deadline = time.time() + timeout
     while time.time() < deadline:
         if _request(f"http://127.0.0.1:{port}/v1/models", api_key, timeout=5):
             log("model is up")
             return True
+        if process is not None and process.poll() is not None:
+            log(
+                f"the server process exited with code {process.returncode} before becoming "
+                f"ready — scroll up for its own error, this is not a timeout"
+            )
+            return False
         time.sleep(5)
     return False
 
@@ -522,7 +538,7 @@ def main() -> int:
 
     # vLLM path: supervise the child, then tunnel.
     try:
-        if not wait_until_ready(args.port, api_key, args.startup_timeout):
+        if not wait_until_ready(args.port, api_key, args.startup_timeout, process=server):
             log("the model never became ready — scroll up for vLLM's own error")
             server.terminate()
             return 1

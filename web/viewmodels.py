@@ -420,3 +420,8 @@ class DecisionView:
     working: list[WorkRow] = field(default_factory=list)
     caveat: str | None = None
     notices: dict[str, str] = field(default_factory=dict)
+
+    #: Echoed back into the ask bar's monthly-costs box so the figure survives a
+    #: submit. Phase 9: no table holds expenses (ADR-024), so this number lives
+    #: only in the URL — which is also what makes a whole answer shareable.
+    expenses_value: float | None = None
