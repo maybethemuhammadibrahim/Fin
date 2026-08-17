@@ -921,15 +921,97 @@ def render_visibility_toggle(anomalies: list[AnomalyRow]) -> bool:
 ## Phase 9 — Decision engine
 
 ```python
-# core/engine/cashflow.py                                      [A]  ⬜
-def compute_baseline(session, run_id: int, months: int = 6) -> CashFlowBaseline: ...
-def apply_scenario(baseline: CashFlowBaseline, monthly_cost: float,
-                   recovered_monthly: float) -> ScenarioResult: ...
+# core/engine/cashflow.py                                      [A]  ✅
+#   Pure except for the two `session` functions at the bottom, which only shape a
+#   query result before delegating. Takes NO clock (the Phase 6 rule): projection
+#   labels are M1..Mn, never calendar months.
+@dataclass(frozen=True)
+class CashFlowBaseline:
+    months_observed: int; monthly_revenue: float
+    monthly_expenses: float | None      # None = UNKNOWN, never 0.0 (ADR-024)
+    monthly_surplus: float | None       # None whenever expenses are unknown
+    confidence: Literal["ok","low","none"]; reason: str
+    revenue_by_month: tuple[tuple[str, float], ...]
+    #: .expenses_known -> bool   .basis -> "surplus" | "revenue"
 
-# core/ai/decision_analyzer.py                                 [B]  ⬜
-def parse_question(q: str) -> ParsedQuestion:
-    """-> {what: str, monthly_cost: float, start_month: str|None}"""
-def explain_verdict(result: ScenarioResult, parsed: ParsedQuestion) -> str: ...
+@dataclass(frozen=True)
+class Recovery:
+    confirmed_count: int; confirmed_total: float
+    months_covered: int                 # the run's REAL window, not a hardcoded 12
+    monthly: float
+    unverified_count: int; unverified_total: float; false_positive_count: int
+
+@dataclass(frozen=True)
+class ScenarioResult:
+    baseline: CashFlowBaseline; recovery: Recovery; monthly_cost: float
+    corrected_surplus: float | None; after_decision: float | None
+    verdict: Literal["yes","no","unknown"]; rationale: str
+    projection: tuple[tuple[str, float, float], ...]     # (label, without, with)
+    cost_share_of_revenue: float | None
+    def allowed_figures(self) -> set[float]: ...
+        """Every number an explanation may contain. The contract behind the
+           plan's own warning; enforced at runtime by decision_analyzer."""
+
+# pure
+def baseline_from_monthly(revenue_by_month: dict[str, float],
+                          monthly_expenses: float | None = None,
+                          months: int = 6) -> CashFlowBaseline: ...
+def recovery_from_anomalies(confirmed_gaps: list[float], months_covered: int,
+                            unverified_gaps: list[float] | None = None,
+                            false_positive_count: int = 0) -> Recovery: ...
+def apply_scenario(baseline, monthly_cost: float, recovered_monthly: float,
+                   horizon: int = 12) -> ScenarioResult: ...      # as declared
+def evaluate(baseline, recovery: Recovery, monthly_cost: float,
+             horizon: int = 12) -> ScenarioResult: ...            # keeps the counts
+def months_spanned(dates: list[date]) -> int: ...
+
+# reads the database
+def compute_baseline(session, run_id: int, months: int = 6,
+                     monthly_expenses: float | None = None) -> CashFlowBaseline: ...
+    """`monthly_expenses` EXTENDS the declared signature — the interface assumed
+       an expense source in the schema and none exists (ADR-024)."""
+def compute_recovery(session, run_id: int) -> Recovery: ...       # confirmed only
+
+# core/ai/decision_analyzer.py                                 [B]  ✅
+@dataclass(frozen=True)
+class ParsedQuestion:
+    question: str; what: str; monthly_cost: float | None      # ALWAYS per month
+    cadence: Literal["monthly","annual","one_off"] | None
+    start_month: str | None
+    source: Literal["pattern","model","none"]
+    raw_amount: float | None; matched_text: str | None; warnings: tuple[str, ...]
+    #: .needs_confirmation -> bool   (True unless source == "pattern")
+    #: .has_cost -> bool
+
+@dataclass
+class ExplanationResult:
+    text: str; source: Literal["model","fallback"]
+    rejected_numbers: list[float]; attempts: int
+
+def extract_cost(question: str) -> tuple[float | None, str | None]: ...
+    """DETERMINISTIC, and the reason the model never owns the money: it returns
+       the amount AND the substring it matched, so the figure driving the verdict
+       is provably the user's own. Skips a year after a date preposition."""
+def detect_cadence(question: str) -> Cadence | None: ...
+def parse_locally(question: str) -> ParsedQuestion: ...    # no model at all
+def parse_question(question: str) -> ParsedQuestion: ...
+    """NEVER returns None and never raises — unlike the project convention, and
+       deliberately: parse_locally always has an answer, so failing would break
+       the page to guard against something that need not stop anything. The
+       pattern owns monthly_cost; the model supplies `what`/`start_month`, and an
+       amount only when the pattern found none (then needs_confirmation is True)."""
+def figures_for(result: ScenarioResult) -> list[str]: ...  # the model's whole numeric universe
+def offending_numbers(text: str, result: ScenarioResult) -> list[float]: ...
+def fallback_explanation(result, parsed=None) -> str: ...  # deterministic, always correct
+def explain_verdict(result, parsed=None, *, max_attempts: int = 2) -> ExplanationResult: ...
+    """WIDENED from `-> str`: the caller must be able to tell whether the model
+       wrote this or whether its attempt was REJECTED for quoting a figure it was
+       not given. Retries once, then falls back. `.text` is the old contract."""
+
+# core/ai/prompts.py                                          [B]  ✅
+DECISION_VERSION = "v1"; PARSE_SYSTEM; EXPLAIN_SYSTEM
+def parse_user(question: str) -> str: ...
+def explain_user(verdict: str, figures: list[str], rationale: str) -> str: ...
 ```
 
 ---

@@ -1917,6 +1917,126 @@ python run_web.py --live                   # an unverified finding's agent panel
 ```
 
 
+## Phase 9 — Decision Engine (Page 2)
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+A plain-English question produces a Yes/No backed by the user's own numbers. The
+model appears at both ends and never in the middle: it reads the sentence, and it
+phrases figures it is forbidden to change. Everything between is
+`core/engine/cashflow.py`.
+
+### Built by A
+- `core/engine/cashflow.py` — `CashFlowBaseline`, `Recovery`, `ScenarioResult`;
+  pure `baseline_from_monthly` / `recovery_from_anomalies` / `apply_scenario` /
+  `evaluate` / `months_spanned`; and the two database-reading functions
+  `compute_baseline` / `compute_recovery`, which do nothing but shape a query
+  result before delegating — so the maths is tested without a session, the same
+  split Phase 6 used for `pipeline.py`. **Takes no clock**: projection labels are
+  `M1..Mn`, because the engine cannot know what month it is and will not pretend.
+- `tests/test_cashflow.py` — 35 assertions.
+- `scripts/eval_decision.py` — Phase 9's definition of done, six cases.
+
+### Built by B
+- `core/ai/decision_analyzer.py` — `ParsedQuestion`, `ExplanationResult`,
+  `extract_cost`, `detect_cadence`, `parse_locally`, `parse_question`,
+  `figures_for`, `offending_numbers`, `fallback_explanation`, `explain_verdict`.
+- `core/ai/prompts.py` — `PARSE_SYSTEM`, `EXPLAIN_SYSTEM`, `parse_user`,
+  `explain_user`, `DECISION_VERSION = "v1"`.
+- `app/pages/2_decision_engine.py` — rewritten: the question, the running-costs
+  input, the verdict, the working, the projection, and an expander stating
+  exactly what the model did and did not do.
+- `web/presenters/live.py` — the Decision working now comes from `cashflow`
+  instead of arithmetic done in the presenter, and both notices were reworded.
+
+### The three departures from the plan, and why
+1. **The amount is read by regex; the model is the fallback.** The plan has the
+   LLM parse `{what, monthly_cost, start_month}`. But `monthly_cost` *is* a
+   number the user sees and it drives the verdict — a 3B model reading `$5,000`
+   as `50000` flips a YES to a NO with nothing on screen looking wrong.
+   `extract_cost` is deterministic and returns the substring it matched, so the
+   page can show that the figure is the user's own. `test_the_pattern_owns_the_
+   money_even_when_the_model_disagrees` pins it. The model still supplies `what`
+   and `start_month` (prose, harmless), and an amount only when the pattern found
+   none — and then `needs_confirmation` is True and the page asks, which is
+   ADR-010's LLM-proposed / human-confirmed shape.
+2. **`recovered_monthly` divides by the run's real window, not 12.** The plan
+   writes `sum(gap) / 12`. `compute_recovery` derives the window from
+   `expected_timeline`'s own billing dates via `months_spanned`. On a six-month
+   run the plan's formula halves the run-rate, which is enough to flip a verdict:
+   `eval_decision.py`'s sixth case is exactly that, and it reads YES at $600/month
+   and NO at the plan's $300.
+3. **`explain_verdict` refuses its own bad output.** The plan says a number in
+   the explanation that is not in its input "is a bug ... worth writing an
+   assertion". An assertion catches it in CI; `offending_numbers` catches it in
+   production. The explanation is checked against `ScenarioResult.allowed_figures()`,
+   retried once, then replaced by `fallback_explanation`. A missing paragraph of
+   prose is a far smaller failure than a confident wrong figure.
+
+### New interfaces added to interfaces.md
+- `core.engine.cashflow.*` (the three dataclasses and eight functions above)
+- `core.ai.decision_analyzer.*` — note `explain_verdict` returns
+  `ExplanationResult`, **widened from the declared `-> str`**, because the caller
+  must be able to tell whether the model wrote the prose or whether its attempt
+  was rejected. `.text` is the old contract.
+- `core.ai.prompts.{PARSE_SYSTEM,EXPLAIN_SYSTEM,parse_user,explain_user}`
+
+### Decisions recorded
+- ADR-024: the Decision Engine asks the user for expenses rather than inventing a surplus
+
+### Measured
+```
+pytest -q                       233 passed (155 + 78 new: 35 cashflow, 43 analyser)
+scripts/eval_decision.py        6/6 cases, correct verdict AND correct after-figure,
+                                0 invented numbers in any explanation
+  affordable outright                 yes   $7,600.00
+  affordable only after recovery      yes   $  500.00   <- the product's whole point
+  not affordable at all               no    $-3,500.00
+  annual figure, converted once       yes   $7,000.00   ($72,000/yr -> $6,000/mo)
+  no expenses supplied                unknown          <- refuses, per ADR-024
+  six-month run not divided by 12     yes   $  100.00
+app/pages/2_decision_engine.py  driven through AppTest in four states, 0 exceptions;
+                                run 2: $99,743.26 + $1,875.00 - $5,000.00 = $96,618.26
+                                run 1: correctly EXCLUDES $26,908 of unverified findings
+web/ /decision, both modes      200; working table now engine-computed
+```
+**The live model has NOT phrased an explanation on a GPU.** Every figure above,
+and every verdict, is computed by Python and needs no model at all — but the
+prose in all six eval cases came from `fallback_explanation`, because no
+Colab/Kaggle/Modal endpoint was answering (the same situation as #40/#65).
+`python scripts/eval_decision.py --live` is the command; run it before citing
+the model's phrasing quality. What *is* proven offline is the thing that matters
+more: the guard rejects an invented figure
+(`test_an_invented_number_is_rejected_at_runtime_not_just_in_ci`).
+
+### Known gaps / deliberately deferred
+- **The surplus depends on one user-typed number** (ADR-024). Disclose it: FinSight
+  computes what you are owed and what you earn; you tell it what you spend. An
+  expenses table is the proper fix and is not built.
+- **A verdict is not reproducible from `run_id` alone** and nothing persists one,
+  because it depends on that input. Two people can correctly get different answers
+  for the same run.
+- **`web/` still writes nothing.** Its question box has no POST route (ADR-018) and
+  its Decision page names the Streamlit app rather than a phase.
+- **`start_month` is parsed and displayed but does not shift the projection.** The
+  engine takes no clock, so "starting in September" cannot be placed on a timeline
+  without one; the projection is relative (M1..Mn) and the month is shown as read.
+  Honest, and it is why the label is not a calendar month.
+- **The confidence rule is a threshold, not a model.** Fewer than 3 months of
+  revenue is flagged `low`; nothing weights the projection by how sparse it is.
+- **`cost_share_of_revenue` is the only figure the revenue basis offers.** No
+  runway, no burn, no seasonality — all of which need expenses.
+
+### How to verify this phase works
+```bash
+pytest tests/test_cashflow.py tests/test_decision_analyzer.py -q   # 78, offline
+python scripts/eval_decision.py            # the definition of done, no DB, no GPU
+python scripts/eval_decision.py --run-id 2 # same, plus a real run's figures
+python scripts/eval_decision.py --live     # needs an endpoint; NEVER RUN yet
+streamlit run app/main.py                  # Decision Engine -> ask, Analyse
+python run_web.py --live                   # /decision shows the working, no verdict
+```
+
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
@@ -2344,4 +2464,25 @@ The forcing constraint the code was solving is real and already recorded as know
 
 **This is not a violation of ADR-011.** ADR-011 forbids calling a third-party *model* API — sending our data to someone else's weights and buying their inference. Modal rents hardware: the weights are the same open-source checkpoint we serve from Colab, downloaded by our own image build, running under vLLM configured by our own file. Swapping a free T4 for a rented L4 changes who owns the GPU, not who owns the model, and Phase 11's base-vs-tuned comparison stays one variable (`LLM_MODEL`) because Phase 10's adapter loads here the same way it loads in the notebook. The distinction that matters for the report's self-hosting claim is *whose weights*, not *whose electricity*.
 
-**Consequences.** The demo stops depending on a URL that rotates, which is the single largest operational risk in the project (#6) and one the two notebook peers could not reduce. Weights are baked into the Modal image at build time, so a cold start loads 3B onto a card instead of downloading 6 GB, and `vllm==0.27.1` is **pinned** — the unpinned install is what broke Colab's preinstalled `torchaudio` (#50). What we give up: it is the first component that costs money per call, billed per second of GPU time while a request is in flight, with `scaledown_window` trading idle cost against cold-start latency — so an idle deployment is free but a quiet period is paid for in latency. It also adds a fourth account to the list in known issue #7, and a `modal secret create finsight-llm LLM_API_KEY=...` step that has no equivalent in the notebook flow. **Modal has not been deployed or measured from this repo** — the file is written and the client-side plumbing is exercised by `verify_llm_stack.py`'s stub server, but no `modal deploy` has run, so its cold-start and per-call figures are unknown and must not be quoted in the report until they are measured.
+**Consequences (ADR-023).** The demo stops depending on a URL that rotates, which is the single largest operational risk in the project (#6) and one the two notebook peers could not reduce. Weights are baked into the Modal image at build time, so a cold start loads 3B onto a card instead of downloading 6 GB, and `vllm==0.27.1` is **pinned** — the unpinned install is what broke Colab's preinstalled `torchaudio` (#50). What we give up: it is the first component that costs money per call, billed per second of GPU time while a request is in flight, with `scaledown_window` trading idle cost against cold-start latency — so an idle deployment is free but a quiet period is paid for in latency. It also adds a fourth account to the list in known issue #7, and a `modal secret create finsight-llm LLM_API_KEY=...` step that has no equivalent in the notebook flow. **Modal has not been deployed or measured from this repo** — the file is written and the client-side plumbing is exercised by `verify_llm_stack.py`'s stub server, but no `modal deploy` has run, so its cold-start and per-call figures are unknown and must not be quoted in the report until they are measured.
+
+---
+
+## ADR-024 — The Decision Engine asks the user for expenses rather than inventing a surplus
+
+**Status:** Accepted (2026-08-17, Phase 9)
+
+**Context.** `implementation_plan.md`'s Phase 9 computes `current_surplus = avg_revenue - avg_expenses`. FinSight can compute the first term: `actual_transactions` holds real client receipts and `revenue_by_month` already aggregates them. **It has no second term.** No table in the schema holds operating costs — `actual_transactions.source_type` is `invoice | bank`, amounts are unsigned, and every row is money *arriving*. Payroll, rent and software have never entered the system, because nothing in the product's pipeline reads them. The plan's own frontend amendment flags this and asks for a deliberate decision rather than a workaround.
+
+This matters more than a missing column usually would, because the pitch's headline promise — *"can I afford a $5,000/month hire?"* — is a question about surplus, not revenue. Answering it requires a number the database does not have.
+
+Three options were open. **Assume an expense figure** (a percentage of revenue, an industry ratio) — rejected outright: it manufactures the one number the entire verdict turns on, and unlike a mis-drawn clause box (#58, found by looking at a rendered page) a wrong surplus is invisible. Nobody can see that $4,500 should have been $1,200. It is the exact failure mode ADR-008's "the UI reads only the database" and the LLM-does-no-arithmetic rule exist to prevent, arriving through a different door. **Add an expenses table plus an upload and column-mapping path** — correct long-term, and genuinely the right answer eventually, but it is a phase of work (13th table, upload zone, ADR-010 mapping flow, seed data, `test_schema.py` update) and it is not in Phase 9's owner split; taking it on would delay the verdict Phase 9 exists to deliver. **Ask the user.**
+
+**Decision.** The user supplies monthly running costs, as one number, on the Streamlit page. Nothing is stored and no schema changes. Consequences of that choice, all deliberate:
+
+1. **`monthly_expenses` is `float | None`, and `None` means unknown — never `0.0`.** `0.0` would assert the business breaks exactly even, a completely different and false claim. `CashFlowBaseline.monthly_surplus` is therefore also `None` whenever expenses are unknown, and `.basis` reports `"revenue"` rather than `"surplus"`.
+2. **With no expense figure, the engine refuses a Yes/No.** `verdict` is `"unknown"` and `cost_share_of_revenue` is reported instead — the commitment as a share of corrected monthly revenue, which is true, useful, and not an affordability claim. The page says so in as many words.
+3. **Every figure on the page is therefore either computed from the database or typed by the user.** Nothing is assumed. That property is what makes the verdict defensible, and it is the same standard ADR-014 applied to redacted contract values (seeded deterministic Python, never a model's guess).
+4. **`web/` cannot ask the question at all** and does not pretend to. It has no POST route because it writes nothing (ADR-018), and a verdict needs both a question and an expense figure — two things only a form can collect. Its Decision page shows the real engine-computed working and names the Streamlit app as the place to get an answer.
+
+**Consequences.** The Decision Engine's headline claim is now conditional on one user-supplied number, which must be disclosed in the report: FinSight computes what you are owed and what you earn, and *you* tell it what you spend. In exchange, no figure it prints is invented. The gap is honest and visible rather than papered over, and closing it properly — an expenses source — is a well-defined piece of future work rather than a hidden assumption. A second, smaller consequence: because the surplus depends on an input rather than stored data, two people asking the same question of the same run can get different verdicts. That is correct (they have different cost bases) but it means a verdict is not reproducible from `run_id` alone, so nothing persists one.

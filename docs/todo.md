@@ -1,7 +1,7 @@
 # TODO — what is not finished
 
-**Last updated:** 2026-08-17, after the post-Phase-8 audit (see `docs/progress.md`
-→ *"Audit — Phases 0–8 re-verified"*).
+**Last updated:** 2026-08-17, at the close of Phase 9. The post-Phase-8 audit's
+findings are in `docs/progress.md` → *"Audit — Phases 0–8 re-verified"*.
 
 ---
 
@@ -34,6 +34,33 @@ known issues, and it should be **edited freely** — tick things off, delete the
 re-order them.
 
 Each item says where it lands. `#n` refers to `known_issues` in `docs/state.json`.
+
+---
+
+## Left over from Phase 9
+
+### 0c. No live model has ever phrased a decision explanation · `#71`
+Every verdict and every figure is computed by Python and needs no model — all six
+`eval_decision.py` cases pass offline — but the prose in all six came from
+`fallback_explanation`, because no endpoint was answering. The guard that matters
+*is* proven offline: `explain_verdict` rejects an explanation quoting a figure it
+was not given, retries once, then falls back.
+
+*To close it:* start any of the three hosts, then
+`python scripts/eval_decision.py --live`. Same GPU precondition as `#40`/`#65`, so
+all three are worth doing in one session.
+
+### 0d. An expenses source, so the surplus stops depending on a typed number · `#70`
+ADR-024 ships the Decision Engine with monthly running costs supplied by the user,
+because no table holds them. It is honest and visible, but it is the one number the
+verdict turns on and it is not in the database.
+
+*To close it:* a 13th table (`operating_expenses`: `run_id`, `month`, `category`,
+`amount`), an upload zone, a column mapping through the existing ADR-010 flow, a
+queries helper, and `test_schema.py` updated to expect 13 tables. Then
+`compute_baseline` reads expenses instead of taking them as an argument, and the
+`verdict == "unknown"` branch becomes unreachable for a run that has them. Sizeable
+— treat it as its own phase, not a Phase 11 tidy-up.
 
 ---
 

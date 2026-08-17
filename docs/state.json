@@ -2,7 +2,7 @@
  "project": "FinSight",
  "updated": "2026-08-17",
  "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
- "current_phase": 9,
+ "current_phase": 10,
  "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
  "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
  "phases": [
@@ -98,7 +98,7 @@
   {
    "n": 9,
    "name": "Decision Engine",
-   "status": "not_started",
+   "status": "done",
    "work": {
     "A": "cashflow math",
     "B": "question parser+chart"
@@ -463,6 +463,26 @@
    "id": 69,
    "phase": 8,
    "text": "Streamlit's use_container_width is past the removal date Streamlit itself prints (2025-12-31; today is 2026-08-17) and is still used in 15 call sites across app/. Warning-only on streamlit 1.61.1, so every page still renders -- AppTest confirms 5/5 with zero uncaught exceptions -- but the replacement is mechanical: width='stretch' for True, width='content' for False. NOT swept by the post-Phase-8 audit on purpose: it touches nothing that audit was fixing, and a 15-site rename belongs in its own commit where a regression is easy to spot. Do it before Phase 11 deployment pins a Streamlit version."
+  },
+  {
+   "id": 70,
+   "phase": 9,
+   "text": "The Decision Engine's surplus depends on ONE USER-TYPED NUMBER (ADR-024). No table holds operating costs -- actual_transactions is client receipts only, source_type invoice|bank, amounts unsigned -- so avg_expenses, which the plan's formula needs, does not exist in the schema. The Streamlit page asks for it. With no figure supplied the engine sets verdict='unknown' and reports cost_share_of_revenue instead of inventing a surplus; monthly_expenses and monthly_surplus are None (UNKNOWN), never 0.0 (which would assert the business breaks exactly even). Disclose in the report: FinSight computes what you are owed and what you earn, and you tell it what you spend. Two consequences: a verdict is NOT reproducible from run_id alone and nothing persists one, and two people can correctly get different answers for the same run. Proper fix is an expenses table plus an upload/mapping path -- a phase of work, not in Phase 9's owner split."
+  },
+  {
+   "id": 71,
+   "phase": 9,
+   "text": "The LIVE MODEL HAS NEVER PHRASED A DECISION EXPLANATION on a GPU (same situation as #40 for extraction and #65 for the agent). Every verdict and every figure is computed by Python and needs no model, and all six eval cases pass offline -- but the prose in all six came from decision_analyzer.fallback_explanation because no endpoint was answering. Run `python scripts/eval_decision.py --live` before citing the model's phrasing quality. What IS proven offline is the more important half: explain_verdict checks every numeral in the model's output against ScenarioResult.allowed_figures(), retries once, then falls back, so an invented figure cannot reach a user -- see test_an_invented_number_is_rejected_at_runtime_not_just_in_ci."
+  },
+  {
+   "id": 72,
+   "phase": 9,
+   "text": "THE PLAN'S recovered_monthly = sum(gap)/12 IS WRONG for any run that does not span a year, and cashflow.compute_recovery deliberately does not reproduce it: it divides by months_spanned() of the run's own expected_timeline billing dates. On a six-month run the hardcoded 12 halves the run-rate, which is enough to flip a verdict -- eval_decision.py's sixth case reads YES at the true $600/month and NO at the plan's $300. Do not 'fix' the engine back to /12. Related: months_spanned counts DISTINCT calendar months, so billings in January and December of one year are 2 months of evidence, not 12."
+  },
+  {
+   "id": 73,
+   "phase": 9,
+   "text": "decision_analyzer.parse_question does NOT let the model own the money, departing from the plan's Phase 9 sketch on purpose: monthly_cost is a number the user sees and it drives the verdict, so a 3B model reading $5,000 as 50000 would flip a YES to a NO with nothing on screen looking wrong. extract_cost is a deterministic regex that also returns the matched substring, so the page can show the figure is the user's own; the model supplies only `what` and `start_month`, plus an amount when the pattern found none -- and then needs_confirmation is True and the page asks (ADR-010's proposed/confirmed shape). Two regex traps already fixed and regression-tested: the magnitude suffix needed (?![a-z]) or '$12,500 monthly' matched the 'm' of 'monthly' and read as 12.5 BILLION; and a year is only skipped when it follows a date preposition, because an earlier range-only rule rejected '2000 a month'. start_month is parsed and shown but does NOT shift the projection -- the engine takes no clock, so labels are M1..Mn."
   }
  ],
  "adrs": [
@@ -559,6 +579,10 @@
   {
    "id": "ADR-023",
    "title": "Modal is a third peer inference host, not a departure from ADR-011"
+  },
+  {
+   "id": "ADR-024",
+   "title": "The Decision Engine asks the user for expenses rather than inventing a surplus"
   }
  ],
  "inference": {

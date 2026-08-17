@@ -36,6 +36,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from web import cache as web_cache
+from core.engine import cashflow
 from core.db.queries import (
     AnomalyRow,
     RunRow,
@@ -91,14 +92,21 @@ NOTICE_AGENT = (
     "nobody computed. Run \"Verify findings\" in the Streamlit app to fill it in; "
     "this frontend is read-only."
 )
+#: The analyser exists (Phase 9). What this frontend cannot do is *ask* it: it has
+#: no POST route, because it writes nothing (ADR-018), and a verdict needs both a
+#: question and a monthly running-cost figure that only a form can collect. So
+#: this names the surface that can answer, rather than a phase — the lesson from
+#: the 2026-08-17 audit, which found four strings still promising Phase 8.
 NOTICE_DECISION = (
-    "The Decision Engine's analyser lands in Phase 9. The working below is real "
-    "— it comes from your transactions and your confirmed findings — but no "
-    "verdict is drawn from it yet."
+    "The working below is real — computed by the same engine the Streamlit app uses. "
+    "A verdict needs two things this read-only frontend cannot collect: your question "
+    'and your monthly running costs. Ask it on the Decision Engine page of the '
+    "Streamlit app."
 )
 NOTICE_EXPENSES = (
-    "No expense figures exist in the database, so the surplus and the verdict "
-    "cannot be computed. Only what arrived is shown."
+    "No table holds expenses (ADR-024), so a surplus cannot be computed from the "
+    "database — the Streamlit page asks you for that figure. Only what arrived is "
+    "shown here."
 )
 
 
@@ -630,29 +638,39 @@ def decision(session: Session, run_id: int | None, question: str | None = None) 
             notices={"decision": NOTICE_DECISION, "working": "No run selected."},
         )
 
+    # Phase 9: the arithmetic is the engine's, not this presenter's. It used to
+    # average revenue and divide the confirmed total by a hardcoded 12 right here
+    # — money math in a view layer, and wrong for any run not spanning a year.
+    # `compute_recovery` divides by the months the run actually covers.
     stats = _stats(session, run_id)
     months = revenue_by_month(session, run_id)
-    avg_revenue = round(sum(months.values()) / len(months), 2) if months else None
-    confirmed = [a for a in _anomalies(session, run_id) if a.status == "confirmed"]
-    confirmed_total = round(sum(a.gap for a in confirmed), 2) if confirmed else 0.0
-    monthly_recovery = round(confirmed_total / 12, 2) if confirmed_total else None
+    baseline = cashflow.baseline_from_monthly(months, monthly_expenses=None, months=max(len(months), 1))
+    recovery = cashflow.compute_recovery(session, run_id)
 
     working = [
         WorkRow(
             "Average monthly revenue",
-            f"{plural(len(months), 'month')} of matched payments" if months else "no payments on file",
-            money(avg_revenue),
+            f"{plural(baseline.months_observed, 'month')} of matched payments"
+            if months
+            else "no payments on file",
+            money(baseline.monthly_revenue) if months else None,
         ),
         WorkRow("Average monthly expenses", "not recorded anywhere", None, accent=True),
         WorkRow("Surplus today", "needs expenses", None, bold=True),
         WorkRow(
             "Confirmed findings",
-            f"{len(confirmed)} of {stats.anomaly_count} · see Findings",
-            money(confirmed_total),
+            f"{recovery.confirmed_count} of {stats.anomaly_count} · see Findings",
+            money(recovery.confirmed_total),
         ),
-        WorkRow("Spread across the year", "divided by 12", money(monthly_recovery)),
+        WorkRow(
+            "As a monthly run-rate",
+            f"over {plural(recovery.months_covered, 'month')} of billings"
+            if recovery.months_covered
+            else "no billing window",
+            money(recovery.monthly) if recovery.monthly else None,
+        ),
         WorkRow("Surplus once collected", "needs expenses", None, bold=True),
-        WorkRow("Cost of the question", "nothing asked yet", None, accent=True),
+        WorkRow("Cost of the question", "ask in the Streamlit app", None, accent=True),
         WorkRow("Left over each month", None, None, final=True),
     ]
 
