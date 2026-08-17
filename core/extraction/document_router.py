@@ -5,6 +5,19 @@ scanned one both end up as an `ExtractedDoc`; a CSV gets a raw passthrough previ
 here, since its real structured parsing is a different shape entirely
 (csv_parser.parse_transactions returns list[TransactionRow], not ExtractedDoc
 blocks, and needs a human-confirmed column mapping first — ADR-010).
+
+Plain `.txt` is routed too, as `doc_type="text"`. That branch was added on
+2026-08-17, after an audit found `app/components/file_uploader.py` had been
+offering "txt" and "docx" as contract formats since Phase 2 while `detect_type`
+rejected both — every such upload landed as `extraction_status='failed'`. `.txt`
+is now genuinely read (it is the shape the EDGAR corpus already arrives in);
+"docx" was removed from the uploader instead, because reading it needs a new
+dependency and therefore an ADR.
+
+**Anything that raises here must stay a ValueError with a readable message.**
+`file_uploader._extract_and_finalize` catches exactly that and turns it into
+`extraction_status='failed'` plus the message; a different exception type would
+reach Streamlit and take the page down (known issue #37).
 """
 
 from __future__ import annotations
@@ -15,9 +28,10 @@ from typing import Literal
 from core.ai.schemas import DocBlock, ExtractedDoc
 from core.extraction import ocr_cloud, pdf_extractor
 
-DocType = Literal["text_pdf", "scanned", "image", "csv"]
+DocType = Literal["text_pdf", "scanned", "image", "csv", "text"]
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+_TEXT_SUFFIXES = {".txt", ".text"}
 
 
 def detect_type(file_path: str | Path) -> DocType:
@@ -27,6 +41,8 @@ def detect_type(file_path: str | Path) -> DocType:
     suffix = Path(file_path).suffix.lower()
     if suffix == ".csv":
         return "csv"
+    if suffix in _TEXT_SUFFIXES:
+        return "text"
     if suffix in _IMAGE_SUFFIXES:
         return "image"
     if suffix == ".pdf":
@@ -47,6 +63,25 @@ def extract(file_path: str | Path) -> ExtractedDoc:
 
     if kind == "scanned":
         return ocr_cloud.extract_scanned(file_path)
+
+    if kind == "text":
+        # A plain-text contract. This is the shape the whole EDGAR corpus arrives
+        # in — the SEC serves HTML, which `data_sourcing` writes to disk as .txt
+        # (known issue #43, which is why `ExtractedDoc.doc_type` has a "text"
+        # value at all). `page_count=1` because the source genuinely has no
+        # pages: pagination is assigned later, and only for display, by
+        # `pdf_renderer.typeset_pdf` (ADR-021).
+        text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+        if not text.strip():
+            return ExtractedDoc(
+                doc_type="text", blocks=[], full_text="", page_count=0, warnings=["file is empty"]
+            )
+        return ExtractedDoc(
+            doc_type="text",
+            blocks=[DocBlock(page_number=1, text=text)],
+            full_text=text,
+            page_count=1,
+        )
 
     if kind == "image":
         text = ocr_cloud.ocr_page(Path(file_path).read_bytes())

@@ -1773,6 +1773,150 @@ python run_web.py --live     # same run's findings -> agent panel, no code chang
 ```
 
 
+## Audit — Phases 0–8 re-verified, and three things they had not recorded
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+Not a phase. Everything claimed by Phases 0–8 was re-run from a clean checkout
+on Windows before Phase 9 was started, and three real defects were found — one
+of them a **working feature that appeared in no memory file at all**, which is
+exactly the failure the memory ritual exists to prevent.
+
+### What was re-measured, and held
+```
+pytest -q                     125 passed (~19s)
+scripts/eval_engine.py        easy 7/$17,815.00 · realistic 5/$22,500.00 · edge 0/$0.00 — all exact
+scripts/verify_llm_stack.py   21/21 client-side assertions, stub server, no GPU
+scripts/run_scenario.py ×3    same three figures against a real database; 20/20 clauses placed
+GET /clause/{id}/page.png     20/20 render as real PNGs (18 exact, 2 fuzzy) — the Phase 7 claim,
+                              re-checked through the HTTP route rather than the locator alone
+every web/ route, both modes  all 200; 19/19 finding detail panes; 4/4 dashboards
+all 5 Streamlit pages         render via AppTest with zero uncaught exceptions
+document_router.extract       real PDFs 9.6k–10.7k chars over 5 pages; CSV column sniffing
+                              correct on all four scenario actuals.csv files
+```
+Database invariants were asserted directly rather than trusted: **no anomaly
+without a `clause_reference`**, `gap == expected − actual` to the cent on every
+finding in all four runs, only the four leak types, all four demonstrated
+somewhere, and per-run totals tying to $26,908 / $22,500 / $17,815.
+
+### Fixed by B — the live `LLM_API_KEY` was committed to a public repository
+**The most serious thing this audit found, and it was found by accident** while
+checking whether `README.md`'s Modal section agreed with the new ADR. The live
+shared secret was printed verbatim in three places across two tracked files —
+`README.md` twice (the "Starting a session" note and the `modal secret create`
+command) and `docs/serving_setup.md` once — and has been in git history since
+Phase 5 (commits `5523704`, `3c2bc15`). `github.com/maybethemuhammadibrahim/Fin`
+is **public**: confirmed against the GitHub API, `"visibility": "public"`.
+
+This breaks hard rule #8 in `CLAUDE.md` ("No secrets in git"), and it is not a
+harmless one. That key is the *only* control on a public Cloudflare tunnel — the
+threat `docs/serving_setup.md` describes in its own words two lines above where
+it then printed the key ("The tunnel URL is public — anyone who finds it could
+use your GPU quota"). With ADR-023's Modal host it is stronger than that: Modal
+bills per second of GPU time, so the exposure stops being quota and becomes
+money.
+
+All three occurrences are replaced with a pointer to the reader's own `.env`,
+plus a note in both files saying the key *used* to be printed there, so nobody
+re-adds it. **Redaction is not the fix — rotation is**, and only the key's owner
+can do it: the old value is in public history and cannot be un-published.
+`git filter-repo` on published history was deliberately **not** run here (it
+rewrites every commit and requires a force-push) and is pointless before
+rotation anyway. Recorded as known issue #66.
+
+### Fixed by B — Modal was undocumented (ADR-023)
+`training/serve_modal.py`, a `modal` provider in `core/ai/endpoints.py`,
+`MODAL_BASE_URL`, `USE_MODAL` and a Modal-first `fallback()` order all existed
+and worked, with 22 mentions in `README.md` and **zero** in `progress.md`,
+`interfaces.md`, `state.json`, `todo.md` or `CLAUDE.md`. A third peer endpoint
+amends ADR-016 ("Colab and Kaggle are peers"), so it needed an ADR and did not
+have one. Recorded now as **ADR-023**, with the interfaces and the config
+variables written down; `CLAUDE.md` no longer says there are two hosts.
+
+### Fixed by B — Phase 8 shipped, but the UI still called it future work
+The *mechanism* was correct and stayed untouched: `NOTICE_AGENT` is dropped the
+moment a finding has a verdict, confirmed against a verified finding and an
+unverified one. Only the copy shown in the **not-yet-verified** state was stale,
+and it said the agent "lands in Phase 8" — of a phase that had closed.
+- `web/presenters/live.py` — `NOTICE_AGENT` now says the finding has not been
+  verified *yet* and names where to run it (`app/`), the same pattern known
+  issue #56 already applied to the reconcile tooltips. Its module docstring no
+  longer calls `core/agents/` a stub.
+- `web/templates/integrity/_finding_detail.html` — four button tooltips no
+  longer name Phase 8; two say `web/` is read-only (ADR-018) and two say that
+  overriding the agent by hand is not built in *either* frontend.
+- `app/components/anomaly_table.py` — the Confidence help text said the agent
+  adjusts it "in Phase 8"; it does adjust it, so the text is now present tense.
+- `web/viewmodels.py` — the `notices` comment now says to name the surface that
+  fills a gap, never a phase number, and says why.
+
+### Fixed by A — the uploader advertised two formats that always failed
+`app/components/file_uploader.py` had offered `txt` and `docx` as contract
+formats since Phase 2, while `document_router.detect_type()` rejected both —
+every such upload landed as `extraction_status='failed'` with "unsupported file
+type". It failed *cleanly* (no crash, known issue #37's `ValueError` contract
+holds), but the UI promised formats that could never work. Same class as known
+issue #38's `xlsx`, and unlike #38 it was not recorded anywhere.
+- `core/extraction/document_router.py` — a real `.txt` branch returning
+  `doc_type="text"`, the schema value that has existed since Phase 5 for exactly
+  this shape (known issue #43) and that nothing could previously produce.
+  `page_count=1` because a text file has no pages; pagination is assigned later,
+  for display only, by `pdf_renderer.typeset_pdf` (ADR-021). Verified on six real
+  EDGAR contracts (25k–144k chars each) and on empty/whitespace files, which
+  return `page_count=0` and a `"file is empty"` warning.
+- `app/components/file_uploader.py` — `docx` **removed** rather than
+  implemented: reading it needs a new dependency, and a stack addition needs an
+  ADR (tech-stack rule in `CLAUDE.md`). `xlsx` is left alone and #38 stays open.
+
+### Fixed by A — Phase 1's schema assertions are finally in pytest (closes #15)
+`tests/test_schema.py` — the 12 tables, ADR-005's nullable
+`source_page`/`source_bbox`, all six `CheckConstraint`s, the four-leak-type
+constraint and the `milestones` table / `source_clause_ref_id` column that known
+issue #14 records as absent from the plan's ER diagram. Open since Phase 1, where
+the assertions lived in a scratch script; Phase 6 was said to own the port and
+did not do it.
+
+### New interfaces added to interfaces.md
+- `training/serve_modal.py` — `serve()`, deployed with `modal deploy`
+- `core.ai.endpoints.active_provider() -> str` (the `USE_MODAL` layer)
+- `core.extraction.document_router.detect_type` — now returns `"text"` too
+
+### Decisions recorded
+- ADR-023: Modal is a third peer inference host, not a departure from ADR-011
+
+### Known gaps / deliberately deferred
+- **`fastapi` was missing from the `.venv` on this machine**, so `python
+  run_web.py` could not start at all, though `requirements.txt` has always
+  listed it. Installed (0.141.1, no downgrades). Nothing in the repo was wrong;
+  recorded because it cost real time to diagnose and because issue #5 (no
+  dependency pinning, no CI) is what let an incomplete environment go unnoticed.
+- **Both GPU-dependent measurements are still unrun** (#40/#65/#41).
+  `data/eval/` holds only `phase6_engine.json`. `eval_agent.py` fails cleanly
+  with "paste a fresh tunnel URL" — confirmed, not assumed. Agent *quality* and
+  extraction *quality* remain unmeasured, and upload → extract → persist has
+  still never run against a live GPU.
+- **No `.env` on this machine**, so everything above ran on the SQLite
+  fallback. Phase 1's Postgres claims and the Supabase runs 12/13/14 cited by
+  Phases 6–7 could not be checked here at all. `test_schema.py` runs on either
+  backend, which is part of why it was worth writing.
+- **The `.venv` is Python 3.13.15** — a third value after #10's 3.12 and #47's
+  3.14. Streamlit Cloud parity is still unverified on any machine.
+- **Streamlit's `use_container_width` is past its stated removal date**
+  (2025-12-31) and still in 15 call sites across `app/`. Warning-only today.
+  Not swept here: it is unrelated to anything Phase 8 touched, and a
+  15-site rename belongs in its own commit. Logged in `docs/todo.md`.
+- The four `docx`-shaped questions this did *not* answer: no xlsx actuals path
+  (#38), no orphan Storage cleanup (#21), no CI (#5), no dependency pins (#5).
+
+### How to verify this audit's fixes
+```bash
+pytest -q                                  # 125 + the new schema assertions
+pytest tests/test_schema.py -q             # closes known issue #15, runs on SQLite or Postgres
+python -c "from core.extraction.document_router import detect_type; print(detect_type('a.txt'))"
+python run_web.py --live                   # an unverified finding's agent panel names app/, not a phase
+```
+
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
@@ -2182,3 +2326,22 @@ Three options were open. **Extend `data_sourcing/scenario_builder.py`** with a n
 **Decision.** The third option. `scripts/eval_agent.py` runs two independent checks: Part 1 runs `verify_run` over the real `realistic` run's genuine (already-attributed, still-genuine) anomalies, live against the database — proof the agent handles real leaks correctly without inventing false positives on data that has none. Part 2 builds a small fixture with the real engine functions (`core.engine.pipeline.persist_rules` / `compute_run`, not `scenario_builder`) — one contract, one billing, one payment recorded under a description too garbled for fuzzy matching to attribute (`"REF 84X2Q AUTOPAY SETTLEMENT"` against `"Fixture Co"`) — a genuine `ghost_invoice` by construction, verified to reproduce before the agent is asked to touch it. `verify_run` is then asked to explain it, live against the real model. Neither part edits a file this phase does not own.
 
 **Consequences.** The proof is honest about what changed: `docs/progress.md`'s Phase 8 entry says outright that the plan's own worked example no longer holds, and why, rather than letting a reader assume the shipped scenario still demonstrates it. The synthetic fixture is deliberately a *different* false-positive shape (an attribution miss from a garbled description, not a name variant two spaces apart) — chosen because it is the shape today's `search_bank_transactions` tool can actually resolve, not because it is the closest available stand-in for the original narrative. Known issue #57's cross-month case remains genuinely open; `check_split_payments`, as scoped by `interfaces.md`'s own signature (combinations that *sum to* a target), cannot resolve a single transaction that is a *multiple* of one — that is now recorded plainly rather than implied solved by this phase existing.
+
+---
+
+## ADR-023 — Modal is a third peer inference host, not a departure from ADR-011
+
+**Status:** Accepted (2026-08-17, recorded retroactively by the post-Phase-8 audit) · **Amends [ADR-016](#adr-016--colab-and-kaggle-are-peers-not-primary-and-backup)** — there are three peers now, not two.
+
+**Context.** This ADR is written **after** the code it describes. `training/serve_modal.py`, a `modal` provider in `core/ai/endpoints.py`, `MODAL_BASE_URL`, `USE_MODAL`, and a Modal-first `fallback()` order were all built and working, documented in `README.md` (22 mentions) and `.env.example` — and mentioned in **no memory file whatsoever**: not `progress.md`, not `interfaces.md`, not `state.json`, not `todo.md`, not `CLAUDE.md`. `CLAUDE.md` still stated flatly that there are two hosts and that they are peers. A fresh session reading the memory files would have contradicted the running code on its first suggestion, which is precisely the cost the ritual in `CLAUDE.md` exists to avoid. Recording it late is the fix; the lesson is that the code shipped without the five-minute end-of-phase step.
+
+The forcing constraint the code was solving is real and already recorded as known issue #6: a notebook endpoint's URL rotates on every restart, the host idles out, a cold start is ~8 minutes of `pip install` plus a weight download, and a dead session takes the whole app down. ADR-016 made Colab and Kaggle peers so that one could cover the other, but they share every one of those properties — two hosts with the same failure mode are not a mitigation, they are the same bet twice.
+
+**Decision.** Modal is a **third peer**, configured exactly like the other two (`MODAL_BASE_URL` alongside `COLAB_TUNNEL_URL` and `KAGGLE_TUNNEL_URL`, selected by `LLM_PROVIDER` or the in-app radio, resolved at call time through the same `data/endpoint_override.json` layer). It serves the same open-source Qwen 2.5 3B under the same vLLM, behind the same OpenAI-compatible routes, with the same `LLM_API_KEY` header and the same `LLM_MODEL` name. Two things make it *not* merely a fourth entry in a list:
+
+1. **`endpoints.fallback()` tries Modal first**, ahead of the notebooks. Failover runs at the moment the active host has already failed, and the peer most likely to answer is the one whose address is stable. It costs money per call, which is the right thing to spend exactly then.
+2. **`USE_MODAL=true` is a separate switch from `LLM_FAILOVER`**, resolved *above* `LLM_PROVIDER` in `endpoints.active_provider()`. `LLM_FAILOVER` only reacts after something breaks; `USE_MODAL` is the "this is a live demo, go straight to the paid host" decision, made before anything has broken.
+
+**This is not a violation of ADR-011.** ADR-011 forbids calling a third-party *model* API — sending our data to someone else's weights and buying their inference. Modal rents hardware: the weights are the same open-source checkpoint we serve from Colab, downloaded by our own image build, running under vLLM configured by our own file. Swapping a free T4 for a rented L4 changes who owns the GPU, not who owns the model, and Phase 11's base-vs-tuned comparison stays one variable (`LLM_MODEL`) because Phase 10's adapter loads here the same way it loads in the notebook. The distinction that matters for the report's self-hosting claim is *whose weights*, not *whose electricity*.
+
+**Consequences.** The demo stops depending on a URL that rotates, which is the single largest operational risk in the project (#6) and one the two notebook peers could not reduce. Weights are baked into the Modal image at build time, so a cold start loads 3B onto a card instead of downloading 6 GB, and `vllm==0.27.1` is **pinned** — the unpinned install is what broke Colab's preinstalled `torchaudio` (#50). What we give up: it is the first component that costs money per call, billed per second of GPU time while a request is in flight, with `scaledown_window` trading idle cost against cold-start latency — so an idle deployment is free but a quiet period is paid for in latency. It also adds a fourth account to the list in known issue #7, and a `modal secret create finsight-llm LLM_API_KEY=...` step that has no equivalent in the notebook flow. **Modal has not been deployed or measured from this repo** — the file is written and the client-side plumbing is exercised by `verify_llm_stack.py`'s stub server, but no `modal deploy` has run, so its cold-start and per-call figures are unknown and must not be quoted in the report until they are measured.

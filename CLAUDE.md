@@ -4,7 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-**Phases 0–7 of 12 are complete.** Phase 0 (skeleton, deps, `core/config.py`, config page, digest) was installed and run for real on 2026-08-08 — all 16 deps import, `streamlit run app/main.py` renders with zero exceptions.
+**Phases 0–8 of 12 are complete, and all eight were re-verified from a clean checkout on 2026-08-17** before Phase 9 was started — every command in this file's *Commands* section was actually run, not trusted. Phase 0 (skeleton, deps, `core/config.py`, config page, digest) was installed and run for real on 2026-08-08 — all 16 deps import, `streamlit run app/main.py` renders with zero exceptions.
+
+**Read this before believing any figure below.** That audit found three real defects and one urgent one, all recorded in `docs/progress.md` → *"Audit — Phases 0–8 re-verified"*:
+1. **The live `LLM_API_KEY` was committed to this public repo** and is still in its history (#66). Redacted now; **it must be rotated** — see hard rule 8.
+2. **Modal serving existed in no memory file at all** (#67) — now ADR-023.
+3. The uploader advertised `.txt`/`.docx` contracts that always failed (#68) — `.txt` now works, `docx` removed.
+4. Phase 8's UI copy still called the verification agent future work; the mechanism was fine, only the strings were stale.
+
+What *did* hold, measured: 155 pytest assertions, all three engine scenarios exact to the cent, 20/20 clause pages rendering as real PNGs through the HTTP route, every `web/` route in both modes, all 5 Streamlit pages, and the database invariants (no anomaly without a clause, `gap == expected − actual` everywhere, only the four leak types).
 
 **Phase 1 (database) is complete and live on Supabase.** All 12 tables in `core/db/models.py`, engine/session in `core/db/database.py`, 13 read helpers in `core/db/queries.py`, plus `scripts/init_db.py`, `scripts/reset_run.py` and `app/pages/9_db_health.py`. The same 47 assertions pass identically on SQLite and on Postgres; ADR-005 nullability and all six `CheckConstraint`s are confirmed in `information_schema`. **All 12 tables exist and are empty** — that is the correct state; Phase 2's `scripts/seed_demo.py` fills them.
 
@@ -22,11 +30,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **There are now two frontends over one database, and both work (ADR-018).** `app/` is the original Streamlit shell and keeps the operational pages (config ✅/❌ table, DB health, model-endpoint switcher, uploads). `web/` is a FastAPI + Jinja2 app that renders the delivered design — `python run_web.py`. Neither is deprecated, neither is kept in visual sync with the other, and **both read only through `core.db.queries`**, so they can differ in appearance but not in figures. `web/` **writes nothing**: every button is inert. Some of those actions now exist — reconciliation shipped in Phase 6 — but they live in `app/`, so the tooltips say which frontend to use rather than naming a phase (known issues #52, #56). Inside `web/`, a state-bar toggle picks between `presenters/demo.py` (the mockup's own content, transcribed — the reference render) and `presenters/live.py` (the database). **They never call each other and live never falls back to demo**: a missing figure renders as a skeleton and a dashed box naming the phase that fills it. Default mode is `WEB_DATA_MODE` in `.env`; the on-page toggle overrides it per browser via a cookie. Both presenters return the same dataclasses from `web/viewmodels.py` — add a field and you must fill it in both. The findings screen is a **master-detail split** (list pane + detail pane, each scrolling itself); `GET /finding/{id}` returns just the detail pane and `app.js` prefetches it on hover, so selection never reloads the page. **Performance is query count, not SQL** (known issue #53): Supabase is in ap-southeast-1 at ~400 ms per round trip, so a live page costs `queries × 400 ms`. It was cut 35 → 9; `web/cache.py` then caches reads for `WEB_CACHE_SECONDS` (default 15), which is safe only while `web/` writes nothing — **the first write path must call `web.cache.clear()`**.
 
-**Colab and Kaggle are peers, not primary and backup (ADR-016).** Both URLs live in `.env` at once; the active one is `LLM_PROVIDER` or the in-app radio on the Model endpoint page. `core/ai/endpoints.py` resolves the URL at *call* time over a `data/endpoint_override.json` layer, so swapping hosts needs no restart — `settings` is `lru_cache`d and cannot express a URL that rotates. The disk cache is keyed on prompt + model and **not** on the endpoint, which is what makes the hosts interchangeable. `LLM_FAILOVER` defaults to true and the app always says which host answered.
+**There are three peer inference hosts, not two, and not a primary with backups (ADR-016 + ADR-023).** Colab, Kaggle **and Modal**. All their URLs live in `.env` at once; the active one is `LLM_PROVIDER` or the in-app radio on the Model endpoint page. `core/ai/endpoints.py` resolves the URL at *call* time over a `data/endpoint_override.json` layer, so swapping hosts needs no restart — `settings` is `lru_cache`d and cannot express a URL that rotates. The disk cache is keyed on prompt + model and **not** on the endpoint, which is what makes the hosts interchangeable. `LLM_FAILOVER` defaults to true and the app always says which host answered.
 
-Still stubs: `core/agents/`, `core/engine/cashflow.py`, `core/extraction/ocr_cloud.py`, `core/ai/decision_analyzer.py`, `training/{build_pairs,evaluate}.py`.
+**Modal (ADR-023) is the one whose URL does not rotate**, which is why `endpoints.fallback()` reaches for it *first* when the active host has just died. `training/serve_modal.py` serves the same Qwen 2.5 3B under the same pinned vLLM behind the same routes — **rented hardware, not a vendor model API, so ADR-011 is untouched**: the distinction that matters for the self-hosting claim is whose *weights*, not whose electricity. Two things to know before touching it: `USE_MODAL=true` is resolved *above* `LLM_PROVIDER` and is **not** `LLM_FAILOVER` (failover reacts after a break; `USE_MODAL` decides where calls go in the first place — the "live demo, use the paid host" switch), and it **bills per GPU-second**, so it is the first component in the project that costs money. **It has never been deployed from this repo** — no `modal deploy` has run, so do not quote cold-start or cost figures. ADR-023 was written *retroactively* on 2026-08-17: the feature shipped with no memory-file entry at all (known issue #67), which is the exact failure the end-of-phase ritual below exists to prevent.
 
-What the UI deliberately does *not* do yet: read the Decision Engine's question box (Phase 9), show an agent verdict (Phase 8), or write anything at all from `web/` (ADR-018 — reconcile from the Streamlit app). Extraction-on-upload is now wired in `app/` (Phase 6) but has **never run end to end against a live GPU** (known issue #41). Each says so on screen rather than implying otherwise.
+Still stubs: `core/engine/cashflow.py`, `core/extraction/ocr_cloud.py`, `core/ai/decision_analyzer.py`, `training/{build_pairs,evaluate}.py`. (`core/agents/` was on this list until Phase 8 built it — 418 lines of `verification_agent.py` and 167 of `tools.py`.)
+
+What the UI deliberately does *not* do yet: read the Decision Engine's question box (Phase 9), let a human override a verdict by hand (neither frontend), or write anything at all from `web/` (ADR-018 — reconcile and verify from the Streamlit app). Agent verdicts **do** now show in both frontends. Extraction-on-upload is wired in `app/` (Phase 6) but has **never run end to end against a live GPU** (known issue #41). Each says so on screen rather than implying otherwise — and when a phase closes, **go and fix the copy that called it future work**: Phase 8 shipped with four UI strings still saying the agent "lands in Phase 8", caught only by the audit. Name the surface that fills a gap, never a phase number.
 
 **Supabase Storage is live** — private bucket `finsight-documents`, reached with `SUPABASE_SERVICE_KEY` (service_role) because the anon key gets a 403 from RLS on a private bucket. That key is safe here *only* because Streamlit renders server-side; it must go into Streamlit Secrets, never the repo. **Object keys are content-addressed** (`<run_id>/<sha256[:12]>_<name>`) because Supabase's CDN ignores `cache-control` and serves stale bytes after a re-upload — verified, and it survives deletion. Never build a bucket key by hand; use `files.save_upload` and the `documents.storage_url` it returns.
 
@@ -111,7 +121,7 @@ These are the rules that make the product's numbers defensible. Violating them i
 5. **Every anomaly traces to a `clause_reference` row.** No orphans.
 6. **No local GPU in the runtime path**, and **no frontier model API calls, ever** (ADR-011). Every model call goes to an open-source model (Qwen 2.5 3B Instruct) that we host ourselves on free Colab/Kaggle GPU, behind an OpenAI-compatible tunnel. Adding a vendor SDK to `requirements.txt` is a violation, not a shortcut.
 7. **The endpoint is a notebook session, not a service.** Its URL changes on every restart, so `settings.api_base` must be read at call time and never captured at import. Cold starts take minutes. A dead session takes the whole app down — which is why the disk cache is demo insurance rather than an optimisation.
-8. **No secrets in git.** `.env` is gitignored; deployment uses Streamlit Secrets.
+8. **No secrets in git.** `.env` is gitignored; deployment uses Streamlit Secrets. **This rule was broken and the repo is public** — the live `LLM_API_KEY` sat in `README.md` and `docs/serving_setup.md` from Phase 5 until the 2026-08-17 audit, and it is still in git history (known issue #66). It is redacted from the working tree now, but **redaction is not the fix — the key needs rotating**, in four places: `.env`, the Colab secret, the Kaggle secret, the Modal secret. Never paste a key into a doc to be helpful; point at `.env`.
 9. **Nobody edits a file they don't own.**
 
 ## Tech stack (authoritative — do not substitute without an ADR)
@@ -127,7 +137,7 @@ These are the rules that make the product's numbers defensible. Violating them i
 | OCR (optional) | **Surya on Colab** | Offline batch step, fallback branch only |
 | LLM (baseline) | **Qwen 2.5 3B Instruct**, base weights, self-hosted | Served from Colab/Kaggle from Phase 5 (ADR-011, ADR-012) |
 | LLM (upgrade) | **Qwen 2.5 3B + QLoRA**, trained on Colab | Phase 10; same endpoint, one `LLM_MODEL` value apart |
-| Model serving | **FastAPI + Cloudflare tunnel** in a Colab/Kaggle notebook | OpenAI-compatible `/v1/chat/completions` |
+| Model serving | **FastAPI + Cloudflare tunnel** in a Colab/Kaggle notebook, **or Modal** | OpenAI-compatible `/v1/chat/completions`. Three peers (ADR-016 + ADR-023); Modal is `training/serve_modal.py`, rented GPU, stable URL, billed per second |
 | Structured output | **Pydantic** + JSON mode + repair-retry | NOT Outlines (doesn't work over HTTP) |
 | Agent | **LangGraph** ReAct, max 5 iterations | Verification agent |
 | Charts | **Plotly** | Cash-flow projection |
@@ -156,6 +166,7 @@ Full reasoning for each is in Part 2 of `docs/progress.md`.
 - **Reconciliation aggregates per client-month** (ADR-006) rather than matching transaction-to-invoice, which is a combinatorial assignment problem. Sum all of a client's transactions in the calendar month (fuzzy name match, ±15 day tolerance), compare to expected, classify the gap. The precision lost on split payments is recovered in Phase 8 by the agent's `check_split_payments` tool, which does transaction-level search on the ~5 flagged rows instead of ~5,000.
 - **Structured output is Pydantic + JSON mode + one repair retry** (ADR-004). `llm_client.complete_json` returns `None` on failure and **never raises to the caller**. Outlines was rejected because it needs logit access, which a hosted API could not give — but ADR-011 means we now run the server, so grammar-constrained decoding is available *server-side* in the notebook. Keep the client-side repair-retry regardless.
 - **One swappable LLM client** (ADR-002, amended by ADR-011): endpoint chosen by `LLM_PROVIDER` (`colab_tunnel | kaggle_tunnel | custom`) — all of them our own notebook sessions, all OpenAI-compatible. Phase 11's base-vs-tuned comparison is likewise one variable, `LLM_MODEL`.
+- **Modal is a third peer inference host, not a departure from ADR-011** (ADR-023). Rented hardware serving our own open-source weights is not a vendor model API. It is the only host whose URL is stable, so `endpoints.fallback()` tries it first; `USE_MODAL=true` sends everything there and is resolved above `LLM_PROVIDER`. Written retroactively — the code shipped undocumented (#67). Never deployed.
 - **Serving is stood up in Phase 5 on base weights** (ADR-012, superseding ADR-009). Without a hosted API there is no baseline, so `training/serve_model.py` runs untuned Qwen 2.5 3B from Phase 5 and Phases 5–9 develop against it; Phase 10 loads the QLoRA adapter into the same notebook under a second model name. This keeps the top-down build order intact and makes the final comparison identical-weights, adapter on/off. Fine-tuning is now load-bearing for the *claim* but not for the *product* — if training fails, base weights still run everything.
 - **Contracts are sourced, actuals are derived** (ADR-007).
 - **CSV column mapping is LLM-proposed, human-confirmed** (ADR-010), cached by header signature in the `column_mappings` table.
@@ -268,7 +279,7 @@ python scripts/eval_extraction.py --pdfs 5   # the Phase 5 definition of done; n
 python training/serve_model.py --self-test   # runs IN a Colab or Kaggle notebook, not here
 
 # ---- Phase 6 ----
-pytest -q                                    # 74 assertions: timeline, reconciliation, pipeline
+pytest -q                                    # 155 assertions across 8 files (74 of them Phase 6's)
 python -m data_sourcing.scenario_builder     # data/ is gitignored — rebuild the 3 scenarios first
 python scripts/eval_engine.py                # the Phase 6 definition of done; no DB, no network
 python scripts/run_scenario.py realistic     # load a scenario's INPUTS, let the engine compute the rest
@@ -280,6 +291,16 @@ Also working:
 ```bash
 # ---- Phase 7 ----
 pytest tests/test_clause_locator.py tests/test_pdf_renderer.py -q   # 33 assertions, no DB
+
+# ---- Phase 8 ----
+pytest tests/test_agent_tools.py tests/test_verification_agent.py -q  # 18 assertions, no GPU
+python scripts/eval_agent.py                 # needs a live endpoint; NEVER run on a GPU (#65)
+python scripts/eval_agent.py --skip-live-run # fixture only — still needs the model
+
+# ---- the 2026-08-17 audit ----
+pytest tests/test_schema.py -q                # 30 schema assertions; closes #15
+FINSIGHT_TEST_DATABASE_URL=postgresql://...  pytest tests/test_schema.py -q   # same, on Postgres
+modal deploy training/serve_modal.py          # ADR-023's third host — NEVER RUN yet
 ```
 
 The `.venv` should be **Python 3.12**, built with `uv` for Streamlit Community Cloud parity (Cloud does not offer 3.14). The Linux checkout is currently on **3.14.6**, so that parity does not hold there — see known issue #47. To rebuild:
@@ -298,7 +319,7 @@ uv venv --python 3.12 && uv pip install -r requirements.txt
 - `settings.api_base` normalises whatever tunnel URL shape got pasted in (strips a trailing `/v1` or `/v1/chat/completions`); `llm_client` appends the path itself. **Read it at call time** — the URL rotates.
 - Unedited `.env.example` placeholders (`[PASSWORD]`, `[REF]`) are treated as unset, so a half-filled `.env` fails at startup rather than at the first connection.
 - `settings.checks()` returns every variable with `.status` (✅/❌/⚪) and `.display` (masked when secret) — it drives the config page and can fail scripts early.
-- Vars: `LLM_PROVIDER`, `COLAB_TUNNEL_URL`, `KAGGLE_TUNNEL_URL`, `CUSTOM_BASE_URL`, `LLM_API_KEY` (shared secret — the tunnel is a public URL), `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_FAILOVER`, `DATABASE_URL` (falls back to `sqlite:///data/finsight.db`), `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`, `HF_TOKEN` (not needed — Qwen 2.5 3B is public), `LLM_CACHE_ENABLED`, `LOG_LEVEL`.
+- Vars: `LLM_PROVIDER` (`colab_tunnel | kaggle_tunnel | modal | custom`), `COLAB_TUNNEL_URL`, `KAGGLE_TUNNEL_URL`, **`MODAL_BASE_URL`**, `CUSTOM_BASE_URL`, `LLM_API_KEY` (shared secret — the tunnel is a public URL; see rule 8 and known issue #66), `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_FAILOVER`, **`USE_MODAL`** (default false; resolved *above* `LLM_PROVIDER`, and not the same thing as `LLM_FAILOVER` — ADR-023), `DATABASE_URL` (falls back to `sqlite:///data/finsight.db`), `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`, `HF_TOKEN` (not needed — Qwen 2.5 3B is public), `LLM_CACHE_ENABLED`, `LOG_LEVEL`.
 - **From Phase 5, `settings.api_base` is the `.env` default, not the live value.** `llm_client` asks `core/ai/endpoints.py`, which layers the in-app switcher's choice over it at call time (ADR-016). Read the endpoint from `endpoints.active()`, never from `settings`.
 
 `.gitignore` covers `data/`, `.env`, `__pycache__/`, `*.db`, `.streamlit/secrets.toml`, and `training/data/*.jsonl` **except** `eval_set.jsonl` — the held-out eval set is tracked on purpose and never trained on.

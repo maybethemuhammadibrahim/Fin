@@ -432,13 +432,23 @@ def build_scenario(contract_paths: list[Path],
 
 ```python
 # core/extraction/document_router.py                           [A]  ✅
-def detect_type(file_path: str) -> Literal["text_pdf","scanned","image","csv"]: ...
+def detect_type(file_path: str) -> Literal["text_pdf","scanned","image","csv","text"]: ...
 def extract(file_path: str) -> ExtractedDoc:
     """Single entry point. Routes internally. ExtractedDoc.blocks is a list of
        {page_number, text, is_table}. Raises ValueError (readable message) on
        an unsupported type or an unreadable file -- never a raw library
        exception. csv routes to a raw-text passthrough; structured parsing is
-       csv_parser.parse_transactions, which needs a confirmed mapping first."""
+       csv_parser.parse_transactions, which needs a confirmed mapping first.
+
+       "text" (.txt) was ADDED 2026-08-17 by the post-Phase-8 audit. It returns
+       doc_type="text" with page_count=1 -- a text file has no pages, and the
+       pagination a clause box needs is assigned later, for display only, by
+       pdf_renderer.typeset_pdf (ADR-021). app/components/file_uploader.py had
+       been offering "txt" and "docx" as contract formats since Phase 2 while
+       this function rejected both; .txt is now really read and "docx" was
+       removed from the uploader (a docx reader needs a new dependency, which
+       needs an ADR). Callers must still catch ValueError -- file_uploader
+       turns it into extraction_status='failed' (known issue #37)."""
 
 # core/extraction/pdf_extractor.py                              [A]  ✅
 #   Not in the plan's original interfaces.md stub -- added because
@@ -480,6 +490,21 @@ def render_column_mapper(session, file_path: str, key_prefix: str) -> dict[str, 
 python training/serve_model.py [--self-test] [--backend auto|vllm|transformers]
                                [--model NAME] [--lora NAME=PATH] [--port 8000]
 
+# training/serve_modal.py   (deployed TO Modal, not run here)  [B] ✅ written  ⬜ NEVER DEPLOYED
+#   ADDED to this doc 2026-08-17 by the post-Phase-8 audit (ADR-023). It existed
+#   and worked for some time before that with NO entry in any memory file.
+#   The THIRD peer host, and the only one whose URL does not rotate. Same
+#   weights (Qwen 2.5 3B), same vLLM, same OpenAI-compatible routes, same
+#   LLM_API_KEY bearer, same LLM_MODEL name -- rented hardware, not a vendor
+#   model API, so ADR-011 is untouched. Weights are baked into the image at
+#   build time and vllm is PINNED to 0.27.1 (the unpinned install is what broke
+#   Colab, known issue #50).
+#   Knobs: MODAL_GPU (default L4), CONTAINER_IDLE_SECONDS (120), MODAL_BASE_URL.
+#   Costs real money per GPU-second while a request is in flight.
+modal secret create finsight-llm LLM_API_KEY=<from .env>   # the name is load-bearing
+modal deploy training/serve_modal.py                        # prints MODAL_BASE_URL
+def serve() -> None                                         # @modal.web_server(port=8000)
+
 # core/ai/endpoints.py                                         [B]  ✅  NEW in Phase 5 (ADR-016)
 #   The mutable half of the LLM config, resolved at CALL time. Layers
 #   data/endpoint_override.json (what the in-app switcher writes) over settings.
@@ -490,9 +515,18 @@ class Endpoint:   provider, label, env_var, base_url, source; .configured, .chat
 class Health:     ok, detail, latency_ms, models
 
 def active() -> Endpoint                    # who serves THIS call
-def get(provider: str) -> Endpoint
+def active_provider() -> str                # ADDED to this doc 2026-08-17 (ADR-023).
+    """Three layers, most deliberate first: the in-app switcher's override,
+       then USE_MODAL=true, then LLM_PROVIDER (defaulting to colab_tunnel).
+       USE_MODAL is NOT LLM_FAILOVER -- failover only reacts after something
+       has already broken; USE_MODAL decides where calls go in the first
+       place ("this is a live demo, use the paid host")."""
+def get(provider: str) -> Endpoint          # provider in {colab_tunnel, kaggle_tunnel, modal, custom}
 def list_endpoints() -> list[Endpoint]
 def fallback() -> Endpoint | None           # the other configured host, when LLM_FAILOVER
+                                            # TRIES MODAL FIRST (ADR-023): the notebooks are
+                                            # what die, so the peer worth reaching for when the
+                                            # active host just failed is the one with a stable URL.
 def set_active(provider: str) -> None
 def set_url(provider: str, url: str | None) -> None
 def set_model(name: str | None) -> None     # Phase 11's base-vs-tuned switch

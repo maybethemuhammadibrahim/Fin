@@ -366,9 +366,11 @@ class IntegrityView:
 
     clean: CleanRun | None = None
 
-    #: Set when a block is empty for a structural reason rather than because
-    #: the run is genuinely clean — "Phase 8 fills this in". Rendered in the
-    #: `.absent` box beside skeletons instead of faking content.
+    #: Set when a block is empty for a structural reason rather than because the
+    #: run is genuinely clean — e.g. "not verified yet, run it from the Streamlit
+    #: app". Rendered in the `.absent` box beside skeletons instead of faking
+    #: content. Name the surface that fills the gap, not a phase number: a phase
+    #: closes and the copy then lies (this text used to say "Phase 8 fills this in").
     notices: dict[str, str] = field(default_factory=dict)
 
 

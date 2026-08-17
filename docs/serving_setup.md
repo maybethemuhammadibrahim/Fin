@@ -34,11 +34,18 @@ You do **not** need a HuggingFace token. `Qwen/Qwen2.5-3B-Instruct` is public.
 The tunnel URL is public — anyone who finds it could use your GPU quota. So the
 server checks a bearer token on every request.
 
-Your key is already generated and sitting in your local `.env`:
+Your key is already generated and sitting in your local `.env`. Read it from
+there — **it is deliberately not reproduced in this repo**, which is public:
 
 ```
-LLM_API_KEY=finsight-GaK-on1sZuD1sH6Vs92cC6qTEStXPc9p
+LLM_API_KEY=<yours, from .env>
 ```
+
+> **This file used to print the live key**, from Phase 5 until the 2026-08-17
+> audit. Rotate it if you have not since: the old value is in public git history
+> and cannot be un-published. New one:
+> `python -c "import secrets; print('finsight-' + secrets.token_urlsafe(24))"`,
+> then update `.env`, the Colab secret, the Kaggle secret and the Modal secret.
 
 You need the **same value** stored on both hosts, under exactly the name
 `LLM_API_KEY`:

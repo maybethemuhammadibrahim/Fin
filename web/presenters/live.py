@@ -9,7 +9,10 @@ architecture is arranged to prevent.
 
 What is genuinely absent today, and where it lands:
 
-* agent verdicts and tool traces — `core/agents/` is a stub, Phase 8;
+* agent verdicts and tool traces — **built** (Phase 8), but `web/` cannot start a
+  verification run because it writes nothing (ADR-018). A finding shows its
+  verdict and tool trace as soon as something has written one; until then the
+  pane says so and names where the run is started (`app/`), not a phase;
 * headline prose and the Decision Engine's answer — `core/ai/decision_analyzer.py`
   is a stub, Phase 9;
 * clause page coordinates — Phase 7, and nullable forever after (ADR-005), so
@@ -78,10 +81,15 @@ TOLERANCE_DAYS = 15
 #: Which of the four Integrity screens is warranted by what the run holds.
 #: Order matters — a run with findings is `review` even while documents are
 #: still processing, because the findings are the thing worth looking at.
+#: Shown only while a finding has no verdict *and* no tool trace. The agent
+#: itself exists (Phase 8) — what is missing is a run over this finding, and
+#: `web/` cannot start one because it writes nothing (ADR-018, known issue #56).
+#: So this names where the run is started rather than naming a phase.
 NOTICE_AGENT = (
-    "The verification agent lands in Phase 8. Until then a finding carries no "
-    "tool trace and no agent verdict, so nothing is shown here rather than a "
-    "confidence score nobody computed."
+    "This finding has not been through the verification agent yet, so no tool "
+    "trace and no agent verdict are shown here — better than a confidence score "
+    "nobody computed. Run \"Verify findings\" in the Streamlit app to fill it in; "
+    "this frontend is read-only."
 )
 NOTICE_DECISION = (
     "The Decision Engine's analyser lands in Phase 9. The working below is real "

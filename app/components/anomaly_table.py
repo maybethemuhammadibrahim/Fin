@@ -72,7 +72,8 @@ def render_anomaly_table(anomalies: list[AnomalyRow]) -> int | None:
             "Gap": st.column_config.NumberColumn(format="$%.0f"),
             "Confidence": st.column_config.ProgressColumn(
                 min_value=0.0, max_value=1.0, format="%.2f",
-                help="From the rule engine. The agent adjusts it in Phase 8.",
+                help="From the rule engine, then adjusted by the verification "
+                     "agent once a finding has been verified.",
             ),
             "Evidence": st.column_config.TextColumn(
                 width="small", help="📄 means a contract clause backs this finding."

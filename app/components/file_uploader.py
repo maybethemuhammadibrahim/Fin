@@ -26,7 +26,13 @@ from core.extraction import csv_parser
 from core.extraction import document_router as router
 from core.storage import files
 
-CONTRACT_TYPES = ["pdf", "docx", "txt"]
+#: Only offer what `document_router.detect_type()` can actually route. "docx" was
+#: listed here until 2026-08-17 and always failed with "unsupported file type:
+#: .docx" — reading it needs a new dependency, which needs an ADR, so the honest
+#: fix is to stop advertising it. ".txt" is genuinely supported (it is the shape
+#: the EDGAR corpus arrives in). "xlsx" below is the same trap and is still open
+#: (known issue #38): it fails cleanly with a readable message, but it fails.
+CONTRACT_TYPES = ["pdf", "txt"]
 ACTUALS_TYPES = ["csv", "xlsx", "pdf", "png", "jpg", "jpeg"]
 
 

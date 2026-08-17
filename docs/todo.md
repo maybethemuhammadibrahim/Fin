@@ -1,6 +1,31 @@
 # TODO — what is not finished
 
-**Last updated:** 2026-08-17, at the close of Phase 8.
+**Last updated:** 2026-08-17, after the post-Phase-8 audit (see `docs/progress.md`
+→ *"Audit — Phases 0–8 re-verified"*).
+
+---
+
+## 🔴 DO THIS FIRST — rotate the leaked API key · `#66`
+
+The live `LLM_API_KEY` was committed to this **public** repository and printed in
+`README.md` (twice) and `docs/serving_setup.md` (once) from Phase 5 until
+2026-08-17. It is redacted from the working tree now, **but it is still in git
+history and cannot be un-published.** That key is the only control on a public
+tunnel to your GPU, and with Modal (ADR-023) the exposure is billed GPU-seconds,
+not just quota.
+
+*To close it:* generate a replacement —
+
+```bash
+python -c "import secrets; print('finsight-' + secrets.token_urlsafe(24))"
+```
+
+— then update it in **four** places: `.env`, the Colab secret, the Kaggle secret,
+the Modal secret (`modal secret create finsight-llm LLM_API_KEY=...`). Nothing in
+the code changes. Consider whether the repo needs to be public at all before
+Phase 11 deployment; if it does, treat every value in it as published.
+
+---
 
 A working list, not a memory file. `docs/progress.md` stays authoritative and
 append-only; `docs/state.json` stays the machine-readable status. This file
@@ -169,7 +194,10 @@ demo used.
 | 14 | `pip install vllm` is unpinned and breaks Colab's preinstalled `torchaudio`. Worked around in a notebook cell, not fixed in code. Pin it before deployment. | `#50` |
 | 15 | No dependency pinning and no CI anywhere. Revisit before Phase 11. | `#5` |
 | 16 | The `.venv` on the Linux checkout is Python 3.14.6; Streamlit Cloud does not offer 3.14, so the parity guarantee does not hold. `uv venv --python 3.12` before deploying. | `#47` |
-| 17 | `.xlsx` is offered in the uploader's accepted types but only `.csv` is parsed. Fails cleanly with a message; nobody has built the path. | `#38` |
+| 17 | `.xlsx` is offered in the uploader's accepted types but only `.csv` is parsed. Fails cleanly with a message; nobody has built the path. The `.txt`/`.docx` version of this trap was fixed on 2026-08-17 (`.txt` now really routes, `docx` removed) — `xlsx` is the same shape and still open. | `#38` `#68` |
+| 24 | `use_container_width` is past the removal date Streamlit prints (2025-12-31) and is still in 15 call sites in `app/`. Warning-only today. Mechanical fix: `width='stretch'` for True, `width='content'` for False. Do it in its own commit, before Phase 11 pins a Streamlit version. | `#69` |
+| 25 | Modal (ADR-023) has never been deployed — no `modal deploy` has run from this repo, so its cold-start and per-call cost figures are unknown. Do not quote them in the report until measured. | `#67` |
+| 26 | `fastapi` was missing from the `.venv` even though `requirements.txt` lists it, so `python run_web.py` could not start until the audit installed it. Nothing in the repo was wrong; it is what no pinning and no CI (`#5`) lets through. | `#5` |
 | 18 | Deleting a run leaves its Storage objects behind, and content-addressing means every re-upload leaves its predecessor. Fine at demo scale; sweep before deployment. | `#21` |
 | 19 | `SUPABASE_SERVICE_KEY` must go into Streamlit Secrets at deploy time. It bypasses all RLS. | `#22` |
 | 20 | A client paying two months in one transfer reads as one month settled and one ghost invoice (ADR-019's accepted cost). **Still open after Phase 8** — `check_split_payments` only finds several transactions that sum to one target; a single transfer that's a *multiple* of one billing's amount is a different shape it cannot recognise. See `#57`, amended by `#63`. | `#57` `#63` |

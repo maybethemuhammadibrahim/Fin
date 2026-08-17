@@ -172,7 +172,7 @@
   {
    "id": 15,
    "phase": 1,
-   "text": "STILL OPEN after Phase 6. Phase 1's 47 schema assertions ran from a scratch script and are still not in pytest; Phase 6 was said to own the port and did not do it. It added 74 engine/pipeline assertions instead (tests/test_timeline.py, test_reconciliation.py, test_pipeline.py), so `pytest` no longer collects 0 tests, but the schema verification is still not repeatable in CI. tests/test_pipeline.py does create all 12 tables on throwaway SQLite, which is the natural place to put the port."
+   "text": "RESOLVED 2026-08-17 (post-Phase-8 audit): tests/test_schema.py now holds 30 schema assertions and runs in the normal pytest sweep -- the 12 tables and no unexpected thirteenth, ADR-005's nullable source_page/source_bbox (asserted both from column metadata AND by really inserting an unlocatable clause), all six ck_* CheckConstraints including that a fifth leak type and an unknown anomaly status are both rejected, the run cascade scripts/reset_run.py depends on, uq_client_run_normalized (same client allowed in two runs, not twice in one), the ADR-010 mapping-signature uniqueness, and a classification of every table as run-scoped / transitively scoped / deliberately neither so a new table fails the suite until someone scopes it deliberately. Set FINSIGHT_TEST_DATABASE_URL to run the identical assertions against Postgres, which is how Phase 1's 'identical on both backends' claim becomes re-checkable rather than merely believed. Original note: Phase 1's 47 assertions ran from a scratch script; Phase 6 was said to own the port and did not do it."
   },
   {
    "id": 12,
@@ -443,6 +443,26 @@
    "id": 65,
    "phase": 8,
    "text": "scripts/eval_agent.py -- the live-model half of Phase 8's proof -- has NOT been run against a live GPU. No Colab/Kaggle tunnel was available this session (same situation #40 first recorded in Phase 5). The graph's control-flow correctness (hard cap, persistence, never-lose-an-anomaly) is proven offline by tests/test_verification_agent.py regardless; whether the real 3B model reasons well enough to flip the synthetic fixture to false_positive is unmeasured. Re-run before citing agent quality in the final report."
+  },
+  {
+   "id": 66,
+   "phase": 8,
+   "text": "THE LIVE LLM_API_KEY WAS COMMITTED TO A PUBLIC REPOSITORY and is still in git history. Found 2026-08-17 by the post-Phase-8 audit, printed verbatim in three places across two tracked files: README.md twice (the 'Starting a session' note and the 'modal secret create' command) and docs/serving_setup.md once, present since Phase 5 (commits 5523704, 3c2bc15). github.com/maybethemuhammadibrahim/Fin is public -- confirmed against the GitHub API. This breaks hard rule #8 in CLAUDE.md and it is not academic: that key is the only control on a public Cloudflare tunnel, the exact threat docs/serving_setup.md describes two lines above where it then printed it, and with ADR-023's Modal host the exposure is billed GPU-seconds rather than merely quota. All three occurrences are now redacted to a pointer at the reader's own .env, with a note in both files saying the key used to be there so nobody re-adds it. REDACTION IS NOT THE FIX -- ROTATE THE KEY. Only its owner can: generate a new one with python -c \"import secrets; print('finsight-' + secrets.token_urlsafe(24))\" and update .env, the Colab secret, the Kaggle secret and the Modal secret (four places now, not three). git filter-repo on published history was deliberately NOT run -- it rewrites every commit and needs a force-push, and it is pointless before rotation anyway."
+  },
+  {
+   "id": 67,
+   "phase": 8,
+   "text": "PROCESS FAILURE, fixed 2026-08-17: Modal serving (training/serve_modal.py, the 'modal' provider in core/ai/endpoints.py, MODAL_BASE_URL, USE_MODAL, and a Modal-first fallback() order) was built, working and documented in README.md with 22 mentions -- while appearing in ZERO memory files: not progress.md, not interfaces.md, not state.json, not todo.md, not CLAUDE.md, which still said flatly that there are two hosts. A fresh session reading the memory files would have contradicted the running code on its first suggestion. Now recorded as ADR-023 with the interfaces and config variables written down. The lesson is not about Modal: it is that the five-minute end-of-phase step in CLAUDE.md was skipped for a whole feature, and the only reason it was caught is that someone re-ran the audit before starting the next phase. MODAL HAS STILL NEVER BEEN DEPLOYED -- no modal deploy has run from this repo, so its cold-start and per-call cost figures are unknown and must not be quoted in the report."
+  },
+  {
+   "id": 68,
+   "phase": 8,
+   "text": "PARTLY RESOLVED 2026-08-17: app/components/file_uploader.py offered 'txt' and 'docx' as contract formats from Phase 2 onward while document_router.detect_type() rejected both, so every such upload landed as extraction_status='failed' with 'unsupported file type'. It failed cleanly (known issue #37's readable-ValueError contract held), but the UI advertised formats that could never work, and nobody had recorded it -- unlike the identical xlsx trap in #38. FIXED for .txt, which is now genuinely routed as doc_type='text' (the schema value added in Phase 5 for the EDGAR corpus, known issue #43, which nothing could previously produce): verified on six real EDGAR contracts of 25k-144k chars and on empty/whitespace files, which return page_count=0 and a 'file is empty' warning. 'docx' was REMOVED from the uploader rather than implemented, because a docx reader is a new dependency and a stack addition needs an ADR. xlsx is untouched and #38 stays open. Lesson: an accept-list in the UI and the router's own detect_type must be checked against each other -- neither file is wrong on its own."
+  },
+  {
+   "id": 69,
+   "phase": 8,
+   "text": "Streamlit's use_container_width is past the removal date Streamlit itself prints (2025-12-31; today is 2026-08-17) and is still used in 15 call sites across app/. Warning-only on streamlit 1.61.1, so every page still renders -- AppTest confirms 5/5 with zero uncaught exceptions -- but the replacement is mechanical: width='stretch' for True, width='content' for False. NOT swept by the post-Phase-8 audit on purpose: it touches nothing that audit was fixing, and a 15-site rename belongs in its own commit where a regression is easy to spot. Do it before Phase 11 deployment pins a Streamlit version."
   }
  ],
  "adrs": [
@@ -535,6 +555,10 @@
   {
    "id": "ADR-022",
    "title": "Phase 8's false-positive proof lives in a synthetic fixture, not the shipped scenario"
+  },
+  {
+   "id": "ADR-023",
+   "title": "Modal is a third peer inference host, not a departure from ADR-011"
   }
  ],
  "inference": {
