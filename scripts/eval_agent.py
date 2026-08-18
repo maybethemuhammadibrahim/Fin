@@ -29,6 +29,18 @@ construction, and exactly the kind of attribution miss `search_bank_transactions
 exists to catch. Neither part touches `data_sourcing/scenario_builder.py` or any
 `ground_truth.json` Phase 6 already measured.
 
+**Amended 2026-08-17 — both parts used to grade themselves on bookkeeping.**
+Part 1 asserted only that every finding got *some* verdict and that the counts
+added up; Part 2 asserted a single status string under a label claiming
+evidence had been found. Run live for the first time, the agent marked 4 of the
+5 planted `realistic` anomalies `false_positive` — $21,480 of $22,500 of
+ground-truth-verified leaks deleted — and this script printed "All parts
+passed." Part 1 now grades every verdict against `ground_truth.json` (whose
+anomalies are true by construction, so `false_positive` is always wrong there),
+and Part 2 now asserts that `search_bank_transactions` was actually called and
+that a `false_positive` rests on a tool that returned a match. A missing
+`data/scenarios/` fails loudly rather than passing quietly.
+
 Results land in `data/eval/phase8_agent.json`.
 """
 
@@ -56,6 +68,12 @@ from core.engine.pipeline import compute_run, persist_rules  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 EVAL_OUT = ROOT / "data" / "eval" / "phase8_agent.json"
+SCENARIOS = ROOT / "data" / "scenarios"
+
+#: Verdicts that do not destroy a genuine finding. `needs_review` is tolerated
+#: because it is an honest hedge that still reaches a human; `false_positive` on
+#: a planted anomaly is a real leak silently deleted.
+SURVIVING_VERDICTS = frozenset({"confirmed", "needs_review", "unverified"})
 
 FIXTURE_CONTRACT_TEXT = (
     "MASTER SERVICES AGREEMENT. Client shall pay Provider a monthly fee of $6,000, "
@@ -84,6 +102,45 @@ class Report:
 # ---------------------------------------------------------------------------
 # Part 1 — the real "realistic" run, live in the database
 # ---------------------------------------------------------------------------
+
+
+def _scenario_for_label(label: str) -> str | None:
+    """Which built scenario a run was loaded from, read off its label.
+
+    `scripts/run_scenario.py` labels runs "engine realistic" / "phase7 easy",
+    so the scenario name is a substring. Returns None for a run that did not
+    come from a scenario (a seeded demo, an upload), which is not gradeable.
+    """
+    for name in ("realistic", "easy", "edge"):
+        if name in (label or "").lower():
+            return name
+    return None
+
+
+def _genuine_findings(scenario: str) -> list[tuple[str, str, float]] | None:
+    """Every anomaly the scenario planted, as (client, type, gap).
+
+    These are true by construction — `data_sourcing/scenario_builder.py` derived
+    the actuals from the contract and wrote the answer key. So the ONLY correct
+    agent verdict for each is `confirmed` (or an honest `needs_review`).
+
+    Returns None when the scenario is not on disk; `data/` is gitignored, and a
+    missing corpus must not read as a pass (known issues #33, #44).
+    """
+    path = SCENARIOS / scenario / "ground_truth.json"
+    if not path.exists():
+        return None
+    truth = json.loads(path.read_text(encoding="utf-8"))
+    planted: list[tuple[str, str, float]] = []
+    for client in truth.get("clients", []):
+        for entry in client.get("timeline", []):
+            if entry.get("is_anomaly"):
+                planted.append((client["name"], entry["anomaly_type"], round(float(entry["gap"]), 2)))
+    return planted
+
+
+def _is_planted(row, planted: list[tuple[str, str, float]]) -> bool:
+    return (row.client_name, row.anomaly_type, round(float(row.gap), 2)) in planted
 
 
 def _find_run_id(session: Session, explicit: int | None) -> int | None:
@@ -137,6 +194,67 @@ def run_live(run_id: int | None, *, force: bool) -> Report:
         )
 
         after = list_anomalies(session, target_run_id)
+
+        # ---- the check this eval existed without until 2026-08-17 ----
+        # Counting verdicts only proves the agent answered. It cannot tell a
+        # right answer from a wrong one, and an agent that rules out every
+        # genuine leak passed the count-only version of this script while
+        # deleting 95% of the recoverable money.
+        run = session.get(models.Run, target_run_id)
+        scenario = _scenario_for_label(run.label if run else "")
+        planted = _genuine_findings(scenario) if scenario else None
+
+        if planted is None:
+            report.checks.append(
+                Check(
+                    "graded against the scenario's ground truth",
+                    False,
+                    f"run {target_run_id} ({run.label if run else '?'}) — "
+                    + (
+                        f"data/scenarios/{scenario}/ is not on disk; rebuild with "
+                        "`python -m data_sourcing.scenario_builder`"
+                        if scenario
+                        else "this run did not come from a scenario, so no answer key exists"
+                    ),
+                )
+            )
+        else:
+            report.checks.append(
+                Check(
+                    "the run still reproduces ground truth before verification",
+                    len(after) == len(planted) and all(_is_planted(r, planted) for r in after),
+                    f"{len(after)} finding(s) vs {len(planted)} planted in '{scenario}'",
+                )
+            )
+
+            destroyed = [r for r in after if _is_planted(r, planted) and r.status not in SURVIVING_VERDICTS]
+            lost = sum(r.gap for r in destroyed)
+            total = sum(r.gap for r in after if _is_planted(r, planted))
+            report.checks.append(
+                Check(
+                    "no genuine finding was ruled out",
+                    not destroyed,
+                    f"{len(destroyed)} of {len(planted)} planted finding(s) marked false_positive"
+                    + (f" — ${lost:,.2f} of ${total:,.2f} destroyed" if destroyed else ""),
+                )
+            )
+
+            hedged = [r for r in after if _is_planted(r, planted) and r.status == "needs_review"]
+            report.checks.append(
+                Check(
+                    "genuine findings were confirmed, not merely hedged",
+                    len(hedged) < max(1, len(planted)),
+                    f"{len(hedged)} of {len(planted)} left as needs_review",
+                )
+            )
+
+            for row in destroyed:
+                report.traces.append(
+                    f"  WRONG [{row.status}] {row.client_name} · {row.anomaly_type} · ${row.gap:,.2f}\n"
+                    f"    ground truth says this leak is real. The agent said:\n"
+                    f"    {row.agent_reasoning}"
+                )
+
         for row in after[:3]:
             if row.agent_reasoning:
                 report.traces.append(
@@ -225,9 +343,41 @@ def run_fixture() -> Report:
                 verify_summary.as_line(),
             )
         )
+        # ---- the checks this part existed without until 2026-08-17 ----
+        # The old single check read `row.status == "false_positive"` under a
+        # label claiming the payment "was found". A status string cannot say
+        # that: the agent reached false_positive having searched, found
+        # NOTHING, and concluded the money was never missing — the exact
+        # inversion prompts.py rule 5 forbids ("never conclude false_positive
+        # on reasoning alone"). It also never called the one tool the whole
+        # fixture exists to exercise. Both are now asserted directly.
+        calls = [str(step.get("call", "")) for step in (row.agent_tool_calls or [])]
+        results = [str(step.get("result", "")) for step in (row.agent_tool_calls or [])]
+
+        searched_bank = any(c.startswith("search_bank_transactions") for c in calls)
         report.checks.append(
             Check(
-                "the unattributed payment was found and flipped the verdict",
+                "the agent searched unattributed bank activity",
+                searched_bank,
+                "search_bank_transactions called"
+                if searched_bank
+                else f"never called it; used {[c.split('(')[0] for c in calls] or 'no tools at all'}",
+            )
+        )
+        # `_format_transactions` / `_format_combinations` open with "Found" only
+        # when a tool actually returned rows — the same signal the model is told
+        # to reason from, so this asserts evidence rather than parsing prose.
+        found_evidence = [r for r in results if r.startswith("Found")]
+        report.checks.append(
+            Check(
+                "the false-positive verdict rests on evidence, not a clean search",
+                row.status != "false_positive" or bool(found_evidence),
+                f"status={row.status}, {len(found_evidence)} of {len(results)} tool call(s) returned a match",
+            )
+        )
+        report.checks.append(
+            Check(
+                "the fixture's planted payment was correctly ruled a false positive",
                 row.status == "false_positive",
                 f"status={row.status}",
             )

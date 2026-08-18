@@ -29,6 +29,14 @@ REQUEST_DELAY = 0.15  # ~6 req/s, comfortably under SEC's documented 10 req/s ce
 
 # Aimed at the document type FinSight actually targets — not CUAD's M&A-heavy mix
 # (ADR-013). Each is a phrase search; EDGAR ranks exact-phrase hits first.
+#
+# The first ten are Phase 3's original list. Everything below them was added
+# 2026-08-17 for Phase 10 (known issue #27): the original set is generic, and
+# generic queries all rank the SAME administrator boilerplate first — which is
+# how 51 documents collapsed into 21 distinct clauses (#26). Training and the
+# base-vs-tuned claim need variety, not volume, so these name the *industry* and
+# the *service*, pulling different filers rather than deeper pages of the same
+# ones.
 QUERIES = [
     '"master services agreement" "monthly fee"',
     '"master services agreement" "per month"',
@@ -40,11 +48,52 @@ QUERIES = [
     '"maintenance agreement" "annual fee" "increase"',
     '"services agreement" "consumer price index" "fee"',
     '"statement of work" "monthly fee" "increase"',
+    # ---- added for Phase 10 (#27): industry-specific, to break the fee-letter cluster ----
+    '"software as a service agreement" "monthly fee"',
+    '"software license and services agreement" "annual fee" "increase"',
+    '"managed services agreement" "monthly fee"',
+    '"support and maintenance agreement" "annual fee"',
+    '"hosting agreement" "monthly fee"',
+    '"marketing services agreement" "monthly fee"',
+    '"advertising services agreement" "monthly retainer"',
+    '"staffing services agreement" "monthly fee"',
+    '"logistics services agreement" "monthly fee"',
+    '"transportation services agreement" "monthly fee"',
+    '"facilities management agreement" "monthly fee"',
+    '"janitorial services agreement" "monthly fee"',
+    '"security services agreement" "monthly fee"',
+    '"engineering services agreement" "monthly fee"',
+    '"clinical research services agreement" "monthly fee"',
+    '"laboratory services agreement" "monthly fee"',
+    '"billing services agreement" "monthly fee"',
+    '"payroll services agreement" "monthly fee"',
+    '"information technology services agreement" "monthly fee"',
+    '"outsourcing agreement" "monthly fee" "increase"',
+    '"development agreement" "monthly fee" "escalation"',
+    '"design services agreement" "monthly fee"',
+    '"agency agreement" "monthly retainer" "increase"',
+    # ---- escalation wording the original list never asked for ----
+    '"services agreement" "shall be increased by" "percent"',
+    '"services agreement" "annual escalation" "fee"',
+    '"services agreement" "fee shall increase" "anniversary"',
+    '"agreement" "monthly fee" "shall increase by" "percent"',
+    # ---- discount wording: zombie_discount needs examples too ----
+    '"services agreement" "discount" "first three months"',
+    '"services agreement" "introductory rate" "monthly fee"',
+    '"services agreement" "waived" "first" "months" "monthly fee"',
 ]
 
 # We only want contract exhibits. EX-10 is "material contracts"; EX-99 sometimes
 # carries them too. Everything else (financial statements, opinions) is noise.
 WANTED_PREFIXES = ("EX-10", "EX-99")
+
+#: Known issue #26: one administrator (Ultimus) sends every fund trust the same
+#: fee letter, so an uncapped crawl returns the same clause dozens of times and
+#: reports it as corpus size. filter_contracts.deduplicate() catches it later,
+#: but only after the bytes are downloaded — capping here means the crawl spends
+#: its budget on new filers instead. Distinct clauses are the metric, never
+#: document count.
+MAX_PER_FILER = 3
 
 
 def _http(url: str, tries: int = 4) -> bytes:
@@ -92,6 +141,18 @@ def _doc_url(hit: dict) -> str | None:
     return f"{ARCHIVE}/{cik}/{accession.replace('-', '')}/{filename}"
 
 
+def _filer_of(hit: dict) -> str:
+    """The filing company, normalised the same way `_safe_name` renders it.
+
+    Both must agree, or the crawl's per-filer cap and
+    `filter_contracts.deduplicate()`'s filer grouping would count different
+    things and the cap would silently do nothing.
+    """
+    company = (hit["_source"].get("display_names") or ["unknown"])[0]
+    company = re.sub(r"\s*\(.*?\)\s*", "", company).strip()
+    return re.sub(r"[^A-Za-z0-9 _-]", "", company)[:45].strip().lower()
+
+
 def _safe_name(hit: dict) -> str:
     """`<Filer>_<ExhibitType>_<accession>` — the filer stays readable in the filename,
     which is how filter_contracts.deduplicate() groups by filer without a metadata
@@ -131,6 +192,8 @@ def fetch_edgar_msa(count: int = 60, out_dir: str = "data/corpus/raw_edgar") -> 
     out.mkdir(parents=True, exist_ok=True)
 
     seen: set[str] = set()
+    per_filer: dict[str, int] = {}
+    skipped_filer = 0
     hits: list[dict] = []
     page = 0
     while len(hits) < count and page < 12:
@@ -143,9 +206,23 @@ def fetch_edgar_msa(count: int = 60, out_dir: str = "data/corpus/raw_edgar") -> 
                 ftype = (hit["_source"].get("file_type") or "").upper()
                 if not ftype.startswith(WANTED_PREFIXES) or hit["_id"] in seen:
                     continue
+                # Cap per filer BEFORE downloading (#26/#27). Grouping on the
+                # display name matches how filter_contracts.deduplicate() reads
+                # the filer back out of the filename, so the two agree.
+                filer = _filer_of(hit)
+                if per_filer.get(filer, 0) >= MAX_PER_FILER:
+                    skipped_filer += 1
+                    continue
+                per_filer[filer] = per_filer.get(filer, 0) + 1
                 seen.add(hit["_id"])
                 hits.append(hit)
         page += 1
+
+    if skipped_filer:
+        print(
+            f"  {len(hits)} exhibit(s) from {len(per_filer)} distinct filer(s); "
+            f"skipped {skipped_filer} over the {MAX_PER_FILER}-per-filer cap"
+        )
 
     paths: list[Path] = []
     for hit in hits[:count]:

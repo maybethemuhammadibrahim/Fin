@@ -7,6 +7,12 @@
 data/**
 !data/**/
 !data/**/.gitkeep
+# The sealed test-set manifest is tracked on purpose, for the same reason
+# eval_set.jsonl is (below): it is the PROOF that training never saw the test
+# contracts, and a proof that vanishes on the next machine proves nothing.
+# data/ has already been lost twice (#33, #44). The contracts themselves stay
+# ignored -- they are bulk and reproducible from the seed; the manifest is not.
+!data/corpus/heldout/SEALED.json
 
 # ---- Local databases ----
 *.db

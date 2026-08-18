@@ -2037,6 +2037,85 @@ python run_web.py --live                   # /decision shows the working, no ver
 ```
 
 
+## Phases 8–9 measured against a live GPU — the agent fails, the Decision Engine holds
+**Completed:** 2026-08-17 · **Owners:** A / B
+
+First run of both GPU-dependent evals against a live Colab T4 (vLLM, base
+Qwen 2.5 3B). This entry records what the endpoint actually proved, and
+supersedes the "NEVER RUN yet" lines above. Appended, not rewritten.
+
+### The endpoint
+Verified before anything was measured: `/v1/models` 200 in 2.8 s serving
+`Qwen/Qwen2.5-3B-Instruct` (`max_model_len` 8192), `llm_client.health()` True,
+a wrong bearer token correctly rejected with 401, and the trailing slash in
+`.env`'s URL normalised by `settings.api_base` as designed.
+
+### Phase 9 — passes, and the guard is doing real work
+`python scripts/eval_decision.py --live` → **6/6 correct verdicts, no invented
+number reached the output.** But in **3 of the 6 cases the model quoted figures
+it was not given, on both attempts**, and `offending_numbers()` rejected every
+one and fell back to deterministic prose: `[16500.0, 17500.0, 1500.0]`,
+`[19000.0]`, `[17272.73]`. That last one is the example worth showing — it
+looks computed and is pure invention. Report the guard as reliable; do **not**
+report the 3B model as reliable (known issue #76).
+
+### Phase 8 — the agent destroys genuine findings
+`python scripts/eval_agent.py` against run 13 (`realistic`): the agent marked
+**4 of the 5 planted anomalies `false_positive` — $21,480.00 of $22,500.00** of
+ground-truth-verified leaks — keeping only the `short_change`. Its own reasoning
+shows the inversion: *"The missing $5,000 was **not found** in the client's bank
+activity … indicating the engine's finding is likely a false positive."* A clean
+search is evidence the money **is** missing. `prompts.py` rules 5 and 6 say
+exactly that, with a worked example, so **this is not a prompt bug** — the base
+model does not follow the instruction. Same capability ceiling as #45/#48/#49;
+Phase 10 is what closes it (known issue #74).
+
+### The eval that let it through — fixed
+`eval_agent.py` printed **"All parts passed."** while this happened, because
+both parts graded bookkeeping instead of correctness. Part 1 asserted only that
+every finding got *some* verdict and that the counts added up. Part 2's check
+was **labelled** *"the unattributed payment was found and flipped the verdict"*
+but asserted only `row.status == "false_positive"` — and the agent reached that
+status having found nothing, never calling `search_bank_transactions`, the one
+tool the fixture exists to exercise.
+
+Fixed the same day (known issue #75):
+- Part 1 grades every verdict against `ground_truth.json`. Planted anomalies are
+  true by construction, so `false_positive` on one is always wrong;
+  `needs_review` is tolerated as an honest hedge. A missing `data/scenarios/`
+  now **fails loudly** instead of passing quietly (#33, #44).
+- Part 2 asserts `search_bank_transactions` was actually called, and that a
+  `false_positive` verdict rests on a tool result that returned a match —
+  keying on the `"Found …"` prefix `_format_transactions` /
+  `_format_combinations` already produce, so it checks evidence rather than
+  parsing prose.
+
+**The lesson worth keeping: an eval that counts outputs is not an eval.** Phase
+11's base-vs-tuned comparison is unprovable with a test that always says pass.
+
+### Known gaps / deliberately deferred
+- **The agent is not usable in a demo as it stands.** Nothing was changed in
+  `core/agents/` — this is a model-capability gap, and patching the agent to
+  paper over it would corrupt the Phase 10/11 measurement.
+- **`verify_run` writes its verdicts**, so a bad agent run leaves the dashboard
+  reading $1,020 instead of $22,500. Run 13 was restored twice during this work
+  with `python scripts/run_scenario.py realistic --recompute 13`, which is
+  idempotent and also restores the engine's confidence scores.
+- **`scripts/verify_llm_stack.py` reports a false FAIL on a configured machine.**
+  Its first case expects no endpoint but only sandboxes the cache dir and the
+  override file, not the environment, so it reads the real `.env` and reports
+  "unreachable" where it expects "not set". 21/21 with the URLs cleared. Not
+  fixed — the stack is fine, the verifier leaks.
+
+### How to verify this phase works
+```bash
+python scripts/eval_agent.py                 # MUST now fail on run 13 until Phase 10
+python scripts/eval_agent.py --skip-live-run # fixture only
+python scripts/eval_decision.py --live       # 6/6, watch for rejected-figure warnings
+python scripts/run_scenario.py realistic --recompute 13   # undo an agent run
+```
+
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
