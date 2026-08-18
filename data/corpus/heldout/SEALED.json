@@ -1,0 +1,222 @@
+{
+  "sealed_on": "2026-08-17",
+  "seed": 20260817,
+  "count": 30,
+  "drawn_from": [
+    "ready",
+    "filled"
+  ],
+  "purpose": "Phase 10/11 held-out test set. These contracts must never appear in training data, and no training example may be generated from one of them. Check with `python scripts/seal_testset.py --check <file>`.",
+  "contracts": [
+    {
+      "filename": "REGAL_ENTERTAINMENT_GROUP_EX-10.1_0001104659-11-000106.txt",
+      "filer": "REGAL_ENTERTAINMENT_GROUP",
+      "tier": "filled",
+      "sha256": "a4f10b537bc264cb4dfd8be9605ab71a73d38ad4a50e658a15acf0484691d5eb",
+      "clause_fingerprint": "a6bd659d"
+    },
+    {
+      "filename": "CBS_OUTDOOR_AMERICAS_INC_EX-10.1_0001193125-14-270475.txt",
+      "filer": "CBS_OUTDOOR_AMERICAS_INC",
+      "tier": "ready",
+      "sha256": "f22071d914cca7a8920f6da4ed8314b9635f8b80e39aa90865fc1dfa6de0f064",
+      "clause_fingerprint": "331767e7"
+    },
+    {
+      "filename": "ORBITZ_INC_EX-10.11A_0001047469-04-017217.txt",
+      "filer": "ORBITZ_INC",
+      "tier": "filled",
+      "sha256": "56e088adffadb0b35f1c33d74a56acefc128d79b79517971a3ccc0c5cf983e37",
+      "clause_fingerprint": "23c4a389"
+    },
+    {
+      "filename": "Aureus_Greenway_Holdings_Inc_EX-10.4_0001493152-24-050781.txt",
+      "filer": "Aureus_Greenway_Holdings_Inc",
+      "tier": "ready",
+      "sha256": "63cfc88c1b98c039cbf6ecd504919d5933ae2775393217eab378b0824202bc51",
+      "clause_fingerprint": "b8cc8cc9"
+    },
+    {
+      "filename": "GAMEZNFLIX_INC_EX-10.10_0001094328-08-000017.txt",
+      "filer": "GAMEZNFLIX_INC",
+      "tier": "ready",
+      "sha256": "133748e06446d5722805171e4eef684e79547aa25bd375fa4513fe9248fab1d1",
+      "clause_fingerprint": "b5ff5340"
+    },
+    {
+      "filename": "MODERN_WOODMEN_OF_AMERICA_VARIABLE_ANNUITY_AC_EX-99.151_0001104659-14-029223.txt",
+      "filer": "MODERN_WOODMEN_OF_AMERICA_VARIABLE_ANNUITY_AC",
+      "tier": "review",
+      "sha256": "b1620763caf21c5bf43aefb4ec379547821e6d161eeed389960c5c7b46422442",
+      "clause_fingerprint": "72d2d1c3"
+    },
+    {
+      "filename": "ARTISTDIRECT_INC_EX-10.56_0000891618-01-502350.txt",
+      "filer": "ARTISTDIRECT_INC",
+      "tier": "filled",
+      "sha256": "11ca0ae5334e152003fb10bbc5d3fe569a3bb3b95af932cd3c31a5e91b677d5b",
+      "clause_fingerprint": "b96c9ff1"
+    },
+    {
+      "filename": "GENOMATICA_INC_EX-10.21_0001193125-11-249343.txt",
+      "filer": "GENOMATICA_INC",
+      "tier": "filled",
+      "sha256": "15bc9b0dcc14f32e0a60d5cca7c97aa68241a5be7fc59d01877a77f6488ad411",
+      "clause_fingerprint": "6b9c55ae"
+    },
+    {
+      "filename": "Erickson_Air-Crane_Inc_EX-10.1_0001193125-13-300960.txt",
+      "filer": "Erickson_Air-Crane_Inc",
+      "tier": "ready",
+      "sha256": "ecda07e6f4621d2282c3721cfc6c6275ec3be530602f3e5a4d985e40e8837d31",
+      "clause_fingerprint": "435b57cf"
+    },
+    {
+      "filename": "HIRTLE_CALLAGHAN_TRUST_EX-99.H.6.B_0000950152-08-007899.txt",
+      "filer": "HIRTLE_CALLAGHAN_TRUST",
+      "tier": "review",
+      "sha256": "de3b944d39c3a4ffa72fbfecdb602208a06ca1eeeac852e97139d10856642cf9",
+      "clause_fingerprint": "749e602f"
+    },
+    {
+      "filename": "PINNACLE_AIRLINES_CORP_EX-10.24_0001047469-03-036372.txt",
+      "filer": "PINNACLE_AIRLINES_CORP",
+      "tier": "ready",
+      "sha256": "4f54e8f27c8d281d826cc90c00e765cff78430313eb407f0448268fff7152ec6",
+      "clause_fingerprint": "2bf54202"
+    },
+    {
+      "filename": "FINANCIAL_INVESTORS_TRUST_EX-99.H100_0001387131-19-009180.txt",
+      "filer": "FINANCIAL_INVESTORS_TRUST",
+      "tier": "ready",
+      "sha256": "782acc1ffb23b24e7e2e95830da4d4a24c98865489d8ab7086cb7e8afdd5d056",
+      "clause_fingerprint": "985a4c3d"
+    },
+    {
+      "filename": "Carisma_Therapeutics_Inc_EX-10.1_0001104659-24-131705.txt",
+      "filer": "Carisma_Therapeutics_Inc",
+      "tier": "ready",
+      "sha256": "7694d0ba69070f085221550906ee729eda31cd2655bf493906b2912e7e1db795",
+      "clause_fingerprint": "da11f0fe"
+    },
+    {
+      "filename": "DIRECT_INSITE_CORP_EX-10.1_0001140361-13-039894.txt",
+      "filer": "DIRECT_INSITE_CORP",
+      "tier": "review",
+      "sha256": "4dfa8ece9bbc5c15a625a8805b46cd36ee1a711b2f6c0f6ac32680f7634ec692",
+      "clause_fingerprint": "a7f3b35d"
+    },
+    {
+      "filename": "Cryoport_Inc_EX-10.2_0001144204-15-055952.txt",
+      "filer": "Cryoport_Inc",
+      "tier": "ready",
+      "sha256": "d9a4726e081bf18329bca32ba55d3d898467c3e32bf5e5d3703f1b6fcfbf1f68",
+      "clause_fingerprint": "87cba7e6"
+    },
+    {
+      "filename": "StableCoinX_Inc_EX-10.14_0001213900-25-125608.txt",
+      "filer": "StableCoinX_Inc",
+      "tier": "ready",
+      "sha256": "0be5baa5dc51985f59d5e2d4a38ba1cb9ff895d8df5478446704e7edc5e61c59",
+      "clause_fingerprint": "cd5d9d16"
+    },
+    {
+      "filename": "COMMONWEALTH_INTERNATIONAL_SERIES_TRUST_EX-99.23HII_0001144204-08-012295.txt",
+      "filer": "COMMONWEALTH_INTERNATIONAL_SERIES_TRUST",
+      "tier": "ready",
+      "sha256": "973d16cf0c89a0681883e24c6c1796b65bdb7fbf16a7b54fcc6de0f81a55d940",
+      "clause_fingerprint": "d48b8ae0"
+    },
+    {
+      "filename": "MARTIN_MIDSTREAM_PARTNERS_LP_EX-10.6_0000950134-02-007946.txt",
+      "filer": "MARTIN_MIDSTREAM_PARTNERS_LP",
+      "tier": "ready",
+      "sha256": "62844ed2b08aaa7e7b98bb38ecbc817bbb618b62af701b90971f36736628ca4a",
+      "clause_fingerprint": "f4a26a1e"
+    },
+    {
+      "filename": "VITAL_LIVING_INC_EX-10.20_0000950148-03-000486.txt",
+      "filer": "VITAL_LIVING_INC",
+      "tier": "review",
+      "sha256": "dacc0000a06a8099b4977b8cdac55fda81406619b21cbea857ee9e404f9fa784",
+      "clause_fingerprint": "c114ac1f"
+    },
+    {
+      "filename": "Canbiola_Inc_EX-10.6_0001511164-18-000217.txt",
+      "filer": "Canbiola_Inc",
+      "tier": "ready",
+      "sha256": "17aa69e04cae3af245641b7ac6b22e8dc3b7a84be0536f6648ffff7e2bfe2621",
+      "clause_fingerprint": "1e265012"
+    },
+    {
+      "filename": "INTERDENT_INC_EX-10.15_0000912057-01-530535.txt",
+      "filer": "INTERDENT_INC",
+      "tier": "ready",
+      "sha256": "c59b2edf76b9c636d1cae352f98084ec4bd8010b74f4e097bad88ca548239f4b",
+      "clause_fingerprint": "0a69ac70"
+    },
+    {
+      "filename": "CENTRAL_GARDEN__PET_CO_EX-10.1_0001193125-07-130797.txt",
+      "filer": "CENTRAL_GARDEN__PET_CO",
+      "tier": "ready",
+      "sha256": "0d0448d228a21f636343ad588fb71b20dd5f06cf5c35ebe063f7c0bb3d2060f9",
+      "clause_fingerprint": "d5d0b8a7"
+    },
+    {
+      "filename": "INTELLISYNC_CORP_EX-10.29_0001206774-04-001486.txt",
+      "filer": "INTELLISYNC_CORP",
+      "tier": "filled",
+      "sha256": "096232da5d3be65db3f66b45bcefd2cf75d8822d649fcdbdc80b6a641e161c72",
+      "clause_fingerprint": "1555a01e"
+    },
+    {
+      "filename": "Prestige_Consumer_Healthcare_Inc_EX-10.1_0001295947-19-000023.txt",
+      "filer": "Prestige_Consumer_Healthcare_Inc",
+      "tier": "ready",
+      "sha256": "51e48617d149c6d8900f17c2101b4d61a5a63c8d868d960ac9e76a2c09395a2f",
+      "clause_fingerprint": "43bf7942"
+    },
+    {
+      "filename": "MultiVir_Inc_EX-10.6_0001193125-15-109909.txt",
+      "filer": "MultiVir_Inc",
+      "tier": "review",
+      "sha256": "b81bc0f93a832d3f475509a1dc2b82527077f62da69b3ff3335d77018aa2ca46",
+      "clause_fingerprint": "533053bb"
+    },
+    {
+      "filename": "RMD_Technologies_Inc_EX-10.14_0001094328-06-000080.txt",
+      "filer": "RMD_Technologies_Inc",
+      "tier": "ready",
+      "sha256": "3495720664f2efc63e33a5f02578d7623d30f1967025875d65e32fe7fcb9cceb",
+      "clause_fingerprint": "dd41933e"
+    },
+    {
+      "filename": "Endurance_International_Group_Holdings_Inc_EX-10_0000950123-13-004107.txt",
+      "filer": "Endurance_International_Group_Holdings_Inc",
+      "tier": "filled",
+      "sha256": "df1674648d2d4bd015f63e7c95a1bf186b4a4a16216ae24ca4cb7afce0cc9156",
+      "clause_fingerprint": "cab1084d"
+    },
+    {
+      "filename": "AssetMark_Financial_Holdings_Inc_EX-10.3_0001193125-19-180221.txt",
+      "filer": "AssetMark_Financial_Holdings_Inc",
+      "tier": "filled",
+      "sha256": "f2dc55dc269026b45f527c3b95f761a0d46d8bc8fe677634ea4ba4c1c15915de",
+      "clause_fingerprint": "a41aeeb3"
+    },
+    {
+      "filename": "Mammoth_Energy_Services_Inc_EX-10.16_0001193125-16-700981.txt",
+      "filer": "Mammoth_Energy_Services_Inc",
+      "tier": "filled",
+      "sha256": "346c11e22e291b7df4342bf70835fed31186c946675b734bf83e9783c28c1331",
+      "clause_fingerprint": "f33fb5dd"
+    },
+    {
+      "filename": "POINDEXTER_J_B__CO_INC_EX-10.9_0001047469-05-009548.txt",
+      "filer": "POINDEXTER_J_B__CO_INC",
+      "tier": "ready",
+      "sha256": "c98f73eeeb5e6a2fbfee9529b84ca4b9e5ebc08444968428f83003d6cfb306a5",
+      "clause_fingerprint": "5c5770dd"
+    }
+  ]
+}
