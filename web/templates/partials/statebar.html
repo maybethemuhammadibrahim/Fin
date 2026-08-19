@@ -1,12 +1,17 @@
 {#
-  The top black bar. It carries the only control that matters for this build:
-  Demo vs Live.
+  The black bar along the bottom of the shell. It carries the only control
+  that matters for this build: Demo vs Live.
 
-  In demo mode the five state buttons pick which of the mockup's screens to
-  render. In live mode the screen is derived from the database, so those
-  buttons would be lying — they stay in place (so the bar does not reflow when
-  you toggle) but are drawn inert and say so on hover. The run picker takes
-  their place as the thing you actually steer with.
+  In demo mode the state buttons pick which of the mockup's screens to render.
+  In live mode the screen is derived from the database, so those buttons would
+  be lying — they stay in place (so the bar does not reflow when you toggle)
+  but are drawn inert and say so on hover. The run picker takes their place as
+  the thing you actually steer with.
+
+  Two of the original five — Upload (`empty`) and Processing & failures — moved
+  up to the header, because unlike these three they are honest in live mode
+  too: neither is derived from the run, so a user can navigate to them rather
+  than waiting for the data to put them there. See partials/header.html.
 #}
 <div class="statebar">
   <div class="statebar-label">Data</div>
@@ -24,8 +29,6 @@
   </div>
   <div class="statebar-group">
     {% for key, label in [
-        ('empty', 'Empty'),
-        ('processing', 'Processing &amp; failures'),
         ('review', 'Findings'),
         ('clean', 'Clean run'),
         ('offline', 'Model offline')

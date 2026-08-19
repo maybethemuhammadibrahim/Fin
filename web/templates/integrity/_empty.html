@@ -1,8 +1,13 @@
-{# Nothing uploaded. The one screen where having no data is not a gap — it is
-   the starting position, so it gets real copy rather than skeletons. #}
+{# The Upload screen. Since ADR-025 this is a real form, not an explainer: the
+   two zones post to `/upload`, which records the files through `core.ingest` —
+   the same sequence the Streamlit app runs, not a second copy of it.
+
+   Demo mode has no database behind it, so the inputs are disabled there and say
+   why. A demo that half-accepted a file would be exactly the borrowed-figure
+   failure this codebase keeps demo and live apart to prevent. #}
 <section class="empty-hero rule-b">
   <div class="lede">
-    <p class="eyebrow accent">Nothing uploaded yet</p>
+    <p class="eyebrow accent">{% if view.notices.get('empty_run') %}Nothing uploaded yet{% else %}Add to this run{% endif %}</p>
     <h1>Give it your contracts and your bank statements.</h1>
     <p class="sub">
       FinSight reads what each contract says you should have billed, then compares it
@@ -11,24 +16,65 @@
     </p>
   </div>
 
+  {# --- what just happened, if anything ---------------------------------- #}
+  {% set ok = request.query_params.get('ok') %}
+  {% set imported = request.query_params.get('imported') %}
+  {% set err = request.query_params.get('err') %}
+  {% if imported %}
+    <div class="flash is-good">Imported <b>{{ imported }}</b> transaction(s). They are part of this run now.</div>
+  {% elif ok and ok != '0' %}
+    <div class="flash is-good">Recorded <b>{{ ok }}</b> file(s).</div>
+  {% elif ok == '0' %}
+    <div class="flash">Nothing new — those files are already in this run.</div>
+  {% endif %}
+  {% if err %}
+    <div class="flash is-bad">
+      {% if err == 'demo' %}
+        Uploading needs the database. Switch the state bar to <b>Live</b> and try again.
+      {% elif err == 'db' %}
+        The database could not be reached, so nothing was saved.
+      {% elif err == 'norun' %}
+        There is no run to upload into yet. Create one with <code>python scripts/init_db.py</code>.
+      {% elif err == 'size' %}
+        One of those files was over the size limit and was skipped. Everything else was saved.
+      {% elif err == 'gone' %}
+        That upload is no longer in the database.
+      {% else %}
+        Something went wrong with that upload.
+      {% endif %}
+    </div>
+  {% endif %}
+
   {# Both halves are required before anything can be compared, so both get the
-     same button weight. The solid/outline pair the mockup used reads as a
-     primary and a secondary action, which would send you off to upload
-     contracts alone and land you back on this same screen. #}
-  <div class="panels panels-2 dropzones">
+     same button weight. One form, two inputs: a studio has its contracts and
+     its statement to hand at the same moment, and two forms would mean two
+     round trips and two chances to forget the second one. #}
+  <form class="panels panels-2 dropzones" method="post"
+        action="{{ url_for('upload') }}{{ keep_query }}" enctype="multipart/form-data">
     <div class="dropzone">
       <b>Contracts</b>
-      <span>PDF · typed or scanned · drop several at once</span>
-      <button class="btn-solid" type="button" disabled
-              title="Uploading is done in the Streamlit app (streamlit run app/main.py) — web/ reads, it does not write">Choose contracts</button>
+      <span>{{ contract_accept|replace(',', ' · ') }} — drop several at once</span>
+      <input class="fileinput" type="file" name="contracts" multiple
+             accept="{{ contract_accept }}"{% if chrome.is_demo %} disabled{% endif %}>
     </div>
     <div class="dropzone">
       <b>Invoices and statements</b>
-      <span>CSV export from your bank, or PDF invoices</span>
-      <button class="btn-solid" type="button" disabled
-              title="Uploading is done in the Streamlit app (streamlit run app/main.py) — web/ reads, it does not write">Choose files</button>
+      <span>{{ actuals_accept|replace(',', ' · ') }} — a CSV asks you to confirm its columns</span>
+      <input class="fileinput" type="file" name="actuals" multiple
+             accept="{{ actuals_accept }}"{% if chrome.is_demo %} disabled{% endif %}>
     </div>
-  </div>
+    <div class="dropzone-actions">
+      <button class="btn-solid" type="submit"{% if chrome.is_demo %} disabled
+              title="Switch the state bar to Live — demo mode has no database to write to"{% endif %}>
+        Upload and read
+      </button>
+      <span class="note-sm">
+        Contracts and PDF invoices are read straight away. A .csv is held until you
+        confirm which column is the date and which is the amount — no amount is
+        parsed from a column nobody looked at.
+      </span>
+    </div>
+  </form>
 
   <div class="panels panels-3 steps">
     <div class="step">
@@ -45,19 +91,21 @@
     </div>
   </div>
 
-  {# This is the one screen whose main controls are the inert ones, so it says
-     so in the page rather than only in a tooltip. Everywhere else the disabled
-     buttons sit beside data you can still read; here there is nothing else. #}
+  {# What this frontend still cannot do. Extraction of a contract's *rules*
+     needs the model endpoint and reconciliation needs a button that does not
+     exist here yet — so the honest line is about those, not about uploading,
+     which now works. #}
   <div class="absent">
-    <b>Upload happens in the other frontend</b>
-    The two buttons above are inert. This app reads the database and never writes to
-    it (ADR-018); uploading a contract, extracting its rules and reconciling all live
-    in the Streamlit app — <code>streamlit run app/main.py</code>. Findings computed
-    there appear here as soon as they are written.
-    {% if not chrome.is_demo %}
-      This run has no documents. Load a complete computed run with
-      <code>python scripts/run_scenario.py realistic</code>, seed one with
-      <code>python scripts/seed_demo.py</code>, or switch the state bar to Demo.
+    <b>Uploading works here; reconciling does not, yet</b>
+    Files land in this run and their text is read on the spot. Pulling the billing
+    rules out of a contract needs the model endpoint, and turning those into findings
+    is the <b>Reconcile</b> step — both of which still run from the Streamlit app,
+    <code>streamlit run app/main.py</code>. Findings computed there appear here as
+    soon as they are written.
+    {% if not chrome.is_demo and view.notices.get('empty_run') %}
+      This run has no documents. You can also load a complete computed run with
+      <code>python scripts/run_scenario.py realistic</code> or seed one with
+      <code>python scripts/seed_demo.py</code>.
     {% endif %}
   </div>
 </section>

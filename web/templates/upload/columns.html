@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Confirm columns · FinSight{% endblock %}
+
+{# ADR-010's confirmation step, as a page. The Streamlit app shows the same
+   three dropdowns over the same proposal; both get it from
+   `core.ingest.propose_mapping` and both hand the answer to `apply_mapping`, so
+   neither can develop its own idea of what a confirmed mapping means.
+
+   This is the last screen before money enters the database. Nothing on it is
+   pre-parsed: the sample rows below are the file's own first lines, shown as
+   text, so what you are agreeing to is visible rather than described. #}
+
+{% block content %}
+<section class="empty-hero rule-b">
+  <div class="lede">
+    <p class="eyebrow accent">Before anything is read from it</p>
+    <h1>Which column is the date, and which is the amount?</h1>
+    <p class="sub">
+      <b>{{ document.filename }}</b> is saved but not yet parsed. FinSight has guessed
+      from the column names — check the guess. Every figure this app later says you are
+      owed is compared against the amounts in this file, so a column mapped wrong here
+      is wrong everywhere afterwards, quietly.
+    </p>
+  </div>
+
+  {% if proposal.cached %}
+    <div class="flash is-good">
+      Recognised this column layout from a statement you confirmed before. The answers
+      below are already filled in — confirm to reuse them.
+    </div>
+  {% endif %}
+  {% if request.query_params.get('err') == 'fields' %}
+    <div class="flash is-bad">Map at least the date and the amount. Description is optional.</div>
+  {% elif request.query_params.get('err') == 'parse' %}
+    <div class="flash is-bad">
+      No rows could be read with that mapping, so nothing was imported. Check that the
+      amount column really holds amounts — the first rows of the file are below.
+    </div>
+  {% endif %}
+
+  {% if proposal.proposal.sample_rows %}
+    <div class="tablewrap">
+      <table class="samples">
+        <thead>
+          <tr>{% for col in proposal.columns %}<th>{{ col }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for row in proposal.proposal.sample_rows[:3] %}
+            <tr>{% for col in proposal.columns %}<td>{{ row.get(col, '') }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  <form class="maplist-form" method="post" action="{{ post_url }}">
+    <div class="panels panels-3">
+      {% for field in fields %}
+        <div class="panel pad-24">
+          <label class="kicker-lg" for="map_{{ field }}">
+            {{ field|capitalize }}{% if field == 'description' %} <span class="note-sm">(optional)</span>{% endif %}
+          </label>
+          <select class="mapselect" id="map_{{ field }}" name="{{ field }}">
+            <option value="">(none)</option>
+            {% for col in proposal.columns %}
+              <option value="{{ col }}"{% if proposal.suggested.get(field) == col %} selected{% endif %}>{{ col }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="dropzone-actions">
+      <button class="btn-solid" type="submit">Confirm and import</button>
+      <span class="note-sm">
+        This writes the transactions into the run. Nothing else on this page has
+        touched the amounts yet.
+      </span>
+    </div>
+  </form>
+</section>
+{% endblock %}

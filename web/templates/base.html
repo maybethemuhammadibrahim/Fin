@@ -29,7 +29,6 @@
    screen wants that, every other screen stays an ordinary document. #}
 <div class="shell{% if not fluid_width %} shell-fixed{% endif %}{% if app_shell %} is-app{% endif %}">
 
-  {% include "partials/statebar.html" %}
   {% include "partials/header.html" %}
 
   {% if chrome.is_offline %}
@@ -39,6 +38,12 @@
   <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
+
+  {# The state bar sits at the foot of the shell, not the head: it is a
+     workbench control, not chrome you read on the way in. It is the last
+     element in the DOM so the tab order reaches the page before it, and CSS
+     sticks it to the bottom of the viewport on an ordinary document. #}
+  {% include "partials/statebar.html" %}
 
 </div>
 

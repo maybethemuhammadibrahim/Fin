@@ -10,7 +10,8 @@ architecture is arranged to prevent.
 What is genuinely absent today, and where it lands:
 
 * agent verdicts and tool traces — **built** (Phase 8), but `web/` cannot start a
-  verification run because it writes nothing (ADR-018). A finding shows its
+  verification run: `web/` can upload but has no reconcile or verify action yet
+  (ADR-025 opened the write path; those two buttons are still Streamlit's). A finding shows its
   verdict and tool trace as soon as something has written one; until then the
   pane says so and names where the run is started (`app/`), not a phase;
 * headline prose and the Decision Engine's answer — `core/ai/decision_analyzer.py`
@@ -37,6 +38,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from web import cache as web_cache
+from web import prefetch
 from core.ai import decision_analyzer
 from core.engine import cashflow
 from core.db.queries import (
@@ -86,7 +88,8 @@ TOLERANCE_DAYS = 15
 #: still processing, because the findings are the thing worth looking at.
 #: Shown only while a finding has no verdict *and* no tool trace. The agent
 #: itself exists (Phase 8) — what is missing is a run over this finding, and
-#: `web/` cannot start one because it writes nothing (ADR-018, known issue #56).
+#: `web/` can upload (ADR-025) but cannot yet *run* anything — no reconcile and no
+#: verify button exists here (known issue #56).
 #: So this names where the run is started rather than naming a phase.
 NOTICE_AGENT = (
     "This finding has not been through the verification agent yet, so no tool "
@@ -95,7 +98,7 @@ NOTICE_AGENT = (
     "this frontend is read-only."
 )
 #: The analyser exists (Phase 9). What this frontend cannot do is *ask* it: it has
-#: no POST route, because it writes nothing (ADR-018), and a verdict needs both a
+#: no POST route for it, and a verdict needs both a
 #: question and a monthly running-cost figure that only a form can collect. So
 #: this names the surface that can answer, rather than a phase — the lesson from
 #: the 2026-08-17 audit, which found four strings still promising Phase 8.
@@ -141,15 +144,9 @@ NOTICE_NO_AMOUNT = (
 #: Layered on top of that is `web.cache`, a few-second TTL shared across
 #: requests. The per-session memo below is what makes one render cheap; the TTL
 #: cache is what makes the *next* render free. Read that module's docstring for
-#: why a read cache is safe in a frontend that writes nothing.
+#: why a read cache is safe here, and what the upload path owes it.
 def _memo(session: Session, key: tuple, build):
-    cache = getattr(session, "_finsight_memo", None)
-    if cache is None:
-        cache = {}
-        try:
-            session._finsight_memo = cache  # type: ignore[attr-defined]
-        except Exception:  # pragma: no cover - Session always accepts this
-            return build()
+    cache = _memo_store(session)
     if key not in cache:
         cache[key] = web_cache.get_or_set(key, build, enabled=cache_enabled(session))
     return cache[key]
@@ -176,9 +173,20 @@ def _documents(session: Session, run_id: int):
 
 
 def runs(session: Session):
-    """Every run, for the picker. Cached — new runs come from scripts, not
-    from this frontend, which writes nothing."""
+    """Every run, for the picker. Cached — this frontend uploads into a run but
+    never creates one, so the list only changes when a script makes it change."""
     return _memo(session, ("runs",), lambda: list_runs(session))
+
+
+def _memo_store(session: Session) -> dict:
+    cache = getattr(session, "_finsight_memo", None)
+    if cache is None:
+        cache = {}
+        try:
+            session._finsight_memo = cache  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - Session always accepts this
+            pass
+    return cache
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +365,10 @@ def _detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDetail:
 def _build_detail(session: Session, run_id: int, row: AnomalyRow) -> FindingDetail:
     verdict, kind = _verdict(row.status)
 
+    # These three reads were tried as a concurrent gather (see web/prefetch.py)
+    # and measured *no faster*, twice — the per-connection cost cancels the
+    # overlap on so few statements. Left sequential on the evidence.
+
     # -- the contract side ------------------------------------------------
     clause = get_clause_reference(session, row.clause_reference_id) if row.clause_reference_id else None
     if clause is None:
@@ -493,17 +505,42 @@ def detail(session: Session, run_id: int, anomaly_id: str) -> FindingDetail | No
     return _detail(session, run_id, row) if row else None
 
 
+#: The two screens a user may navigate to in live mode, overriding
+#: `derive_state`. Both are honest to ask for at any time: Upload is standing
+#: copy about getting data in, and the document list is worth reading whether or
+#: not anything is still in flight. The other three stay derived — a button
+#: promising "Findings" on a run with none would be inventing a screen.
+FORCEABLE_STATES = frozenset({"empty", "processing"})
+
+
 def integrity(
     session: Session,
     run_id: int | None,
     selected_id: str | None = None,
     sort: str = DEFAULT_SORT,
+    force_state: str | None = None,
 ) -> IntegrityView:
-    """Build the Integrity Engine view from whatever the run actually holds."""
-    state = derive_state(session, run_id)
+    """Build the Integrity Engine view from whatever the run actually holds.
+
+    `force_state` is the header's Upload / Processing tabs asking for a specific
+    screen. Anything outside `FORCEABLE_STATES` is ignored rather than honoured,
+    so a hand-typed `?state=clean` cannot dress a run with findings as a clean
+    one — the URL may choose between screens, never contradict the data.
+    """
+    derived = derive_state(session, run_id)
+    state = derived
+    if run_id is not None and force_state in FORCEABLE_STATES:
+        state = force_state
 
     if run_id is None or state == "empty":
-        return IntegrityView(state="empty")
+        # The "load a run" hint belongs on a run that genuinely has nothing, not
+        # on the Upload screen someone navigated to on purpose — there it would
+        # read as a complaint about a run that is fine. The template owns the
+        # wording (it carries markup); this owns whether it is true.
+        return IntegrityView(
+            state="empty",
+            notices={"empty_run": "yes"} if derived == "empty" else {},
+        )
 
     stats = _stats(session, run_id)
 
@@ -523,10 +560,23 @@ def integrity(
             )
             if p
         )
+        # Reachable from the header now, not only when something is mid-flight,
+        # so the headline has to state what is actually true of these documents.
+        # "Reading 5 documents" over five finished ones is the kind of small lie
+        # this codebase spends its comments avoiding.
+        if in_flight:
+            headline = f"Reading {plural(len(docs), 'document')}"
+        elif not docs:
+            headline = "Nothing uploaded against this run"
+        elif failed:
+            headline = f"{plural(len(docs), 'document')} on file · {failed} failed"
+        else:
+            headline = f"{plural(len(docs), 'document')} on file · all read"
+
         return IntegrityView(
             state="processing",
             pipeline=[_pipeline_doc(d, reconciled=bool(stats.anomaly_count)) for d in docs],
-            pipeline_headline=f"Reading {plural(len(docs), 'document')}",
+            pipeline_headline=headline,
             pipeline_sub=sub or None,
             column_map_file=None,
             column_map=[],
@@ -670,12 +720,43 @@ def decision(
     # average revenue and divide the confirmed total by a hardcoded 12 right here
     # — money math in a view layer, and wrong for any run not spanning a year.
     # `compute_recovery` divides by the months the run actually covers.
+    # Three independent reads, fetched at once rather than one after another.
+    # `compute_recovery` is the engine's rather than a query helper's, but it
+    # takes a session and does its own reads, so it gathers exactly like one.
+    #
+    # This is the *only* page where the gather pays. Measured twice on
+    # 2026-08-19: this page 2.10s -> 1.74s, while the Integrity page got
+    # **slower** the same way (2.15s -> 2.85s) and the detail pane did not move.
+    # The difference is how much there is to overlap — three separate reads here
+    # against two on Integrity, one of which is a single helper issuing three
+    # statements in a row that no caller can split. Below that threshold, the
+    # cost of a second pooled connection exceeds the overlap it buys.
+    # If `core/db/queries.py` ever gets cheaper per call, re-measure before
+    # spreading this further; do not assume it generalises.
+    warmed = prefetch.gather(
+        [
+            (("stats", run_id), lambda s: get_summary_stats(s, run_id)),
+            (("months", run_id), lambda s: revenue_by_month(s, run_id)),
+            (("recovery", run_id), lambda s: cashflow.compute_recovery(s, run_id)),
+        ],
+        enabled=cache_enabled(session),
+    )
+    _memo_store(session).update({k: v for k, v in warmed.items() if k[0] == "stats"})
+
     stats = _stats(session, run_id)
-    months = revenue_by_month(session, run_id)
+    months = (
+        warmed[("months", run_id)]
+        if ("months", run_id) in warmed
+        else revenue_by_month(session, run_id)
+    )
     baseline = cashflow.baseline_from_monthly(
         months, monthly_expenses=monthly_expenses, months=max(len(months), 1)
     )
-    recovery = cashflow.compute_recovery(session, run_id)
+    recovery = (
+        warmed[("recovery", run_id)]
+        if ("recovery", run_id) in warmed
+        else cashflow.compute_recovery(session, run_id)
+    )
 
     working = [
         WorkRow(
@@ -942,9 +1023,21 @@ def state_note(session: Session, run_id: int | None, state: str) -> str:
         return "No runs in the database yet"
 
     stats = _stats(session, run_id)
+    # `state` is now the screen you are *looking at*, which since the header
+    # gained Upload and Processing tabs is not the same as what the run holds.
+    # So the note reads the run, not the screen — otherwise clicking Upload on a
+    # finished run would print "Nothing uploaded to this run" underneath its
+    # documents.
     if state == "empty":
-        return "Nothing uploaded to this run"
+        if stats.document_count == 0:
+            return "Nothing uploaded to this run"
+        return f"{plural(stats.document_count, 'document')} already on file"
     if state == "processing":
+        if stats.anomaly_count:
+            return (
+                f"{plural(stats.document_count, 'document')} on file · "
+                f"{plural(stats.anomaly_count, 'finding')} reconciled"
+            )
         return f"{plural(stats.document_count, 'document')} on file · nothing reconciled yet"
     if state == "clean":
         return f"{plural(stats.document_count, 'document')} read · no shortfall found"

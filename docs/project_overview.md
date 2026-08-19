@@ -74,7 +74,8 @@ service agreements.
 
 | | |
 |---|---|
-| Documents downloaded | 700 |
+| Documents found | 700 |
+| Kept on disk (150 skipped by a per-company cap) | 667 |
 | Different companies | 467 |
 | **Genuinely distinct contracts** | **192** |
 | Ready to use / gaps filled / needs a human read | 60 / 19 / 113 |
@@ -200,7 +201,7 @@ because a wrong guess is invisible.
 
 | Part | Choice |
 |---|---|
-| Screens | Streamlit (operations) + FastAPI/Jinja2 (the designed UI) |
+| Screens | Streamlit (does the work) + FastAPI/Jinja2 (the designed UI, **read-only**) |
 | Database | Supabase Postgres — **12 tables** |
 | File storage | Supabase Storage, private bucket |
 | PDF text | pdfplumber + PyMuPDF |
@@ -213,11 +214,19 @@ because a wrong guess is invisible.
 price_escalations, discounts, milestones, expected_timeline, actual_transactions,
 anomalies, column_mappings.
 
+**Two screens over one database, and only one of them acts.** The Streamlit app
+is where anything happens — upload, reconcile, verify, ask a decision question.
+The FastAPI app renders the delivered design and **writes nothing**: every button
+in it is deliberately inert, so a fully-styled page there is not a working one.
+Both read the same figures through the same code, so they can look different but
+cannot disagree.
+
 ### The models
 
 | | |
 |---|---|
 | **The model doing the work** | **Qwen 2.5 3B Instruct** — open source, we host it ourselves |
+| Which version runs by default | The **untaught** one. The taught patch of §7 is switched on by hand and is not yet the app's default — see §9 |
 | Where it runs | A free Google Colab or Kaggle GPU, reached over a tunnel. Also Modal (paid, stable address) |
 | **Frontier AI APIs used at runtime** | **None. Ever.** |
 | DeepSeek | Used **once, offline**, only to reword training sentences. Never invents a figure, never writes an answer |
@@ -243,12 +252,16 @@ someone else's big model would dissolve that claim.
 - **30 real contracts sealed away as the exam** *before any practice question
   existed*, fingerprinted so they cannot be quietly changed, with a check that
   refuses to re-seal them later.
-- Trained with QLoRA on a free T4 in about 30 minutes. Output is a **60 MB patch**,
-  not a new model.
+- Trained with QLoRA on a free T4 — three passes over the 73 examples, budgeted
+  at **20–40 minutes**. Output is a **patch of roughly 50–100 MB**, not a new
+  model. *(Both figures are the notebook's estimates. Nobody wrote down the real
+  duration or the real file size — so unlike every other number in this
+  document, these two are not measured.)*
 
 ### The exam
 
-20 of the sealed contracts (2 had unusable answer keys — see §9). Both models
+Of the 30 sealed contracts, **22** came through review with an answer key, and
+**20** of those are markable — 2 keys do not parse (see §9). Both models
 answered on the **same** GPU session, with the **same** prompt, in one process.
 Only the model name changed.
 
@@ -289,13 +302,19 @@ seeing any results that a swing of one or two questions is noise.
 | Stage | What was proven | Result |
 |---|---|---|
 | Database | Same results on Postgres and SQLite | 47 checks, identical |
-| Reading contracts | Valid output, quotes real | 10/10 valid, 80% quotes verified |
+| Reading contracts | Valid output, quotes real | 10/10 valid, 80% quotes verified* |
 | The maths engine | Reproduces three answer keys exactly | 3/3 to the cent |
 | Clause highlighting | Box drawn on the right sentence | 20/20 placed |
 | Verification agent | Filters false alarms | **Failed — see §9** |
 | Decision engine | Right Yes/No, no invented figures | 6/6, guard caught 3 attempts |
 | Fine-tuning | Better than untaught | 3 clear wins, 1 too small to call |
 | Whole codebase | Automated tests | **248 passing** |
+
+\* **Read that row thinly.** 80.0% was 12 of 15 quotes — it passed exactly on the
+line, and one more paraphrase would have failed it. And 3 of the 10 "valid"
+contracts returned **no clauses at all**; an empty answer is structurally valid,
+so it scores as a pass while proving nothing. The 20-contract exam in §7 is the
+number to quote.
 
 ### The scripts that do this
 
@@ -341,7 +360,23 @@ The instructions state this explicitly, with a worked example. **The 3B model do
 not follow it.** This is a model-capability limit, not a prompt bug. The agent is
 not usable in a demo as it stands.
 
-### 2. The data shape can't describe inflation-linked rises 🟠
+### 2. It has not been deployed, and the taught model is not switched on 🔴
+
+Two separate gaps, both easy to miss because everything above works locally.
+
+**There is no public address.** The app has only ever run on a laptop. Nothing is
+pinned to a known version, there are no automated checks on save, and no hosting
+account has been set up. Putting it online is the one piece of work that has not
+started.
+
+**The taught model is not what the app uses.** The patch from §7 lives in a
+private account, has only ever been loaded in one hand-started notebook, and the
+app's default setting still names the **untaught** model. Every "after teaching"
+figure in §7 is real; none of it reaches a user until someone changes that
+setting and serves the patch. The paid host, which is the only address that does
+not change, has never had it loaded either.
+
+### 3. The data shape can't describe inflation-linked rises 🟠
 
 A clause saying *"the fee rises each year with the Consumer Price Index"* has **no
 fixed percentage**. Our data requires one. So a reviewer must either invent a
@@ -355,13 +390,13 @@ This single gap explains:
 - Why those contracts now report **nothing** after the §5 safeguard. Silence is
   safe. It is not right.
 
-### 3. A price cap still reads as a price rate 🟡
+### 4. A price cap still reads as a price rate 🟡
 
 One contract says the rise is inflation *"but in no event in excess of five
 percent."* 5% is a **ceiling**, not the rate. Our safeguard checks the number is in
 the sentence — it cannot tell a ceiling from a rate.
 
-### 4. The model doesn't always follow instructions 🟡
+### 5. The model doesn't always follow instructions 🟡
 
 Told "copy the sentence character for character", it paraphrases about 20% of the
 time. In the decision engine, **3 of 6 answers quoted figures it was never given** —
@@ -369,13 +404,23 @@ including `$17,272.73`, which looks calculated and is pure invention. A guard
 caught every one and fell back to fixed wording. **Report the guard as reliable;
 do not report the model as reliable.**
 
-### 5. Milestones are never billed automatically 🟡
+### 6. Milestones are never billed automatically 🟡
 
 A milestone says *"on website launch"*, not a date. Nothing turns a condition into
 a date, so it is listed as unresolved rather than billed. Guessing a date would
 manufacture fake findings.
 
-### 6. The exam is small, and thin in places 🟡
+### 7. Two months paid in one transfer reads as a missing bill 🟡
+
+A client who skips a month and then sends one larger transfer settles one month
+and leaves the other looking unpaid — reported as a ghost invoice that is not
+real.
+
+The re-checking tool was meant to catch this and cannot: it looks for **several**
+payments that add up to one bill, not for **one** payment worth two bills. Nobody
+has built the second case.
+
+### 8. The exam is small, and thin in places 🟡
 
 20 contracts. Only **1** has a discount and **1** has a milestone — those are
 effectively unmeasured. And 18 of 20 are monthly, so answering "monthly" every time
@@ -383,14 +428,23 @@ scores 90% without reading anything. *(The taught model isn't doing that — it
 answered monthly 16, annual 3, one-off 1 — but a reader shouldn't have to trust
 that.)*
 
-### 7. Everything depends on a notebook that dies 🟠
+### 9. Everything depends on a notebook that dies 🟠
 
 The GPU is a free Colab session. Its address changes on every restart, cold start
 takes ~8 minutes, and closing the tab takes the whole app down. Fine for a local
 demo; not viable for a public site without the paid host, which **has never been
-deployed**.
+set up** (§2).
 
-### 8. Known limits accepted on purpose 🟢
+### 10. Uploading a contract has never been tested against a live GPU 🟠
+
+The two halves are proven separately — reading a contract was measured on a real
+GPU, and saving the result has its own tests — but the join between them, a file
+dropped into the app coming out as saved rules, has never once run end to end
+with a model answering. With no model running it fails cleanly and says so.
+Everything after that point (the maths, the comparison, the highlighting) needs
+no model and is fully exercised.
+
+### 11. Known limits accepted on purpose 🟢
 
 - **Typeset pages are not the original filing.** Government filings arrive as web
   pages, so we lay the text out as a PDF to highlight it. Page numbers are ours,
@@ -400,6 +454,11 @@ deployed**.
 - **The app tells you what you're owed and what you earn. You tell it what you
   spend.** No table holds expenses, so the decision engine asks — and refuses a
   Yes/No if you don't answer.
+- **None of the downloaded contracts are stored in the project.** Everything
+  under `data/` is deliberately kept out of version control, so a fresh machine
+  starts with an empty corpus — it has been lost twice that way. One command
+  rebuilds it, and the counts in §3 will not repeat exactly, because EDGAR
+  changes.
 - **A password was published in this project's public history** and has not been
   rotated. Harmless while the GPU is free; a billing risk the moment the paid host
   is used.
@@ -412,8 +471,9 @@ deployed**.
 each item traced to the sentence that proves it. Not a guess — a citation.
 
 **Technically:** a 3B open-source model, run on a free GPU, taught one narrow job
-in 30 minutes, going from **65% to 100%** on the number the product depends on —
-while every figure the user sees is computed by plain, testable Python.
+in well under an hour, going from **65% to 100%** on the number the product
+depends on — while every figure the user sees is computed by plain, testable
+Python.
 
 **The design principle underneath all of it:** *let the AI read, never let it
 count.* The model turns prose into fields. Arithmetic, classification and
@@ -432,7 +492,7 @@ Data for anyone building visuals from this document.
    Highlight fee amount 13→20.
 4. **The invented-rate story** (§7) — before/after: untaught 4→2, taught 10→2.
 5. **Corpus funnel** (§3) — 700 documents → 467 companies → 192 contracts → 60
-   ready → 30 sealed → 20 marked.
+   ready → 30 sealed → 22 with an answer key → 20 marked.
 6. **Layer permissions** (§4) — who may compute, call AI, touch the database.
 7. **The worked example** (§1) — timeline showing $6,000 flat versus what was
    owed, with the four missed items marked.

@@ -17,28 +17,63 @@ it — never a borrowed demo figure.
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from web.routers import decision, integrity, system
+from web.routers import decision, integrity, system, uploads
 from web.settings import get_web_settings
 from web.templating import STATIC_DIR, templates
 
 log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Open one database connection in the background as the server boots.
+
+    Measured on 2026-08-19: the *first* connection to the Supabase pooler costs
+    **9.4 s** — TLS, authentication and SQLAlchemy building the engine — against
+    ~0.2 s for every one after it. Whoever loads the first live page pays that,
+    and on a host that sleeps when idle it is paid again after every quiet spell.
+
+    So it is paid here instead, by nobody, while the server is starting.
+
+    In a thread, and swallowing everything: the web shell must start with an
+    unreachable or unconfigured database, because the pages that tell you so are
+    served by this app. A failure here costs one slow first page, which is
+    exactly where we started.
+    """
+
+    def _warm() -> None:
+        try:
+            from core.db.database import check_connection
+
+            ok, message = check_connection()
+            log.info("database pool warm: %s", message if ok else f"not warmed — {message}")
+        except Exception as exc:  # noqa: BLE001
+            log.info("database pool not warmed: %s", exc)
+
+    threading.Thread(target=_warm, name="finsight-db-warm", daemon=True).start()
+    yield
+
 
 app = FastAPI(
     title="FinSight",
     description="Revenue integrity for small B2B service businesses.",
     docs_url=None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(integrity.router)
 app.include_router(decision.router)
+app.include_router(uploads.router)
 app.include_router(system.router)
 
 

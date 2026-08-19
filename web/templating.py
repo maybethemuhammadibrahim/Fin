@@ -20,6 +20,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from core import ingest
 from web import format as fmt
 from web.deps import ask_url, carry, carry_hidden_fields, select_url
 from web.settings import get_web_settings
@@ -63,9 +64,21 @@ def render(
         "current_path": f"{path}{carry(request)}",
         # Appended to the tab links so switching page keeps the run and state.
         "keep_query": carry(request),
+        # The same carried query with `state` swapped — how the header's Upload
+        # and Processing tabs link to a screen without losing the run or the
+        # data mode. `with_state(None)` drops the parameter instead, which is
+        # what the Integrity Engine tab wants: no `state` means live mode goes
+        # back to deriving the screen from the run.
+        "with_state": lambda state: carry(request, state=state),
         # Hidden inputs for GET forms; the run picker supplies its own `run`.
         "carry_fields": carry_hidden_fields(request, exclude=("run",)),
         "fluid_width": get_web_settings().fluid_width,
+        # What the two upload zones accept, as `accept=` attributes. Sourced from
+        # `core.ingest` rather than retyped, so the list the browser filters on
+        # and the list the server can actually route are the same list — the
+        # `.docx`/`.xlsx` trap was exactly this drifting apart.
+        "contract_accept": ",".join(f".{e}" for e in ingest.CONTRACT_TYPES),
+        "actuals_accept": ",".join(f".{e}" for e in ingest.ACTUALS_TYPES),
         # Sensible defaults so a template that uses them cannot blow up if a
         # route forgot to pass one.
         "select_url": select_url(request, path),

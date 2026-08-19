@@ -2563,7 +2563,7 @@ One reporting obligation follows: "clause grounding rate" is two different measu
 
 ## ADR-018 — Two frontends over one database, and a demo/live toggle that never falls back
 
-**Status:** Accepted (2026-08-14, alongside Phase 6) · **Extends ADR-008**
+**Status:** Accepted (2026-08-14, alongside Phase 6) · **Extends ADR-008** · **Partially superseded by ADR-025 (2026-08-19):** its "`web/` writes nothing" clause no longer holds — `web/` uploads. Everything else in this ADR stands, including the two-presenter split and the rule that live never falls back to demo.
 
 **Context.** The delivered design arrived as a single HTML file with a fixed 1440px canvas, a full inline-styled component system and five hand-built states. Streamlit renders widgets, not arbitrary markup: reproducing that design inside it would mean a wall of `st.markdown(unsafe_allow_html=True)`, which loses the layout, the hover states and the ability to edit a screen without redeploying an app. Meanwhile Streamlit is genuinely good at the things it was chosen for — the config page with its ✅/❌ table, DB health, the model-endpoint switcher, file upload widgets — and none of those are worth rewriting.
 
@@ -2704,3 +2704,26 @@ Three options were open. **Assume an expense figure** (a percentage of revenue, 
 4. **`web/` cannot ask the question at all** and does not pretend to. It has no POST route because it writes nothing (ADR-018), and a verdict needs both a question and an expense figure — two things only a form can collect. Its Decision page shows the real engine-computed working and names the Streamlit app as the place to get an answer.
 
 **Consequences.** The Decision Engine's headline claim is now conditional on one user-supplied number, which must be disclosed in the report: FinSight computes what you are owed and what you earn, and *you* tell it what you spend. In exchange, no figure it prints is invented. The gap is honest and visible rather than papered over, and closing it properly — an expenses source — is a well-defined piece of future work rather than a hidden assumption. A second, smaller consequence: because the surplus depends on an input rather than stored data, two people asking the same question of the same run can get different verdicts. That is correct (they have different cost bases) but it means a verdict is not reproducible from `run_id` alone, so nothing persists one.
+
+---
+
+## ADR-025 — `web/` writes, starting with uploads, over one shared ingest core
+
+**Status:** Accepted (2026-08-19) · **Partially supersedes ADR-018**
+
+**Context.** ADR-018 made `web/` read-only, and that was the right call while it was a rendering of a design over a database somebody else filled. It stopped being right the moment `web/` became the deployed demo: the first thing a visitor to a revenue-integrity tool wants to do is give it a contract, and the Upload screen's honest answer was "open a different application on a different port". A tool whose first step happens somewhere else is not a tool a stranger can try.
+
+The obvious objection is that the uploader already exists in `app/` and rewriting it is duplication. Measured before deciding: it is not, because almost none of the uploader is Streamlit. `core/storage/files.py`, `core/extraction/document_router.py` and `core/extraction/csv_parser.py` import Streamlit zero times between them. What lived inside `app/components/file_uploader.py` was seventeen `st.` calls — all presentation — wrapped around a sequence: save, record, read, and for a `.csv` hold at `pending` until a human confirms its columns. **The sequence was the thing worth sharing; the widgets were not.**
+
+**Decision.** Three parts.
+
+1. **The sequence moves to `core/ingest.py`** — `ingest_files`, `extract_upload`, `actuals_category`, `propose_mapping`, `apply_mapping` — importing no framework and raising at no caller. Both frontends call it. `app/components/file_uploader.py` and `app/components/column_mapper.py` keep only their Streamlit drawing, and shrank accordingly. This is the part that matters: two implementations of "what does `extraction_status = 'complete'` mean" is the divergence a single core exists to prevent, and it would have been a *silent* divergence, since both would look right in isolation.
+2. **`web/` gains `web/routers/uploads.py`** — `POST /upload`, `GET|POST /upload/{id}/columns` — and the Upload screen becomes a real form. Contracts, PDF and image invoices finish on the POST. A `.csv` lands at `pending` and the redirect goes straight to its column mapper, because a statement recorded but not confirmed is money the run does not know it has.
+3. **ADR-010 is honoured identically in both frontends**, because neither owns it: the proposal and the parse are `core.ingest`'s, and only the three dropdowns differ.
+
+**Consequences, in the order they will bite someone.**
+
+* **The read cache now has an owner's duty.** `web/cache.py` was safe because nothing wrote; it is now safe because the write path calls `web.cache.clear()` after its session commits. That is written at the top of both modules. **A second write path that forgets it will look like a broken button for `WEB_CACHE_SECONDS`** — 300 by default, which is a very long time to stare at a page that did not change.
+* **Demo mode still cannot write, and says so.** There is no database behind it, and a demo that half-accepted a file is the borrowed-figure failure ADR-018 was written to prevent. The POST is refused with a message naming the toggle.
+* **Uploading is not reconciling.** `web/` can now take your files and read their text. Turning a contract into billing *rules* needs the model endpoint, and turning those into findings needs a Reconcile action that still exists only in `app/`. The Upload screen says exactly that rather than implying the round trip is finished (known issue #56 narrows but does not close).
+* **A file input the user left empty is not an empty list.** Browsers post a part with `filename=""` for it, which Starlette parses as a string field, which makes a `list[UploadFile]` parameter fail validation with a raw 422 JSON page. The ordinary case — "contracts today, no statement" — would have hit it. The route reads the multipart form itself and keeps only genuine files. Found by testing a partial submission, not by reading the code.

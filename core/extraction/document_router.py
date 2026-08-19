@@ -15,7 +15,7 @@ is now genuinely read (it is the shape the EDGAR corpus already arrives in);
 dependency and therefore an ADR.
 
 **Anything that raises here must stay a ValueError with a readable message.**
-`file_uploader._extract_and_finalize` catches exactly that and turns it into
+`core.ingest.extract_upload` catches exactly that and turns it into
 `extraction_status='failed'` plus the message; a different exception type would
 reach Streamlit and take the page down (known issue #37).
 """

@@ -58,6 +58,17 @@ def main() -> int:
     host = args.host or settings.host
     port = args.port or settings.port
 
+    # Without this nothing under `web/` is ever heard from: uvicorn configures
+    # its own loggers and leaves the root logger bare, so an app-level
+    # `log.info` or `log.warning` goes nowhere. `core.config` has always had the
+    # helper; the web server just never called it.
+    try:
+        from core.config import configure_logging
+
+        configure_logging()
+    except Exception:  # pragma: no cover - a bad .env is the config page's job
+        pass
+
     print(f"FinSight on http://{host}:{port}  ·  booting in {settings.default_data_mode} mode")
     uvicorn.run(
         "web.main:app",

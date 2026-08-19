@@ -1,10 +1,27 @@
 {#
-  The application header: mark, the two page tabs, and the run/endpoint strip.
+  The application header: mark, the four screen tabs, and the run/endpoint strip.
+
+  **The tabs are two different kinds of thing wearing one uniform, deliberately.**
+  Integrity Engine and Decision Engine are separate routes. Upload and
+  Processing & failures are two screens *of* the Integrity route, reached by
+  `?state=`. A user navigating a website should not have to know which is which
+  — they are four places you can be — so they are drawn the same and the URL
+  carries the difference.
+
+  They work in live mode as well as demo. In live the state bar's remaining
+  buttons are inert, because Findings / Clean run / Model offline are *derived*
+  from what the run holds and a button claiming otherwise would be lying. These
+  two are not derived: Upload is mostly standing copy about how to get data in,
+  and Processing & failures is the document list, which is worth reading
+  whether or not anything is still in flight. So they are honest as navigation
+  and they live up here.
 
   The endpoint dot is not decoration. Rule 7 in CLAUDE.md — the endpoint is a
   notebook session, not a service, and its URL rotates on every restart — so
   the header always states which host answered and whether it is reachable.
 #}
+{% set on_integrity = chrome.page == 'integrity' %}
+{% set screen = chrome.demo_state %}
 <header class="topbar">
   <div class="topbar-mark">
     <span class="topbar-glyph"><i></i><i></i><i></i></span>
@@ -12,13 +29,24 @@
   </div>
 
   <nav class="topnav">
-    <a href="{{ url_for('integrity') }}{{ keep_query }}"
-       class="{% if chrome.page == 'integrity' %}is-active{% endif %}">
+    {# No `state` at all, so live mode goes back to deriving the screen and demo
+       mode falls to its default. This tab is "the findings", not "state=review":
+       naming the state here would strand a live run that has none. #}
+    <a href="{{ url_for('integrity') }}{{ with_state(None) }}"
+       class="{% if on_integrity and screen not in ('empty', 'processing') %}is-active{% endif %}">
       <span class="tab">Integrity Engine</span>
     </a>
     <a href="{{ url_for('decision') }}{{ keep_query }}"
        class="{% if chrome.page == 'decision' %}is-active{% endif %}">
       <span class="tab">Decision Engine</span>
+    </a>
+    <a href="{{ url_for('integrity') }}{{ with_state('empty') }}"
+       class="{% if on_integrity and screen == 'empty' %}is-active{% endif %}">
+      <span class="tab">Upload</span>
+    </a>
+    <a href="{{ url_for('integrity') }}{{ with_state('processing') }}"
+       class="{% if on_integrity and screen == 'processing' %}is-active{% endif %}">
+      <span class="tab">Processing &amp; failures</span>
     </a>
   </nav>
 

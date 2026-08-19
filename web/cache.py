@@ -8,15 +8,19 @@ costs 1.1 s. So the response time of a live page is, to within noise, `queries �
 to about 4 s. Getting below that is not an application problem; it is the speed
 of light and a region choice.
 
-So the reads are cached for a few seconds. Three things make that safe here
-rather than the usual source of stale-data bugs:
+So the reads are cached. Three things make that safe here rather than the usual
+source of stale-data bugs:
 
-* **`web/` writes nothing.** Every button in this frontend is inert until
-  Phases 6-9 (known issue #52), so no user action can invalidate a cached read.
-  There is no write path to forget to bust.
-* **The TTL is seconds, not minutes.** Re-running `scripts/seed_demo.py` shows
-  up on the next refresh after it expires, which is the only way data changes
-  today.
+* **The one write path clears this cache.** `web/routers/uploads.py` calls
+  `clear()` after every successful upload and every confirmed column mapping
+  (ADR-025). This used to read "web/ writes nothing", which was the whole
+  safety argument until uploading landed — so if you add a second write path,
+  **it must call `clear()` too**, immediately after its session commits. Miss it
+  and the write appears not to have happened for the length of the TTL, which
+  reads to a user as a broken button rather than a stale cache.
+* **Everything else that changes the data changes it from outside this process**
+  — `seed_demo.py`, `run_scenario.py`, the Streamlit app — and shows up on the
+  next read after the TTL expires.
 * **It is off by one flag.** `WEB_CACHE_SECONDS=0` disables it entirely, and
   `?fresh=1` on any URL bypasses it for that request.
 

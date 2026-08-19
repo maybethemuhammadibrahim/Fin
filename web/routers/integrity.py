@@ -100,7 +100,11 @@ def integrity_page(request: Request) -> HTMLResponse:
         runs, run = _pick_run(session, request.query_params.get("run"))
         run_id = run.id if run else None
 
-        view = live.integrity(session, run_id, selected_id=selected, sort=sort)
+        # The header's Upload / Processing tabs. `live.integrity` ignores any
+        # state it will not honour, so this can be passed through raw.
+        view = live.integrity(
+            session, run_id, selected_id=selected, sort=sort, force_state=state_param
+        )
         chrome = chrome_mod.build(
             data_mode="live",
             page="integrity",

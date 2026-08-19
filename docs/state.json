@@ -23,7 +23,7 @@
         "A": "models+database+init_db+reset_run",
         "B": "queries+db_health page"
       },
-      "note": "All 12 tables and 13 query helpers. The same 47 assertions pass identically on SQLite and on Supabase Postgres. ADR-005 nullability and all 6 CheckConstraints confirmed in information_schema. Tables exist and are empty — Phase 2 seeds them."
+      "note": "All 12 tables and 13 query helpers. The same 47 assertions pass identically on SQLite and on Supabase Postgres. ADR-005 nullability and all 6 CheckConstraints confirmed in information_schema. Tables exist and are empty \u2014 Phase 2 seeds them."
     },
     {
       "n": 2,
@@ -152,7 +152,7 @@
     {
       "id": 10,
       "phase": 0,
-      "text": "RESOLVED 2026-08-08: .venv rebuilt on Python 3.12.13 via uv, for Streamlit Cloud parity. All 16 deps install and import. The old 'py3.14 lacks pymupdf/psycopg2 wheels' warning was stale — they build fine on 3.14 too; the real reason for 3.12 is that Cloud does not offer 3.14."
+      "text": "RESOLVED 2026-08-08: .venv rebuilt on Python 3.12.13 via uv, for Streamlit Cloud parity. All 16 deps install and import. The old 'py3.14 lacks pymupdf/psycopg2 wheels' warning was stale \u2014 they build fine on 3.14 too; the real reason for 3.12 is that Cloud does not offer 3.14."
     },
     {
       "id": 13,
@@ -187,7 +187,7 @@
     {
       "id": 6,
       "phase": 0,
-      "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo — none built yet."
+      "text": "ADR-011: the product now depends on a live Colab/Kaggle session. Tunnel URL rotates on every restart, cold start is minutes, and a dead session takes the whole app down. Mitigations are the Kaggle backup, a pre-warmed data/cache/, and a recorded demo \u2014 none built yet."
     },
     {
       "id": 7,
@@ -197,7 +197,7 @@
     {
       "id": 8,
       "phase": 5,
-      "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures — do not treat early Phase 5 quality as a failure."
+      "text": "Base Qwen 2.5 3B will extract worse than a frontier model did. That gap is what Phase 10 exists to close and Phase 11 measures \u2014 do not treat early Phase 5 quality as a failure."
     },
     {
       "id": 17,
@@ -217,7 +217,7 @@
     {
       "id": 20,
       "phase": 4,
-      "text": "Supabase's CDN ignores cache-control: re-uploading DIFFERENT bytes to the same object key returns the OLD content for up to an hour, and a deleted object stays readable. Verified (server-side size said 7 while download() returned the 3-byte original). Mitigated by content-addressed keys (<run_id>/<sha256[:12]>_<name>) so a key's bytes never change. NEVER build a bucket key by hand — use files.save_upload and the returned documents.storage_url."
+      "text": "Supabase's CDN ignores cache-control: re-uploading DIFFERENT bytes to the same object key returns the OLD content for up to an hour, and a deleted object stays readable. Verified (server-side size said 7 while download() returned the 3-byte original). Mitigated by content-addressed keys (<run_id>/<sha256[:12]>_<name>) so a key's bytes never change. NEVER build a bucket key by hand \u2014 use files.save_upload and the returned documents.storage_url."
     },
     {
       "id": 21,
@@ -227,7 +227,7 @@
     {
       "id": 22,
       "phase": 11,
-      "text": "SUPABASE_SERVICE_KEY must go into Streamlit Secrets at deploy time, never the repo. It bypasses all RLS and has full DB access. SUPABASE_KEY (anon) is currently unused — files.py uses service_role and the DB goes through SQLAlchemy, not PostgREST."
+      "text": "SUPABASE_SERVICE_KEY must go into Streamlit Secrets at deploy time, never the repo. It bypasses all RLS and has full DB access. SUPABASE_KEY (anon) is currently unused \u2014 files.py uses service_role and the DB goes through SQLAlchemy, not PostgREST."
     },
     {
       "id": 23,
@@ -247,7 +247,7 @@
     {
       "id": 26,
       "phase": 10,
-      "text": "Counting documents overstates the corpus ~2.5x. EDGAR's 51 gold documents carry only 21 distinct escalation clauses — one administrator (Ultimus) sends every fund trust the same fee letter. Dedupe on clause fingerprint AND filer, never filename. Report DISTINCT CLAUSES, not document count. Near-duplicates either side of a train/test split are the invisible leak that makes Phase 11 meaningless."
+      "text": "Counting documents overstates the corpus ~2.5x. EDGAR's 51 gold documents carry only 21 distinct escalation clauses \u2014 one administrator (Ultimus) sends every fund trust the same fee letter. Dedupe on clause fingerprint AND filer, never filename. Report DISTINCT CLAUSES, not document count. Near-duplicates either side of a train/test split are the invisible leak that makes Phase 11 meaningless."
     },
     {
       "id": 27,
@@ -262,7 +262,7 @@
     {
       "id": 29,
       "phase": 3,
-      "text": "19 of the 44 corpus contracts sit in data/corpus/contracts_v0/review/ — clause shape is right but no figure was found; the amount may live in an exhibit that was never filed. NOBODY HAS READ THEM. Expect to lose ~a quarter, landing near 40."
+      "text": "19 of the 44 corpus contracts sit in data/corpus/contracts_v0/review/ \u2014 clause shape is right but no figure was found; the amount may live in an exhibit that was never filed. NOBODY HAS READ THEM. Expect to lose ~a quarter, landing near 40."
     },
     {
       "id": 30,
@@ -272,22 +272,22 @@
     {
       "id": 31,
       "phase": 10,
-      "text": "OPEN DECISION (ADR-014): whether to use a vendor model (e.g. DeepSeek credits) to DRAFT the 80-120 ContractRules training pairs offline. ADR-011 forbids vendor calls in the runtime path; the plan itself says draft with 'the best available model' then human-verify. Standard distillation, defensible if disclosed, but it dents the self-hosting story. NOT decided. Not needed for filling redactions — that is deterministic (ADR-014)."
+      "text": "OPEN DECISION (ADR-014): whether to use a vendor model (e.g. DeepSeek credits) to DRAFT the 80-120 ContractRules training pairs offline. ADR-011 forbids vendor calls in the runtime path; the plan itself says draft with 'the best available model' then human-verify. Standard distillation, defensible if disclosed, but it dents the self-hosting story. NOT decided. Not needed for filling redactions \u2014 that is deterministic (ADR-014)."
     },
     {
       "id": 32,
       "phase": 3,
-      "text": "HF_TOKEN is NOT required to download CUAD — theatticusproject/cuad is public and downloads unauthenticated. Still unset in .env; wanted for rate limits and Phase 5/10 model pulls. CLI is `hf` (huggingface_hub 1.27); `huggingface-cli` is the deprecated alias, same situation as fitz/pymupdf in issue #12."
+      "text": "HF_TOKEN is NOT required to download CUAD \u2014 theatticusproject/cuad is public and downloads unauthenticated. Still unset in .env; wanted for rate limits and Phase 5/10 model pulls. CLI is `hf` (huggingface_hub 1.27); `huggingface-cli` is the deprecated alias, same situation as fitz/pymupdf in issue #12."
     },
     {
       "id": 33,
       "phase": 3,
-      "text": "RESOLVED 2026-08-12: data/corpus/contracts_v0/ (issue implied by the 2026-08-10 spike entry) did not exist on disk when Phase 3 started — data/** is gitignored and the spike's output never persisted. Re-ran the real pipeline (data_sourcing/fetch_contracts.py + filter_contracts.py) against live EDGAR instead of assuming the spike's files were still there. Lesson for future sessions: a progress.md entry describing files under data/ describes what existed in THAT session, not what exists now — always verify with a directory listing before building on it."
+      "text": "RESOLVED 2026-08-12: data/corpus/contracts_v0/ (issue implied by the 2026-08-10 spike entry) did not exist on disk when Phase 3 started \u2014 data/** is gitignored and the spike's output never persisted. Re-ran the real pipeline (data_sourcing/fetch_contracts.py + filter_contracts.py) against live EDGAR instead of assuming the spike's files were still there. Lesson for future sessions: a progress.md entry describing files under data/ describes what existed in THAT session, not what exists now \u2014 always verify with a directory listing before building on it."
     },
     {
       "id": 34,
       "phase": 3,
-      "text": "Automated 'gold' (concrete-value) scoring still produces false positives that need a human read, even on EDGAR's higher-quality yield. Cellteck Inc.'s EX-99.1 scored concrete_escalation on an '18% per annum' clause that is loan interest, not a fee escalation — caught only when hand-verifying contracts for scenario_builder.py. Used the contract only for its genuine 30%-first-year discount clause. Same class of trap as ADR-013's bare `escalat` finding on CUAD (known_issue #24), now confirmed on EDGAR's automated gold tier too. Do not skip the hand-read step when scoring says 'gold'."
+      "text": "Automated 'gold' (concrete-value) scoring still produces false positives that need a human read, even on EDGAR's higher-quality yield. Cellteck Inc.'s EX-99.1 scored concrete_escalation on an '18% per annum' clause that is loan interest, not a fee escalation \u2014 caught only when hand-verifying contracts for scenario_builder.py. Used the contract only for its genuine 30%-first-year discount clause. Same class of trap as ADR-013's bare `escalat` finding on CUAD (known_issue #24), now confirmed on EDGAR's automated gold tier too. Do not skip the hand-read step when scoring says 'gold'."
     },
     {
       "id": 35,
@@ -377,7 +377,7 @@
     {
       "id": 52,
       "phase": 6,
-      "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema. UPDATED 2026-08-15: web/ now caches database reads for WEB_CACHE_SECONDS (default 15) in web/cache.py. That is only safe BECAUSE nothing writes -- the first write path added to web/ must call web.cache.clear() or the UI will show stale figures for up to 15 seconds after a user's own action."
+      "text": "web/ (FastAPI + Jinja2, ADR-018) renders the delivered design but WRITES NOTHING. Every button is inert by design -- upload, 'Add to recoverable', 'Rule it out', 'Confirm and reconcile', the CSV mapping accept -- because the actions behind them are Phases 6-9. They keep the mockup's appearance rather than being greyed out, so do not read a fully-styled page as a working one. In live mode the agent panel and the Decision Engine verdict are deliberately empty (Phases 8 and 9), and no expense figures exist in any table, so no surplus can ever be computed from the current schema. UPDATED 2026-08-15: web/ now caches database reads for WEB_CACHE_SECONDS (default 15) in web/cache.py. That is only safe BECAUSE nothing writes -- the first write path added to web/ must call web.cache.clear() or the UI will show stale figures for up to 15 seconds after a user's own action. NARROWED 2026-08-19 by ADR-025: web/ now uploads (contracts, invoices and statements, including the ADR-010 column mapping). What it still cannot do is *run* anything \u2014 no Reconcile and no Verify action exists there, so those two remain Streamlit-only."
     },
     {
       "id": 53,
@@ -397,7 +397,7 @@
     {
       "id": 56,
       "phase": 6,
-      "text": "web/ still writes NOTHING after Phase 6 (extends known issue #52). Reconciliation runs from the Streamlit app only -- app/components/reconcile_panel.py. web/'s 'Confirm and reconcile' button remains inert by design (ADR-018) and its tooltips now say where the action actually lives instead of naming a phase. THE FIRST WRITE PATH ADDED TO web/ MUST CALL web.cache.clear(); core.engine.pipeline.compute_run carries that warning in its docstring."
+      "text": "web/ still writes NOTHING after Phase 6 (extends known issue #52). Reconciliation runs from the Streamlit app only -- app/components/reconcile_panel.py. web/'s 'Confirm and reconcile' button remains inert by design (ADR-018) and its tooltips now say where the action actually lives instead of naming a phase. THE FIRST WRITE PATH ADDED TO web/ MUST CALL web.cache.clear(); core.engine.pipeline.compute_run carries that warning in its docstring. NARROWED 2026-08-19 by ADR-025: web/ now uploads (contracts, invoices and statements, including the ADR-010 column mapping). What it still cannot do is *run* anything \u2014 no Reconcile and no Verify action exists there, so those two remain Streamlit-only."
     },
     {
       "id": 57,
@@ -563,6 +563,11 @@
       "id": 89,
       "phase": 11,
       "text": "Phase 11 is HALF done. The base-vs-tuned comparison is measured (docs/phase11_results.md, data/eval/phase11_base_vs_tuned.json); deployment is not. The adapter ibrahim404/finsight-qwen2.5-3b is PRIVATE on HuggingFace and has only ever been served from a Colab tunnel with --lora -- it has NEVER run on Modal, and `modal deploy` has still never been run from this repo (see #67/ADR-023). Discounts (n=1) and milestones (n=1) are unmeasured by the exam and no claim may rest on them."
+    },
+    {
+      "id": 90,
+      "phase": 12,
+      "text": "core/config.py binds `settings = get_settings()` at import, and core/db/database.py and core/storage/files.py do `from core.config import settings`, so a test that monkeypatches DATABASE_URL in the environment silently keeps writing to the REAL Supabase database and Storage bucket. This happened on 2026-08-19: the first draft of tests/test_web_uploads.py created 11 runs and 9 documents in production before the pattern was spotted; they were deleted, objects included. The fixture there now swaps the settings object in every module that holds a reference AND asserts the resolved URL is sqlite before writing a row. Any future test that needs the app's own engine must do the same \u2014 copy that fixture, do not reinvent it."
     }
   ],
   "adrs": [
@@ -663,6 +668,10 @@
     {
       "id": "ADR-024",
       "title": "The Decision Engine asks the user for expenses rather than inventing a surplus"
+    },
+    {
+      "id": "ADR-025",
+      "title": "web/ writes, starting with uploads, over one shared ingest core (partially supersedes ADR-018)"
     }
   ],
   "inference": {
@@ -672,5 +681,5 @@
     "served_from": "Colab primary, Kaggle backup; FastAPI + Cloudflare tunnel",
     "serving_live_from_phase": 5
   },
-  "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct) — SUPERSEDED, see known_issue #33: that directory was gitignored and gone by the time Phase 3 itself ran; Phase 3 rebuilt the real corpus at data/corpus/contracts/ (43 distinct) via data_sourcing/*.py. See progress.md 'Pre-Phase-3 spike' + Phase 3 entry + ADR-013/014."
+  "_spike": "2026-08-10 pre-Phase-3: CUAD/EDGAR viability tested before writing Phase 3. CUAD yields 3 usable contracts of 510; EDGAR yields 11x better. Corpus built at data/corpus/contracts_v0/ (44 distinct) \u2014 SUPERSEDED, see known_issue #33: that directory was gitignored and gone by the time Phase 3 itself ran; Phase 3 rebuilt the real corpus at data/corpus/contracts/ (43 distinct) via data_sourcing/*.py. See progress.md 'Pre-Phase-3 spike' + Phase 3 entry + ADR-013/014."
 }
