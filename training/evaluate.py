@@ -251,8 +251,24 @@ class Scorecard:
         return f"{self.count(attr)}/{self.total} ({self.pct(attr)}%)"
 
 
-def sit(questions: list[Question], model: str, label: str, *, use_cache: bool, verbose: bool) -> Scorecard:
-    """Ask one model every question. `endpoints.set_model` is the one variable."""
+def sit(
+    questions: list[Question],
+    model: str,
+    label: str,
+    *,
+    use_cache: bool,
+    verbose: bool,
+    guard: bool = True,
+) -> Scorecard:
+    """Ask one model every question. `endpoints.set_model` is the one variable.
+
+    The answer is passed through `contract_extractor._ground` before marking, so
+    what is scored is **what the product would actually store** — a quote that is
+    not in the document, and a rate that is not in its quote, never reach a user
+    and so should never reach a scorecard either. `--no-guard` marks the raw
+    model output instead, which is how the 2026-08-19 pre-fix numbers in
+    docs/phase11_results.md were produced.
+    """
     endpoints.set_model(model)
     card = Scorecard(model=model, label=label)
 
@@ -263,6 +279,8 @@ def sit(questions: list[Question], model: str, label: str, *, use_cache: bool, v
             system=prompts.EXTRACTION_SYSTEM,
             use_cache=use_cache,
         )
+        if answer is not None and guard:
+            answer = contract_extractor._ground(answer, question.contract_text)[0]
         result = mark(question, answer, error=None if answer else llm_client.last_error())
         card.marks.append(result)
         if verbose:
@@ -401,6 +419,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int, help="mark only the first N questions (a smoke run)")
     parser.add_argument("--no-cache", action="store_true", help="ignore the disk cache")
     parser.add_argument("--quiet", action="store_true", help="no per-contract line")
+    parser.add_argument(
+        "--no-guard",
+        action="store_true",
+        help="mark RAW model output, skipping the grounding the product applies",
+    )
     parser.add_argument("--out", type=Path, default=OUT_DIR / "phase11_base_vs_tuned.json")
     parser.add_argument(
         "--dry-run",
@@ -445,7 +468,10 @@ def main() -> int:
             if not model:
                 continue
             print(f"\n{label}: {model}")
-            cards.append(sit(questions, model, label, use_cache=not args.no_cache, verbose=not args.quiet))
+            cards.append(
+                sit(questions, model, label, use_cache=not args.no_cache,
+                    verbose=not args.quiet, guard=not args.no_guard)
+            )
     finally:
         # Leave the switcher exactly as it was found. A harness that silently
         # repoints the whole app at whatever it tested last is a trap for the

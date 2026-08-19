@@ -160,6 +160,60 @@ disagreements are reported instead.
 
 ---
 
+## The fix, built and re-measured (2026-08-19)
+
+The guard below was built the same day. `contract_extractor.percentage_in_clause`
+refuses any rate that is not written in the clause it quotes, and refuses zero
+or less outright; `_ground` applies it beside the existing quote check and
+reports rejections in a **fourth** bucket (`bad_figure`) so an invented *rate* is
+never confused with an invented *sentence*. `training/evaluate.py` now marks
+post-grounding output — what the product would really store — with `--no-guard`
+to reproduce the raw numbers above.
+
+Both models were re-marked from cache. No GPU, no new calls, one variable still.
+
+| Out of 20 | base before | **base after** | tuned before | **tuned after** |
+|---|---|---|---|---|
+| Gave a usable answer | 20 | 20 | 20 | 20 |
+| Fee amount right | 13 | 13 | 20 | **20** |
+| Billing rhythm right | 11 | 11 | 18 | **18** |
+| Price rise right | 15 | **17** | 8 | **15** |
+| Found anything at all | 17 | 17 | 20 | **20** |
+| Wrongly claimed a rise | 4 | **2** | 10 | **2** |
+
+**The tuned model's false positives fell 10 → 2, exactly the 8 predicted** (5
+zero-percent, 3 fabricated). The base model's fell 4 → 2, because the guard is
+applied to both — the comparison stays one-variable.
+
+### The result after the fix
+
+| Out of 20 | base | tuned | change |
+|---|---|---|---|
+| Fee amount right | 13 (65%) | **20 (100%)** | **+7** |
+| Billing rhythm right | 11 (55%) | **18 (90%)** | **+7** |
+| Found anything at all | 17 (85%) | **20 (100%)** | **+3** |
+| Price rise right | 17 (85%) | 15 (75%) | −2 |
+| Quotes really in the text | 100% | 100% | 0 |
+
+**The regression narrows from −7 to −2, which is inside the noise band this
+document already declared** ("a swing of one or two questions is noise", stated
+before any number existed). The remaining −2 is the two contracts where the
+tuned model still claims a rise that is not there.
+
+So the honest summary changes: **with the deterministic guard in place,
+fine-tuning is a clear net win** — three large gains, one difference too small to
+call, and quote fidelity untouched at 100% on both sides.
+
+What has **not** changed: the schema still cannot record an inflation-linked
+rise, so Martin Midstream and Poindexter now correctly report *nothing* rather
+than a fabricated 1%. Silence is the safe answer, not the right one. Known issue
+#87 stands, and this fix is a floor rather than a ceiling.
+
+Covered by `tests/test_contract_extractor.py` — 15 assertions, the first tests
+this module has ever had, every fabrication case taken verbatim from the exam.
+
+---
+
 ## The fix this points at
 
 Not "reject 0%" — too narrow. The rule the codebase already applies to
@@ -170,5 +224,5 @@ sentences, applied to figures:
 > does not appear in the document.
 
 Deterministic, no model involved, and it removes 8 of the tuned model's 10 false
-positives (5 zero-percent, 3 fabricated) while leaving Aureus standing. Not yet
-built.
+positives (5 zero-percent, 3 fabricated) while leaving Aureus standing.
+**Built and measured on 2026-08-19 — see the section above.**

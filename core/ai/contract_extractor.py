@@ -93,6 +93,11 @@ class ExtractionReport:
     #: Rules the model returned with no quote at all (a literal "null" in the
     #: string field). Also discarded, but not evidence of fabrication.
     blank: list[str] = field(default_factory=list)
+    #: Rules whose quote IS in the document but whose percentage is not in the
+    #: quote — the model copied a real sentence and invented the rate inside it.
+    #: Kept apart from `dropped` because the two say different things about a
+    #: model, and only this one survives a grounding check (2026-08-19).
+    bad_figure: list[str] = field(default_factory=list)
     grounded: int = 0
     error: str | None = None
 
@@ -193,38 +198,128 @@ def is_verbatim(clause_text: str, document_text: str) -> bool:
     return fuzz.partial_ratio(needle, haystack) >= GROUNDING_THRESHOLD
 
 
+#: Spelled-out forms a contract may use instead of digits. Only the values that
+#: actually turn up in fee language — a percentage above twenty-five is written
+#: in digits in every contract in the corpus.
+_NUMBER_WORDS = {
+    0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+    7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+    15: "fifteen", 18: "eighteen", 20: "twenty", 25: "twenty-five",
+}
+
+
+def percentage_in_clause(percentage: float | None, clause_text: str) -> bool:
+    """Is this percentage actually written in the sentence it was taken from?
+
+    The same reasoning as `is_verbatim`, one level down. That function stops the
+    model inventing a *sentence*; this one stops it inventing the *number* inside
+    a sentence it copied correctly — which is the more dangerous failure, because
+    the quote passes grounding and the figure then reaches the user beside a real
+    highlighted clause and gets multiplied by a real fee.
+
+    Measured on the 20 sealed contracts, 2026-08-19 (docs/phase11_results.md):
+    the tuned adapter claimed 16 escalations where 8 exist. Five of the extras
+    reported a rise of 0.0%; three carried a percentage appearing nowhere in
+    their document at all — "1%" at Martin Midstream and Poindexter, "5%" at
+    InterDent, on contracts whose real clause is inflation-linked and states no
+    rate. A fabricated 1% against Poindexter's $585,000 fee is a confident,
+    traceable-looking finding for money nobody is owed.
+
+    Contracts write the same figure several ways, so all of these count as 3:
+
+        3%   3 %   3.0%   3.00 percent   three percent   three (3) percent
+
+    **Zero or less is refused outright.** A rise of 0% is not a rise; it is the
+    model filling a required field it had no value for.
+
+    Deliberately NOT applied to month counts. "adjusted annually" and "on each
+    anniversary" both mean twelve months without writing "12" anywhere, so the
+    same rule there would discard correct extractions. The percentage is what
+    multiplies money, so the percentage is what earns a hard check.
+    """
+    if percentage is None or percentage <= 0:
+        return False
+    haystack = _flatten(clause_text)
+    if not haystack:
+        return False
+
+    forms = {f"{percentage:g}"}
+    if float(percentage).is_integer():
+        whole = int(percentage)
+        forms.add(f"{whole}.0")
+        forms.add(f"{whole}.00")
+        word = _NUMBER_WORDS.get(whole)
+        if word:
+            forms.add(word)
+            # "twenty-five" is also written "twenty five"
+            forms.add(word.replace("-", " "))
+
+    for form in forms:
+        # The figure must be used AS a percentage, not merely appear. Otherwise
+        # a "$3,000" fee would licence a 3% escalation on the same sentence.
+        pattern = rf"{re.escape(form)}\s*(?:%|per\s*cent|percent)"
+        if re.search(pattern, haystack):
+            return True
+        # "three percent (3%)" and "three (3) percent" put the digits in
+        # brackets between the word and the unit.
+        if re.search(rf"{re.escape(form)}\s*\(\s*[\d.]+\s*\)\s*(?:%|per\s*cent|percent)", haystack):
+            return True
+        if re.search(rf"\(\s*{re.escape(form)}\s*%?\s*\)", haystack):
+            return True
+    return False
+
+
 def _ground(
     rules: ContractRules, document_text: str
-) -> tuple[ContractRules, list[str], int, list[str]]:
-    """Strip every rule whose quote is not in the document.
+) -> tuple[ContractRules, list[str], int, list[str], list[str]]:
+    """Strip every rule whose quote is not in the document, or whose rate is not
+    in its own quote.
 
-    Three outcomes, not two. A rule is kept only when its quote is really in the
-    document; but a rule with *no* quote is discarded as **blank**, separately
-    from one whose quote was invented. Both leave the database equally empty —
-    the distinction is for the eval, where calling an absent quote a
-    hallucination makes the model look worse than it is.
+    Four outcomes, not two.
+
+    * **blank** — the model declined to quote (a literal "null" in the string).
+    * **dropped** — it quoted a sentence that is not in the document. Invented.
+    * **bad_figure** — the sentence is genuine but the percentage is not in it.
+      Added 2026-08-19 after the base-vs-tuned exam; see `percentage_in_clause`.
+    * kept.
+
+    The distinctions are for the eval, where calling an absent quote a
+    hallucination makes the model look worse than it is, and where lumping a
+    fabricated *rate* in with a fabricated *sentence* would hide which of the
+    two a model actually does.
+
+    `grounded` deliberately still counts quotes that are really in the document,
+    whether or not their figure survives. It is a previously reported metric
+    (Phase 5, 80.0%) and quietly redefining it would make old numbers and new
+    ones look comparable when they are not.
     """
     dropped: list[str] = []
     blank: list[str] = []
+    bad_figure: list[str] = []
     grounded = 0
 
-    def verdict(clause_text: str) -> bool:
+    def verdict(clause_text: str, percentage: float | None = None) -> bool:
         """True to keep. Records why, when not."""
         nonlocal grounded
         if is_absent(clause_text):
             blank.append(clause_text)
             return False
-        if is_verbatim(clause_text, document_text):
-            grounded += 1
-            return True
-        dropped.append(clause_text)
-        return False
+        if not is_verbatim(clause_text, document_text):
+            dropped.append(clause_text)
+            return False
+        grounded += 1
+        if percentage is not None and not percentage_in_clause(percentage, clause_text):
+            bad_figure.append(f"{percentage:g}% not in: {clause_text[:120]}")
+            return False
+        return True
 
     escalation: Escalation | None = rules.escalation
-    if escalation is not None and not verdict(escalation.clause_text):
+    if escalation is not None and not verdict(escalation.clause_text, escalation.percentage):
         escalation = None
 
-    discounts = [d for d in rules.discounts if verdict(d.clause_text)]
+    discounts = [d for d in rules.discounts if verdict(d.clause_text, d.percentage)]
+    # Milestones carry an amount, not a rate. Checking a dollar figure against
+    # its own sentence is a separate question and is not attempted here.
     milestones = [m for m in rules.milestones if verdict(m.clause_text)]
 
     return (
@@ -238,6 +333,7 @@ def _ground(
         dropped,
         grounded,
         blank,
+        bad_figure,
     )
 
 
@@ -338,15 +434,18 @@ def extract_rules_verbose(doc: ExtractedDoc, *, max_chunks: int = MAX_CHUNKS) ->
         report.error = "nothing to merge"
         return report
 
-    grounded_rules, dropped, grounded, blank = _ground(merged, doc.full_text)
+    grounded_rules, dropped, grounded, blank, bad_figure = _ground(merged, doc.full_text)
     report.rules = grounded_rules
     report.dropped = dropped
     report.blank = blank
     report.grounded = grounded
+    report.bad_figure = bad_figure
     if dropped:
         log.info("dropped %d ungrounded clause(s) — quotes not present in the document", len(dropped))
     if blank:
         log.info("dropped %d clause(s) the model left unquoted", len(blank))
+    if bad_figure:
+        log.info("dropped %d rule(s) whose rate is not in the clause they quote", len(bad_figure))
     return report
 
 

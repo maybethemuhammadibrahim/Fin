@@ -2196,6 +2196,65 @@ python training/evaluate.py --base Qwen/Qwen2.5-3B-Instruct --tuned finsight-tun
 
 ---
 
+## The invented-rate guard — found by the exam, fixed the same day (2026-08-19)
+
+Appended after the Phase 10 entry above, which listed this as its first known gap.
+
+**What was wrong.** `_ground` checked that a quoted *sentence* was in the
+document — which is why quote fidelity read 100% for both models — but nothing
+checked the *number inside it*. The tuned adapter exploited exactly that gap:
+of its 10 wrongly-claimed price rises, 5 reported a 0.0% rise and 3 carried a
+percentage appearing nowhere in the contract. All 8 passed grounding, so a
+fabricated rate would have reached a user beside a genuine highlighted clause
+and been multiplied by a real fee — $585,000 at Poindexter.
+
+**The fix.** `contract_extractor.percentage_in_clause()`: a rate must be written
+in the clause it quotes, in any form a contract uses (`3%`, `3.0%`,
+`3 per cent`, `three percent`, `three (3) percent`), used *as* a percentage so a
+`$3,000` fee cannot licence a 3% rise off the same sentence. Zero or less is
+refused outright. `_ground` gained a fourth bucket, `bad_figure`, so an invented
+rate is never counted as an invented sentence.
+
+**Deliberately not extended** to month counts ("adjusted annually" means twelve
+months with no digits in the text, so the same rule would discard correct
+answers) or to milestone amounts. The percentage is what multiplies money.
+
+**`grounded` was not redefined** — it still counts quotes really in the document,
+whether or not their figure survives — so Phase 5's 80.0% stays comparable.
+
+**Re-measured from cache, no GPU, one variable:**
+
+| Out of 20 | base before | base after | tuned before | tuned after |
+|---|---|---|---|---|
+| price rise right | 15 | **17** | 8 | **15** |
+| wrongly claimed a rise | 4 | **2** | 10 | **2** |
+
+The regression narrows −7 → −2, inside the noise band declared before any number
+existed. **With the guard in place fine-tuning is a clear net win**: fee amount
++7, billing rhythm +7, found-anything +3, price rise −2, quote fidelity 100% on
+both sides.
+
+`training/evaluate.py` now marks post-grounding output — what the product would
+actually store — with `--no-guard` to reproduce the raw pre-fix numbers.
+
+### Known gaps
+- The schema still cannot record an inflation-linked rise (#87), so the CPI
+  contracts now report *nothing* rather than a wrong number. Safe, not right.
+- A **cap** still passes as if it were a rate: Pinnacle's *"in no event in excess
+  of five percent"* is in the sentence, so the guard cannot tell it from a rate.
+  Reading a number's role is beyond a verbatim check.
+- `tests/test_contract_extractor.py` is the **first test file this module has ever
+  had** — 15 assertions. The grounding logic the product's credibility rests on
+  had zero coverage until today.
+
+### How to verify
+```bash
+pytest tests/test_contract_extractor.py -q          # 15 assertions, no GPU
+python training/evaluate.py --dry-run               # marker self-test, must PASS
+```
+
+---
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
