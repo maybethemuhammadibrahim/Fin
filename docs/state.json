@@ -1,8 +1,8 @@
 {
   "project": "FinSight",
-  "updated": "2026-08-18",
+  "updated": "2026-08-19",
   "phase_0_verified": "2026-08-08: installed in .venv (py3.14.5), all 16 deps import, streamlit app renders with 0 exceptions",
-  "current_phase": 10,
+  "current_phase": 11,
   "llm_provider": "colab_tunnel (self-hosted Qwen 2.5 3B)",
   "_note": "Status only. What was built is docs/progress.md Part 1; why is Part 2. Do not duplicate either here.",
   "phases": [
@@ -107,7 +107,7 @@
     {
       "n": 10,
       "name": "Fine-Tuning",
-      "status": "not_started",
+      "status": "done",
       "work": {
         "A": "build_pairs",
         "B": "Colab QLoRA; adapter into the already-running notebook"
@@ -116,7 +116,7 @@
     {
       "n": 11,
       "name": "Evaluation & Deployment",
-      "status": "not_started",
+      "status": "in_progress",
       "work": {
         "A": "eval harness, base vs tuned",
         "B": "deploy+demo script"
@@ -543,6 +543,26 @@
       "id": 85,
       "phase": 10,
       "text": "scripts/autocorrect_testset.py repairs eval answers BY RULE ONLY, and its first version produced three confident nonsense repairs that were caught by reading each amount in its own sentence: Central Garden's $1,000/month is an AUTOMOBILE ALLOWANCE in an employment agreement, Prestige's $5,000,000 is an INSURANCE LIMIT PER OCCURRENCE, AssetMark's $1 is a peppercorn renewal fee. 'An amount next to a time word' is not 'the contract's fee' -- this is known issue #34's trap for the THIRD time (18% per annum = late payment) and #24's for the second. Fixed with a NOT_A_FEE context filter (insurance/allowance/deposit/penalty/salary/renewable...) applied to a 150-char window around each hit, plus a $100 plausibility floor. Where the rule cannot decide -- competing fees, or none -- the card is marked needs_human and HELD OUT of eval_set.jsonl rather than guessed. FINAL: 22 questions, 0 contradicting their contract; 6 held for a human (ArtistDirect/Genomatica/Intellisync have competing fees; Central Garden/Prestige/AssetMark have no real recurring fee). eval_set.jsonl now records answer_source per row -- 13 model_draft+rule_correction, 6 model_draft, 3 human_edit -- because 'verified_by: human' was hardcoded and became false the moment a rule repaired an answer. The Phase 11 report must quote that split."
+    },
+    {
+      "id": 86,
+      "phase": 10,
+      "text": "The tuned adapter FABRICATES escalation percentages. Measured 2026-08-19 on the 20 sealed contracts: it claimed 16 price rises where 8 exist. Of the 10 false positives, 5 report a 0.0% rise (not a rise at all) and 3 carry a percentage that appears NOWHERE in the document ('1%' at Martin Midstream and Poindexter, '5%' at InterDent). It also does not read a number's ROLE -- it took a 3% FLOOR at Aureus and a 5% CAP at Pinnacle as if both were the rate. Every one of those quotes PASSES the grounding check, so the clause viewer would show a genuine highlighted sentence with an invented percentage beside it and the engine would multiply it by a real fee ($585,000 at Poindexter). A fabricated finding that looks verified is worse than a broken one. FIX, deterministic and NOT BUILT: reject an escalation whose percentage does not appear in the clause it quotes, exactly as contract_extractor.is_verbatim() rejects a quote not in the document. Removes 8 of the 10 false positives and leaves the one correct find standing. The base model showed neither fault."
+    },
+    {
+      "id": 87,
+      "phase": 10,
+      "text": "ContractRules cannot express 'this rule exists but its rate is not a fixed number'. Escalation.percentage and Discount.percentage are required floats, so a reviewer meeting 'rises with CPI' must either invent a number or record the rule as absent. This ONE gap explains BOTH unmarkable eval rows (HIRTLE_CALLAGHAN: a discount equal to '50% of the cost of' another service; StableCoinX: a 'Free Service Period' with no month count -- both written as null, both rows then unparseable) AND the four escalation disagreements in #88. Not six review errors, one schema gap. Candidate for an ADR; the fix touches the engine and has not been scoped."
+    },
+    {
+      "id": 88,
+      "phase": 10,
+      "text": "The sealed eval key UNDER-REPORTS escalations. Four contracts carry a genuine rise clause recorded as absent -- Aureus Greenway ('b. Price Increases: The Monthly Fee shall increase every twelve (12) months by the greater of i) 3% or ii) CPI'), Pinnacle Airlines (annual PPI rise capped at 5%), Martin Midstream (Tank Lease Fee adjusted annually by CPI) and Poindexter (Management Fee adjusted annually by CPI). Read by hand 2026-08-19. The base model hit the same wall: 3 of its 4 false positives are also real clauses the key omits. DELIBERATELY NOT CORRECTED -- re-opening a sealed exam after seeing the scores is how a defensible number becomes indefensible. Consequence: the price-rise column does not measure what it claims to, and must be reported with the decomposition in docs/phase11_results.md, never as a bare 75% -> 40% regression. Root cause is #87."
+    },
+    {
+      "id": 89,
+      "phase": 11,
+      "text": "Phase 11 is HALF done. The base-vs-tuned comparison is measured (docs/phase11_results.md, data/eval/phase11_base_vs_tuned.json); deployment is not. The adapter ibrahim404/finsight-qwen2.5-3b is PRIVATE on HuggingFace and has only ever been served from a Colab tunnel with --lora -- it has NEVER run on Modal, and `modal deploy` has still never been run from this repo (see #67/ADR-023). Discounts (n=1) and milestones (n=1) are unmeasured by the exam and no claim may rest on them."
     }
   ],
   "adrs": [

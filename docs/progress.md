@@ -2116,6 +2116,86 @@ python scripts/run_scenario.py realistic --recompute 13   # undo an agent run
 ```
 
 
+## Phase 10 — Fine-Tuning (QLoRA adapter, trained and measured)
+**Completed:** 2026-08-19 · **Owners:** A / B
+
+### Built by A
+- `training/evaluate.py` — was a one-line stub. The exam harness: reads the sealed
+  eval set, asks each model every question through the app's own v4 prompt, marks
+  six measures, writes `data/eval/phase11_base_vs_tuned.json`. `--dry-run` marks
+  the answer key against itself and must score 100% everywhere, so a marking bug
+  is found without booking a GPU.
+- `docs/phase11_results.md` — the measured base-vs-tuned comparison, with the
+  regression decomposed and the five disputed contracts read by hand.
+
+### Built by B
+- `training/finetune_colab.ipynb` — reviewed against the real data and the real
+  dependency versions before first run; four defects fixed (below). Trained the
+  adapter on a free Colab T4 and pushed it to `ibrahim404/finsight-qwen2.5-3b`.
+- `training/data/eval_set.jsonl` + `data/corpus/heldout/SEALED.json` — committed.
+  `.gitignore` had un-ignored both on purpose since Phase 10 opened, but neither
+  had ever been `git add`ed.
+
+### The notebook review (2026-08-18) — four defects, none found by running it
+1. `SFTConfig(max_seq_length=)` — TRL renamed the field to `max_length`. Verified
+   against trl 0.24.0, the newest unsloth permits; no shim in trl, unsloth or
+   unsloth_zoo. Hard crash *after* the 15-minute install.
+2. `apply_chat_template(..., return_tensors="pt")` returns a dict, not a tensor,
+   on transformers 5.x (`return_dict` now defaults True; unsloth allows <=5.5.0).
+3. `eval_set.jsonl` was never committed, so the clone found nothing and the leak
+   check halted. `SEALED.json` likewise — the proof the exam was sealed fairly did
+   not survive a machine change, which is its only job.
+4. **The notebook trained on a two-line system prompt of its own** while the app
+   sends `prompts.EXTRACTION_SYSTEM` (v4). That tunes an adapter for a prompt
+   production never sends and makes the comparison vary two things, not one. It
+   now loads `core/ai/prompts.py` from the clone and refuses to train without it.
+   `MAX_SEQ_LEN` 2048 -> 4096 followed: with the real prompt, training tops out at
+   1,973 tokens but 6 of the 22 exam prompts reach 2,378, and unsloth caps the
+   session context at that value.
+
+### Measured — 20 sealed contracts, both models, one live T4
+| Out of 20 | base | tuned |
+|---|---|---|
+| usable answer | 20 | 20 |
+| **fee amount right** | 13 | **20** |
+| **billing rhythm right** | 11 | **18** |
+| price rise right | 15 | 8 |
+| **found anything at all** | 17 | **20** |
+| quotes really in the text | 100% | 100% |
+
+Full reading, including the hand-read of the disputed contracts:
+`docs/phase11_results.md`.
+
+### Decisions recorded
+- No new ADR. The schema gap below is a candidate for one and is deliberately not
+  written yet — the fix has not been scoped.
+
+### Known gaps / deliberately deferred
+- **The tuned model fabricates escalation percentages.** 3 of its false positives
+  carry a percentage appearing nowhere in the document, and 5 more report a 0%
+  rise. Every one of those quotes passes the grounding check, so a fabricated rate
+  would reach the user beside a genuine highlighted sentence. The fix is
+  deterministic and not built: reject an escalation whose percentage is not in the
+  clause it quotes, mirroring `is_verbatim()`. Known issue #86.
+- **`ContractRules` cannot express a rule whose rate is not a fixed number.** Both
+  unmarkable eval rows and four escalation disagreements are this one gap, not six
+  review errors. Known issue #87.
+- **The sealed key under-reports escalations** — 4 genuine rise clauses recorded as
+  absent. Not corrected: re-opening a sealed exam after seeing scores is how a
+  defensible number becomes indefensible. Known issue #88.
+- Discounts (n=1) and milestones (n=1) are unmeasured. No claim may rest on them.
+- The adapter is private on HuggingFace and has **never been served from Modal**;
+  only the Colab tunnel has run it. Deployment is Phase 11's remaining half.
+
+### How to verify this phase works
+```bash
+python training/evaluate.py --dry-run      # marker self-test, no GPU: must be PASS
+# with a session serving both models:
+python training/evaluate.py --base Qwen/Qwen2.5-3B-Instruct --tuned finsight-tuned
+```
+
+---
+
 # PART 2 — ARCHITECTURE DECISION RECORDS
 
 > **Never delete an ADR.** If we change our minds, add a new one and mark the old one
